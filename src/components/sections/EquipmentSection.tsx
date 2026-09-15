@@ -1,31 +1,42 @@
 export default function EquipmentSection() {
   const equipment = [
-    { category: 'Cameras', items: ['Sony FX30 (4K Cinema)', 'Sony A7IV (4K Mirrorless)', 'GoPro Hero 12 (B-Cam)'] },
-    { category: 'Audio', items: ['Shure SM7B (Host)', 'Shure SM7B (Guest)', 'RØDECaster Pro II (Mixing)', 'Sennheiser e904 (Instrument)'] },
-    { category: 'Lighting', items: ['Nanlite Forza 60', 'Aputure MC4s', 'Neewer Ring Light Kit'] },
-    { category: 'Backdrop', items: ['Professional Green Screen', 'Custom Studio Backdrop', 'Window Backdrop'] },
+    {
+      category: 'Cameras',
+      items: ['Sony FX30 (4K Cinema)', 'Sony A7IV (4K Mirrorless)', 'GoPro Hero 12 (B-Cam)']
+    },
+    {
+      category: 'Audio',
+      items: ['Shure SM7B (Host)', 'Shure SM7B (Guest)', 'RØDECaster Pro II', 'Sennheiser e904']
+    },
+    {
+      category: 'Lighting',
+      items: ['Nanlite Forza 60', 'Aputure MC4s', 'Neewer Ring Light Kit']
+    },
+    {
+      category: 'Backdrop',
+      items: ['Professional Green Screen', 'Custom Studio Backdrop', 'Window Backdrop']
+    },
   ];
 
   return (
-    <section className="py-16 md:py-24 bg-white">
-      <div className="container">
-        <div className="text-center mb-12">
-          <h2 className="text-4xl md:text-5xl font-bold mb-4">
-            Professional Equipment
-          </h2>
-          <p className="text-xl text-zayro-gray max-w-2xl mx-auto">
-            Industry-standard gear for broadcast-quality production
-          </p>
-        </div>
+    <section className="section-padding bg-white">
+      <div className="container max-w-5xl">
+        <h2 className="text-5xl md:text-7xl font-black mb-4 text-zayro-dark">
+          PROFESSIONAL<br/>EQUIPMENT
+        </h2>
+        <p className="text-xl text-zayro-gray font-light mb-16 max-w-2xl">
+          Industry-standard gear for broadcast-quality production.
+        </p>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+        {/* Equipment in editorial grid, not cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
           {equipment.map((group, idx) => (
-            <div key={idx} className="card">
-              <h3 className="text-lg font-semibold mb-4 text-zayro-primary">{group.category}</h3>
-              <ul className="space-y-2">
+            <div key={idx} className="border-l-2 border-zayro-primary pl-6">
+              <h3 className="text-2xl font-black text-zayro-dark mb-6">{group.category}</h3>
+              <ul className="space-y-3">
                 {group.items.map((item, aidx) => (
-                  <li key={aidx} className="text-zayro-gray text-sm">
-                    • {item}
+                  <li key={aidx} className="text-zayro-gray leading-relaxed">
+                    {item}
                   </li>
                 ))}
               </ul>

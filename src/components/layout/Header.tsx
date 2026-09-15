@@ -9,52 +9,52 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-50 bg-white border-b border-zayro-bg">
       <div className="container">
-        <div className="flex items-center justify-between py-4">
+        <div className="flex items-center justify-between py-6 md:py-4">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-1">
-            <span className="text-2xl font-bold text-zayro-dark">
+          <Link href="/" className="flex items-center gap-0">
+            <span className="text-2xl font-black text-zayro-dark">
               ZAYRO
             </span>
-            <span className="text-sm font-semibold text-zayro-primary">
+            <span className="text-xs font-bold text-zayro-primary ml-2">
               STUDIOS
             </span>
           </Link>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center gap-8">
+          <nav className="hidden md:flex items-center gap-12">
             <Link
               href="/studio"
-              className="text-zayro-dark hover:text-zayro-primary transition-colors"
+              className="text-sm font-medium text-zayro-dark hover:text-zayro-primary transition-colors"
             >
-              Studio
+              STUDIO
             </Link>
             <Link
               href="/pricing"
-              className="text-zayro-dark hover:text-zayro-primary transition-colors"
+              className="text-sm font-medium text-zayro-dark hover:text-zayro-primary transition-colors"
             >
-              Pricing
+              PRICING
             </Link>
             <Link
               href="/about"
-              className="text-zayro-dark hover:text-zayro-primary transition-colors"
+              className="text-sm font-medium text-zayro-dark hover:text-zayro-primary transition-colors"
             >
-              About
+              ABOUT
             </Link>
             <Link
               href="/contact"
-              className="text-zayro-dark hover:text-zayro-primary transition-colors"
+              className="text-sm font-medium text-zayro-dark hover:text-zayro-primary transition-colors"
             >
-              Contact
+              CONTACT
             </Link>
           </nav>
 
           {/* CTA Button */}
-          <div className="hidden md:flex items-center gap-4">
+          <div className="hidden md:block">
             <Link
               href="/booking"
-              className="button button-primary"
+              className="button button-primary text-sm px-6 py-2"
             >
-              Book Studio
+              BOOK STUDIO
             </Link>
           </div>
 
@@ -82,42 +82,42 @@ export default function Header() {
 
         {/* Mobile Navigation */}
         {isMenuOpen && (
-          <nav className="md:hidden pb-4 border-t border-zayro-bg">
+          <nav className="md:hidden pb-6 border-t border-zayro-bg">
             <div className="flex flex-col gap-4 pt-4">
               <Link
                 href="/studio"
-                className="text-zayro-dark hover:text-zayro-primary transition-colors"
+                className="text-sm font-medium text-zayro-dark hover:text-zayro-primary transition-colors"
                 onClick={() => setIsMenuOpen(false)}
               >
-                Studio
+                STUDIO
               </Link>
               <Link
                 href="/pricing"
-                className="text-zayro-dark hover:text-zayro-primary transition-colors"
+                className="text-sm font-medium text-zayro-dark hover:text-zayro-primary transition-colors"
                 onClick={() => setIsMenuOpen(false)}
               >
-                Pricing
+                PRICING
               </Link>
               <Link
                 href="/about"
-                className="text-zayro-dark hover:text-zayro-primary transition-colors"
+                className="text-sm font-medium text-zayro-dark hover:text-zayro-primary transition-colors"
                 onClick={() => setIsMenuOpen(false)}
               >
-                About
+                ABOUT
               </Link>
               <Link
                 href="/contact"
-                className="text-zayro-dark hover:text-zayro-primary transition-colors"
+                className="text-sm font-medium text-zayro-dark hover:text-zayro-primary transition-colors"
                 onClick={() => setIsMenuOpen(false)}
               >
-                Contact
+                CONTACT
               </Link>
               <Link
                 href="/booking"
-                className="button button-primary w-full justify-center"
+                className="button button-primary w-full justify-center text-sm"
                 onClick={() => setIsMenuOpen(false)}
               >
-                Book Studio
+                BOOK STUDIO
               </Link>
             </div>
           </nav>

@@ -5,81 +5,82 @@ export default function PricingSection() {
     {
       name: 'Single Hour',
       price: '$200',
-      description: 'Perfect for podcast episodes or short video content',
-      features: ['4K Video', 'Professional Audio', 'Editing Included', '1 hour'],
-      popular: false,
+      duration: '1 hour',
+      features: ['4K Video', 'Professional Audio', 'Editing Included'],
     },
     {
       name: 'Half Day',
       price: '$500',
-      description: 'Ideal for multi-guest recordings or video production',
-      features: ['4K Multi-Camera', 'Professional Audio', 'Advanced Editing', '4 hours', 'Expert Support'],
+      duration: '4 hours',
+      features: ['4K Multi-Camera', 'Professional Audio', 'Advanced Editing', 'Expert Support'],
       popular: true,
     },
     {
       name: 'Full Day',
       price: '$900',
-      description: 'Best for comprehensive production projects',
-      features: ['4K Multi-Camera', 'Professional Audio', 'Full Editing Suite', '8 hours', 'Expert Support', 'Same-Day Delivery'],
-      popular: false,
+      duration: '8 hours',
+      features: ['4K Multi-Camera', 'Professional Audio', 'Full Editing Suite', 'Expert Support', 'Same-Day Delivery'],
     },
   ];
 
   return (
-    <section className="py-16 md:py-24 bg-zayro-bg">
-      <div className="container">
-        <div className="text-center mb-12">
-          <h2 className="text-4xl md:text-5xl font-bold mb-4">
-            Simple & Transparent Pricing
-          </h2>
-          <p className="text-xl text-zayro-gray max-w-2xl mx-auto">
-            All prices include professional editing and delivery
-          </p>
-        </div>
+    <section className="section-padding bg-zayro-bg">
+      <div className="container max-w-5xl">
+        <h2 className="text-5xl md:text-7xl font-black mb-4 text-zayro-dark">
+          PRICING
+        </h2>
+        <p className="text-xl text-zayro-gray font-light mb-16 max-w-xl">
+          Simple and transparent. All packages include professional editing and delivery.
+        </p>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {/* Editorial pricing layout */}
+        <div className="space-y-12">
           {packages.map((pkg, idx) => (
-            <div
-              key={idx}
-              className={`card transition-all duration-300 ${
-                pkg.popular ? 'ring-2 ring-zayro-primary scale-105 md:scale-100' : ''
-              }`}
-            >
-              {pkg.popular && (
-                <div className="mb-4 inline-block bg-zayro-primary text-white px-3 py-1 rounded text-xs font-semibold">
-                  Most Popular
+            <div key={idx} className={`border-b border-zayro-gray pb-12 ${pkg.popular ? 'bg-white p-8 rounded-sm border border-zayro-gray' : ''}`}>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-start">
+                {/* Package name and duration */}
+                <div>
+                  <h3 className="text-3xl md:text-4xl font-black text-zayro-dark mb-2">
+                    {pkg.name}
+                  </h3>
+                  <p className="text-lg text-zayro-gray">{pkg.duration}</p>
                 </div>
-              )}
 
-              <h3 className="text-2xl font-bold mb-2">{pkg.name}</h3>
-              <div className="mb-2 text-zayro-gray">{pkg.description}</div>
+                {/* Price prominently displayed */}
+                <div>
+                  <p className="text-5xl md:text-6xl font-black text-zayro-primary mb-4">
+                    {pkg.price}
+                  </p>
+                  {pkg.popular && (
+                    <span className="text-sm font-semibold text-zayro-primary">MOST POPULAR</span>
+                  )}
+                </div>
 
-              <div className="mb-6">
-                <span className="text-4xl font-bold text-zayro-primary">{pkg.price}</span>
+                {/* Features and CTA */}
+                <div>
+                  <ul className="space-y-2 mb-6">
+                    {pkg.features.map((feature, fidx) => (
+                      <li key={fidx} className="text-zayro-gray">
+                        ✓ {feature}
+                      </li>
+                    ))}
+                  </ul>
+                  <Link
+                    href="/booking"
+                    className={`inline-block button ${
+                      pkg.popular ? 'button-primary' : 'button-secondary'
+                    }`}
+                  >
+                    BOOK NOW
+                  </Link>
+                </div>
               </div>
-
-              <ul className="space-y-3 mb-8">
-                {pkg.features.map((feature, fidx) => (
-                  <li key={fidx} className="flex items-center gap-2 text-zayro-gray">
-                    <span className="text-zayro-primary">✓</span>
-                    {feature}
-                  </li>
-                ))}
-              </ul>
-
-              <Link
-                href="/booking"
-                className={`button w-full justify-center ${
-                  pkg.popular ? 'button-primary' : 'button-secondary'
-                }`}
-              >
-                Book Now
-              </Link>
             </div>
           ))}
         </div>
 
-        <div className="text-center mt-12">
+        {/* Custom pricing note */}
+        <div className="mt-16 text-center">
           <p className="text-zayro-gray">
             Need custom pricing or bulk bookings?{' '}
             <Link href="/contact" className="text-zayro-primary font-semibold hover:underline">

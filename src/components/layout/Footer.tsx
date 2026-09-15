@@ -6,37 +6,37 @@ export default function Footer() {
 
   return (
     <footer className="bg-zayro-dark text-white">
-      <div className="container py-12 md:py-16">
-        {/* Footer Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-12 md:mb-16">
+      <div className="container py-16 md:py-24">
+        {/* Main Footer Content */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-16 md:mb-24">
           {/* Brand */}
           <div>
-            <div className="mb-4">
-              <span className="text-xl font-bold">ZAYRO</span>
-              <span className="text-sm font-semibold text-zayro-primary ml-2">STUDIOS</span>
+            <div className="mb-6">
+              <span className="text-2xl font-black">ZAYRO</span>
+              <span className="text-xs font-bold text-zayro-primary ml-2">STUDIOS</span>
             </div>
-            <p className="text-sm text-gray-400">
-              Premium podcast and video studio in Midtown Manhattan.
+            <p className="text-sm text-gray-400 leading-relaxed">
+              Professional podcast and video studio in Midtown Manhattan, New York.
             </p>
           </div>
 
           {/* Quick Links */}
           <div>
-            <h4 className="font-semibold mb-4">Studio</h4>
-            <ul className="space-y-2 text-sm">
+            <h4 className="font-bold text-sm mb-6 text-white">STUDIO</h4>
+            <ul className="space-y-3 text-sm">
               <li>
-                <Link href="/studio" className="text-gray-400 hover:text-white">
+                <Link href="/studio" className="text-gray-400 hover:text-white transition-colors">
                   Tour
                 </Link>
               </li>
               <li>
-                <Link href="/pricing" className="text-gray-400 hover:text-white">
+                <Link href="/pricing" className="text-gray-400 hover:text-white transition-colors">
                   Pricing
                 </Link>
               </li>
               <li>
-                <Link href="/equipment" className="text-gray-400 hover:text-white">
-                  Equipment
+                <Link href="/booking" className="text-gray-400 hover:text-white transition-colors">
+                  Book
                 </Link>
               </li>
             </ul>
@@ -44,56 +44,58 @@ export default function Footer() {
 
           {/* Resources */}
           <div>
-            <h4 className="font-semibold mb-4">Resources</h4>
-            <ul className="space-y-2 text-sm">
+            <h4 className="font-bold text-sm mb-6 text-white">INFO</h4>
+            <ul className="space-y-3 text-sm">
               <li>
-                <Link href="/faq" className="text-gray-400 hover:text-white">
+                <Link href="/faq" className="text-gray-400 hover:text-white transition-colors">
                   FAQ
                 </Link>
               </li>
               <li>
-                <Link href="/about" className="text-gray-400 hover:text-white">
+                <Link href="/about" className="text-gray-400 hover:text-white transition-colors">
                   About
                 </Link>
               </li>
               <li>
-                <Link href="/contact" className="text-gray-400 hover:text-white">
+                <Link href="/contact" className="text-gray-400 hover:text-white transition-colors">
                   Contact
                 </Link>
               </li>
             </ul>
           </div>
 
-          {/* Contact Info */}
+          {/* Contact */}
           <div>
-            <h4 className="font-semibold mb-4">Contact</h4>
-            <ul className="space-y-2 text-sm">
+            <h4 className="font-bold text-sm mb-6 text-white">CONTACT</h4>
+            <ul className="space-y-3 text-sm">
               <li>
-                <a href={`mailto:${BUSINESS_EMAIL}`} className="text-gray-400 hover:text-white">
+                <a href={`mailto:${BUSINESS_EMAIL}`} className="text-gray-400 hover:text-white transition-colors">
                   {BUSINESS_EMAIL}
                 </a>
               </li>
               <li>
-                <a href={`tel:${BUSINESS_PHONE}`} className="text-gray-400 hover:text-white">
+                <a href={`tel:${BUSINESS_PHONE}`} className="text-gray-400 hover:text-white transition-colors">
                   {BUSINESS_PHONE}
                 </a>
               </li>
-              <li className="text-gray-400">{BUSINESS_ADDRESS}</li>
+              <li className="text-gray-400 text-xs leading-relaxed pt-2">
+                {BUSINESS_ADDRESS}
+              </li>
             </ul>
           </div>
         </div>
 
         {/* Divider */}
-        <div className="border-t border-gray-700"></div>
+        <div className="border-t border-gray-700 pt-8"></div>
 
         {/* Bottom Section */}
-        <div className="pt-8 flex flex-col md:flex-row justify-between items-center text-sm text-gray-400">
+        <div className="flex flex-col md:flex-row justify-between items-center text-xs text-gray-500 gap-8">
           <p>&copy; {currentYear} ZAYRO Studios. All rights reserved.</p>
-          <div className="flex gap-6 mt-4 md:mt-0">
-            <Link href="/privacy" className="hover:text-white">
+          <div className="flex gap-6">
+            <Link href="/privacy" className="hover:text-white transition-colors">
               Privacy Policy
             </Link>
-            <Link href="/terms" className="hover:text-white">
+            <Link href="/terms" className="hover:text-white transition-colors">
               Terms of Service
             </Link>
           </div>

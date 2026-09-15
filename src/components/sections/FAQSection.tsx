@@ -39,26 +39,24 @@ export default function FAQSection() {
   ];
 
   return (
-    <section className="py-16 md:py-24 bg-white">
-      <div className="container">
-        <div className="text-center mb-12">
-          <h2 className="text-4xl md:text-5xl font-bold mb-4">
-            Frequently Asked Questions
-          </h2>
-          <p className="text-xl text-zayro-gray max-w-2xl mx-auto">
-            Everything you need to know about booking and using ZAYRO Studios
-          </p>
-        </div>
+    <section className="section-padding bg-zayro-bg">
+      <div className="container max-w-4xl">
+        <h2 className="text-5xl md:text-7xl font-black mb-4 text-zayro-dark">
+          QUESTIONS?
+        </h2>
+        <p className="text-xl text-zayro-gray font-light mb-16">
+          Everything you need to know about booking and using ZAYRO Studios.
+        </p>
 
-        <div className="max-w-3xl mx-auto space-y-4">
+        <div className="space-y-0">
           {faqs.map((faq, idx) => (
             <div
               key={idx}
-              className="card cursor-pointer hover:border-zayro-primary transition-colors"
+              className="border-b border-zayro-gray py-6 cursor-pointer group"
               onClick={() => setOpenIndex(openIndex === idx ? null : idx)}
             >
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-zayro-dark pr-4">
+              <div className="flex items-start justify-between gap-6">
+                <h3 className="text-lg md:text-xl font-semibold text-zayro-dark flex-1 group-hover:text-zayro-primary transition-colors">
                   {faq.question}
                 </h3>
                 <span className={`text-2xl text-zayro-primary flex-shrink-0 transition-transform ${openIndex === idx ? 'rotate-180' : ''}`}>
@@ -67,7 +65,7 @@ export default function FAQSection() {
               </div>
 
               {openIndex === idx && (
-                <p className="mt-4 text-zayro-gray leading-relaxed border-t border-zayro-bg pt-4">
+                <p className="mt-6 text-zayro-gray leading-relaxed font-light">
                   {faq.answer}
                 </p>
               )}
@@ -75,9 +73,9 @@ export default function FAQSection() {
           ))}
         </div>
 
-        <div className="text-center mt-12">
-          <p className="text-zayro-gray">
-            Have more questions?{' '}
+        <div className="mt-12 text-center">
+          <p className="text-zayro-gray font-light">
+            More questions?{' '}
             <a href="mailto:hello@zayro.studio" className="text-zayro-primary font-semibold hover:underline">
               Email us
             </a>
