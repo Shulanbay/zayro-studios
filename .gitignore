@@ -56,3 +56,6 @@ Thumbs.db
 drizzle/
 *.db
 *.sqlite
+
+# TypeScript
+*.tsbuildinfo
