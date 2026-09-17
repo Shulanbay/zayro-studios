@@ -12,8 +12,14 @@ export async function GET() {
     });
 
     return NextResponse.json(allServices);
-  } catch (error) {
-    console.error('Error fetching services:', error);
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    const errorCode = error?.code || 'UNKNOWN';
+    console.error('Services API Error:', {
+      message: errorMessage,
+      code: errorCode,
+      type: error?.constructor?.name,
+    });
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
