@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
@@ -12,7 +12,7 @@ interface HoldStatus {
   status?: string;
 }
 
-export default function CancelPage() {
+function CancelContent() {
   const searchParams = useSearchParams();
   const holdId = searchParams.get('hold_id');
 
@@ -125,5 +125,13 @@ export default function CancelPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function CancelPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+      <CancelContent />
+    </Suspense>
   );
 }
