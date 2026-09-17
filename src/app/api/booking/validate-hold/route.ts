@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { temporaryHolds } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
