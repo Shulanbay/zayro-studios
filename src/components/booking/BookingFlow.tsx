@@ -100,6 +100,7 @@ export default function BookingFlow() {
   }, []);
 
   const selectService = (service: any) => {
+    // Display service price as placeholder; will be recalculated server-side
     setState((s) => ({
       ...s,
       selectedService: service,
@@ -184,38 +185,82 @@ export default function BookingFlow() {
   };
 
   const proceedToPayment = async () => {
-    // Validate hold is still valid
-    const validateResponse = await fetch('/api/booking/validate-hold', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hold_id: state.holdId }),
-    });
+    setState((s) => ({ ...s, loading: true, error: null }));
 
-    const validation = await validateResponse.json();
-    if (!validation.valid) {
+    try {
+      // Validate hold is still valid
+      const validateResponse = await fetch('/api/booking/validate-hold', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hold_id: state.holdId }),
+      });
+
+      const validation = await validateResponse.json();
+      if (!validation.valid) {
+        setState((s) => ({
+          ...s,
+          loading: false,
+          error: 'Your booking hold has expired. Please select a new time slot.',
+          step: 3,
+        }));
+        return;
+      }
+
+      // Create Stripe checkout session
+      const checkoutResponse = await fetch('/api/payment/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          holdId: state.holdId,
+          firstName: state.customerInfo.firstName,
+          lastName: state.customerInfo.lastName,
+          email: state.customerInfo.email,
+          phone: state.customerInfo.phone,
+          company: state.customerInfo.company,
+          notes: state.customerInfo.notes,
+        }),
+      });
+
+      if (!checkoutResponse.ok) {
+        const error = await checkoutResponse.json();
+        throw new Error(error.error || 'Failed to create payment session');
+      }
+
+      const checkoutData = await checkoutResponse.json();
+
+      // Update pricing from server response (DO NOT trust browser-calculated price)
+      // Store the session info in state for the next step
       setState((s) => ({
         ...s,
-        error: 'Your booking hold has expired. Please select a new time slot.',
-        step: 3,
+        totalAmount: parseFloat(checkoutData.pricing.subtotal),
+        taxAmount: parseFloat(checkoutData.pricing.taxAmount),
+        loading: false,
+        step: 7, // Show summary with server-calculated pricing
       }));
-      return;
+
+      // Store checkout URL and session ID for the next step
+      sessionStorage.setItem('stripeCheckoutUrl', checkoutData.checkoutUrl);
+      sessionStorage.setItem('checkoutSessionId', checkoutData.sessionId);
+    } catch (error: any) {
+      setState((s) => ({
+        ...s,
+        loading: false,
+        error: error.message || 'Failed to proceed to payment',
+      }));
     }
+  };
 
-    // Store booking data and proceed to payment
-    sessionStorage.setItem('bookingData', JSON.stringify({
-      holdId: state.holdId,
-      serviceId: state.selectedService.id,
-      bookingDate: state.selectedDate,
-      startTime: state.selectedTime,
-      duration: state.duration,
-      customerInfo: state.customerInfo,
-      totalAmount: state.totalAmount,
-      taxAmount: state.taxAmount,
-    }));
-
-    // In Phase 3, this will redirect to Stripe checkout
-    // For now, just proceed to summary
-    setState((s) => ({ ...s, step: 7 }));
+  const proceedToStripe = () => {
+    const checkoutUrl = sessionStorage.getItem('stripeCheckoutUrl');
+    if (checkoutUrl) {
+      window.location.href = checkoutUrl;
+    } else {
+      setState((s) => ({
+        ...s,
+        error: 'Payment session lost. Please try again.',
+        step: 5,
+      }));
+    }
   };
 
   // Step 1: Service Selection
@@ -388,6 +433,8 @@ export default function BookingFlow() {
 
   // Step 5-6: Summary / Step 7: Payment Handoff
   if (state.step === 5 || state.step === 6 || state.step === 7) {
+    const hasCheckoutUrl = typeof window !== 'undefined' && sessionStorage.getItem('stripeCheckoutUrl');
+
     return (
       <div className="container py-16 md:py-32">
         <button
@@ -454,12 +501,35 @@ export default function BookingFlow() {
               <span>Total</span>
               <span className="text-zayro-primary">${(state.totalAmount + state.taxAmount).toFixed(2)}</span>
             </div>
-            <button
-              onClick={proceedToPayment}
-              className="button button-primary w-full py-4 text-lg"
-            >
-              CONTINUE TO PAYMENT →
-            </button>
+
+            {!hasCheckoutUrl ? (
+              <button
+                onClick={proceedToPayment}
+                disabled={state.loading}
+                className="button button-primary w-full py-4 text-lg disabled:opacity-50"
+              >
+                {state.loading ? 'Processing...' : 'CONTINUE TO PAYMENT →'}
+              </button>
+            ) : (
+              <button
+                onClick={proceedToStripe}
+                disabled={state.loading}
+                className="button button-primary w-full py-4 text-lg disabled:opacity-50"
+              >
+                {state.loading ? 'Processing...' : 'SECURE CHECKOUT →'}
+              </button>
+            )}
+
+            {state.error && (
+              <p className="text-red-600 text-sm mt-4">{state.error}</p>
+            )}
+          </div>
+        </div>
+
+        <div className="max-w-3xl mb-16">
+          <div className="bg-blue-50 border border-blue-200 p-6 text-sm text-blue-900">
+            <p className="font-bold mb-2">🔒 Secure Payment</p>
+            <p>Payment is processed securely by Stripe. Your booking total will be confirmed before you're charged.</p>
           </div>
         </div>
 

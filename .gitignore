@@ -59,3 +59,4 @@ drizzle/
 
 # TypeScript
 *.tsbuildinfo
+.env*
