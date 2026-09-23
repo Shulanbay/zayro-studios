@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { isValidEmail, isValidPhone, generateBookingId } from './utils';
+import { isValidEmail, isValidPhone, generateBookingId, getBaseUrl } from './utils';
+import type { NextRequest } from 'next/server';
 
 describe('isValidEmail', () => {
   it('accepts well-formed addresses', () => {
@@ -35,5 +36,19 @@ describe('generateBookingId', () => {
     const b = generateBookingId();
     expect(a).toMatch(/^ZAY-[A-Z0-9]{12}$/);
     expect(a).not.toBe(b);
+  });
+});
+
+describe('getBaseUrl', () => {
+  it('uses the request origin when available (correct on prod, previews, and localhost alike)', () => {
+    const fakeRequest = { nextUrl: { origin: 'https://zayro.studio' } } as unknown as NextRequest;
+    expect(getBaseUrl(fakeRequest)).toBe('https://zayro.studio');
+  });
+
+  it('falls back to NEXTAUTH_URL when no request is given', () => {
+    const original = process.env.NEXTAUTH_URL;
+    process.env.NEXTAUTH_URL = 'https://example.test';
+    expect(getBaseUrl()).toBe('https://example.test');
+    process.env.NEXTAUTH_URL = original;
   });
 });

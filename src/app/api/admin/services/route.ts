@@ -50,11 +50,34 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { id, is_active } = await request.json();
-  if (!id || typeof is_active !== 'boolean') {
-    return NextResponse.json({ error: 'Missing id or is_active' }, { status: 400 });
+  const { id, is_active, base_price, duration_minutes, name, description } = await request.json();
+  if (!id) {
+    return NextResponse.json({ error: 'Missing id' }, { status: 400 });
   }
 
-  await db.update(services).set({ is_active, updated_at: new Date() }).where(eq(services.id, id));
+  const updates: Record<string, unknown> = { updated_at: new Date() };
+
+  if (typeof is_active === 'boolean') updates.is_active = is_active;
+
+  if (base_price !== undefined) {
+    const price = parseFloat(base_price);
+    if (isNaN(price) || price < 0) {
+      return NextResponse.json({ error: 'Invalid base_price' }, { status: 400 });
+    }
+    updates.base_price = price.toFixed(2);
+  }
+
+  if (duration_minutes !== undefined) {
+    const duration = parseInt(duration_minutes, 10);
+    if (isNaN(duration) || duration <= 0) {
+      return NextResponse.json({ error: 'Invalid duration_minutes' }, { status: 400 });
+    }
+    updates.duration_minutes = duration;
+  }
+
+  if (typeof name === 'string' && name.trim()) updates.name = name.trim();
+  if (typeof description === 'string') updates.description = description;
+
+  await db.update(services).set(updates).where(eq(services.id, id));
   return NextResponse.json({ success: true });
 }
