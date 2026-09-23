@@ -1,9 +1,17 @@
 // Brand & Business Info
-export const BUSINESS_NAME = 'ZAYRO Studios';
-export const BUSINESS_ADDRESS = '40 W 37th St, Suite 603, New York, NY 10018';
-export const BUSINESS_PHONE = '+1-XXX-XXX-XXXX'; // Update with actual number
-export const BUSINESS_EMAIL = 'hello@zayro.studio';
-export const OWNER_EMAIL = 'owner@zayro.studio';
+// These read from env vars set in Vercel/business settings so the owner can
+// update them without a code change. Fall back to sensible defaults for
+// local dev.
+export const BUSINESS_NAME = process.env.BUSINESS_NAME || 'ZAYRO Studios';
+export const BUSINESS_ADDRESS = process.env.BUSINESS_ADDRESS || '40 W 37th St, Suite 603, New York, NY 10018';
+export const BUSINESS_EMAIL = process.env.BUSINESS_EMAIL || 'hello@zayro.studio';
+export const OWNER_EMAIL = process.env.OWNER_EMAIL || 'owner@zayro.studio';
+
+const rawPhone = process.env.BUSINESS_PHONE || '';
+// A phone number hasn't actually been provided yet if it's empty or still
+// the placeholder from .env.example. Callers should check BUSINESS_PHONE
+// before rendering a phone number / tel: link, and hide that UI otherwise.
+export const BUSINESS_PHONE: string | null = rawPhone && !/X{2,}/i.test(rawPhone) ? rawPhone : null;
 
 // Colors
 export const COLORS = {

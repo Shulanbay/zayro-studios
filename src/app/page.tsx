@@ -90,17 +90,20 @@ export default function Home() {
                 <Link href="/booking" className="button button-primary">
                   BOOK STUDIO
                 </Link>
-                <Link href="/studio-tour" className="button button-secondary">
+                <Link href="/studio" className="button button-secondary">
                   STUDIO TOUR
                 </Link>
               </div>
             </div>
 
-            <div className="aspect-square bg-gradient-to-br from-zayro-primary to-zayro-dark rounded-sm flex items-center justify-center">
-              <div className="text-center text-white">
-                <p className="text-lg font-semibold">NYC Map</p>
-                <p className="text-sm text-blue-200 mt-2">(Coming soon)</p>
-              </div>
+            <div className="aspect-square rounded-sm overflow-hidden border border-zayro-bg">
+              <iframe
+                title="ZAYRO Studios location map"
+                src={`https://www.google.com/maps?q=${encodeURIComponent(BUSINESS_ADDRESS)}&output=embed`}
+                className="w-full h-full"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
             </div>
           </div>
         </div>

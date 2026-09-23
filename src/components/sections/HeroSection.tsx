@@ -32,12 +32,14 @@ export default function HeroSection() {
           </div>
         </div>
 
-        {/* Hero Image */}
-        <div className="aspect-video bg-gradient-to-br from-zayro-primary via-blue-500 to-zayro-dark rounded-sm overflow-hidden flex items-center justify-center text-white">
-          <div className="text-center">
-            <div className="text-7xl mb-4">🎬</div>
-            <p className="text-xl font-semibold">Studio Photography</p>
-            <p className="text-sm text-blue-200 mt-2">(Professional photos coming)</p>
+        {/* Hero visual */}
+        <div className="aspect-video bg-gradient-to-br from-zayro-primary via-blue-500 to-zayro-dark rounded-sm overflow-hidden flex items-center justify-center text-white relative">
+          <div className="absolute inset-0 opacity-10" style={{
+            backgroundImage: 'repeating-linear-gradient(45deg, white 0, white 1px, transparent 0, transparent 12px)',
+          }} />
+          <div className="text-center relative">
+            <div className="text-2xl md:text-4xl font-black tracking-[0.3em]">ZAYRO</div>
+            <div className="text-xs md:text-sm font-bold tracking-[0.5em] text-blue-200 mt-2">STUDIOS</div>
           </div>
         </div>
       </div>

@@ -73,11 +73,13 @@ export default function Footer() {
                   {BUSINESS_EMAIL}
                 </a>
               </li>
-              <li>
-                <a href={`tel:${BUSINESS_PHONE}`} className="text-gray-400 hover:text-white transition-colors">
-                  {BUSINESS_PHONE}
-                </a>
-              </li>
+              {BUSINESS_PHONE && (
+                <li>
+                  <a href={`tel:${BUSINESS_PHONE}`} className="text-gray-400 hover:text-white transition-colors">
+                    {BUSINESS_PHONE}
+                  </a>
+                </li>
+              )}
               <li className="text-gray-400 text-xs leading-relaxed pt-2">
                 {BUSINESS_ADDRESS}
               </li>
