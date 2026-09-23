@@ -7,7 +7,7 @@ import {
   customers,
   integrationLogs,
 } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { calculatePricing } from '@/lib/pricing';
 import { generateBookingId, isValidEmail, isValidPhone, toDateOnly } from '@/lib/utils';
 import { runPostConfirmationSideEffects } from '@/lib/postConfirmation';
@@ -146,10 +146,10 @@ export async function POST(request: NextRequest) {
       const updatedHolds = await tx
         .update(temporaryHolds)
         .set({ status: 'converted_to_booking' })
-        .where(eq(temporaryHolds.id, holdId))
+        .where(and(eq(temporaryHolds.id, holdId), eq(temporaryHolds.status, 'active')))
         .returning();
 
-      if (updatedHolds.length === 0 || updatedHolds[0].status !== 'converted_to_booking') {
+      if (updatedHolds.length === 0) {
         return null;
       }
 

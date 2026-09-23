@@ -1,15 +1,20 @@
 import { redirect } from 'next/navigation';
 import { getAdminSession } from '@/lib/adminAuth';
 import { db } from '@/lib/db';
-import { bookings } from '@/lib/db/schema';
-import { and, eq, or, ilike } from 'drizzle-orm';
+import { bookings, integrationLogs } from '@/lib/db/schema';
+import { and, eq, or, ilike, inArray } from 'drizzle-orm';
 import { toDateOnly } from '@/lib/utils';
+import { getGoogleConfigStatus } from '@/lib/googleAuth';
+import { getBookingKind } from '@/lib/bookingKind';
+import { getSheetTarget } from '@/lib/googleSheets';
 import {
   AdminAvailabilityManager,
   AdminBlockedTimesManager,
   AdminServicesManager,
   AdminLogoutButton,
   StripeWebhookStatus,
+  GoogleConnectionTest,
+  BookingSyncButton,
 } from '@/components/admin/AdminControls';
 
 export const dynamic = 'force-dynamic';
@@ -40,7 +45,13 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     conditions.push(or(ilike(bookings.booking_id, term), ilike(bookings.customer_email, term))!);
   }
 
-  const [recentBookings, availabilityRows, services, blockedTimeRows] = await Promise.all([
+  const lastSuccess = (type: 'google_calendar' | 'google_sheets') =>
+    db.query.integrationLogs.findFirst({
+      where: and(eq(integrationLogs.integration_type, type), eq(integrationLogs.status, 'success')),
+      orderBy: (l, { desc }) => [desc(l.created_at)],
+    });
+
+  const [recentBookings, availabilityRows, services, blockedTimeRows, googleLogs, lastCalendarSuccess, lastSheetsSuccess] = await Promise.all([
     db.query.bookings.findMany({
       where: conditions.length > 0 ? and(...conditions) : undefined,
       orderBy: (b, { desc }) => [desc(b.created_at)],
@@ -49,7 +60,20 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     db.query.availability.findMany({ orderBy: (a, { asc }) => [asc(a.id)] }),
     db.query.services.findMany({ orderBy: (s, { asc }) => [asc(s.id)] }),
     db.query.blockedTimes.findMany({ orderBy: (b, { desc }) => [desc(b.start_datetime)] }),
+    db.query.integrationLogs.findMany({
+      where: inArray(integrationLogs.integration_type, ['google_calendar', 'google_sheets']),
+      orderBy: (l, { desc }) => [desc(l.created_at)],
+      limit: 15,
+    }),
+    lastSuccess('google_calendar'),
+    lastSuccess('google_sheets'),
   ]);
+
+  const googleConfig = getGoogleConfigStatus();
+  const serviceById = new Map(services.map((s) => [s.id, s]));
+  const bookingNumberByUuid = new Map(recentBookings.map((b) => [b.id, b.booking_id]));
+  const fmtTime = (d: Date | undefined | null) =>
+    d ? d.toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' }) + ' ET' : 'never';
 
   const statusColor: Record<string, string> = {
     confirmed: 'text-green-700 bg-green-50',
@@ -110,7 +134,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         </form>
 
         <div className="card overflow-x-auto p-0">
-          <table className="w-full text-sm min-w-[760px]">
+          <table className="w-full text-sm min-w-[880px]">
             <thead>
               <tr className="text-left text-zayro-gray border-b border-zayro-border">
                 <th className="py-3 px-4 font-medium">Booking ID</th>
@@ -119,6 +143,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                 <th className="px-4 font-medium">Status</th>
                 <th className="px-4 font-medium">Type</th>
                 <th className="px-4 font-medium">Total</th>
+                <th className="px-4 font-medium">Calendar / Sheets</th>
               </tr>
             </thead>
             <tbody>
@@ -137,13 +162,40 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                   <td className="px-4">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColor[b.status] || ''}`}>{b.status}</span>
                   </td>
-                  <td className="px-4 text-zayro-gray text-xs">{parseFloat(b.total_amount) === 0 ? 'Free' : 'Paid'}</td>
+                  <td className="px-4 text-zayro-gray text-xs">
+                    {(() => {
+                      const service = serviceById.get(b.service_id);
+                      const kind = service ? getBookingKind(b, service) : parseFloat(b.total_amount) > 0 ? 'paid' : 'free';
+                      return kind === 'tour' ? 'Tour' : kind === 'paid' ? 'Paid' : 'Free';
+                    })()}
+                  </td>
                   <td className="px-4 text-zayro-dark font-medium">${b.total_amount}</td>
+                  <td className="px-4 text-xs">
+                    {(() => {
+                      if (b.status !== 'confirmed') return <span className="text-zayro-gray">—</span>;
+                      const service = serviceById.get(b.service_id);
+                      const sheetExpected = service ? getSheetTarget(b, service).target !== null : false;
+                      const calendarOk = !!b.google_calendar_event_id;
+                      const sheetsOk = !sheetExpected || !!b.google_sheets_row_id;
+                      return (
+                        <div className="flex flex-col gap-1 py-2">
+                          <span>
+                            <span className={calendarOk ? 'text-green-700' : 'text-red-700'}>{calendarOk ? '✓' : '✗'} Cal</span>
+                            {' · '}
+                            <span className={sheetsOk ? 'text-green-700' : 'text-red-700'}>
+                              {sheetExpected ? (sheetsOk ? '✓' : '✗') : '–'} Sheet
+                            </span>
+                          </span>
+                          {(!calendarOk || !sheetsOk) && <BookingSyncButton bookingId={b.id} />}
+                        </div>
+                      );
+                    })()}
+                  </td>
                 </tr>
               ))}
               {recentBookings.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-8 px-4 text-center text-zayro-gray">
+                  <td colSpan={7} className="py-8 px-4 text-center text-zayro-gray">
                     No bookings match these filters.
                   </td>
                 </tr>
@@ -157,6 +209,74 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         <AdminAvailabilityManager initialRows={availabilityRows} />
         <StripeWebhookStatus />
       </div>
+
+      <section className="card mb-6">
+        <h2 className="text-lg font-bold mb-4 text-zayro-dark">Google Calendar &amp; Sheets</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1 text-sm">
+          {[
+            ['Calendar configured', googleConfig.calendarConfigured],
+            ['Sheets configured', googleConfig.sheetsConfigured],
+            ['Calendar ID present', googleConfig.calendarIdPresent],
+            ['Sheets ID present', googleConfig.sheetsIdPresent],
+            ['Service account email present', googleConfig.serviceAccountEmailPresent],
+            ['Private key present & valid', googleConfig.privateKeyValid],
+          ].map(([label, ok]) => (
+            <div key={label as string} className="flex justify-between border-b border-zayro-border py-1.5">
+              <span className="text-zayro-gray">{label}</span>
+              <span className={ok ? 'text-green-700 font-medium' : 'text-red-700 font-medium'}>{ok ? 'yes' : 'no'}</span>
+            </div>
+          ))}
+          <div className="flex justify-between border-b border-zayro-border py-1.5">
+            <span className="text-zayro-gray">Last successful Calendar sync</span>
+            <span className="text-zayro-dark">{fmtTime(lastCalendarSuccess?.created_at)}</span>
+          </div>
+          <div className="flex justify-between border-b border-zayro-border py-1.5">
+            <span className="text-zayro-gray">Last successful Sheets sync</span>
+            <span className="text-zayro-dark">{fmtTime(lastSheetsSuccess?.created_at)}</span>
+          </div>
+        </div>
+
+        <GoogleConnectionTest />
+
+        <h3 className="text-sm font-bold text-zayro-dark mt-6 mb-2">Recent Calendar / Sheets activity</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs min-w-[640px]">
+            <thead>
+              <tr className="text-left text-zayro-gray border-b border-zayro-border">
+                <th className="py-2 font-medium">When</th>
+                <th className="font-medium">Integration</th>
+                <th className="font-medium">Booking</th>
+                <th className="font-medium">Result</th>
+                <th className="font-medium">Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {googleLogs.map((log) => {
+                const data = (log.response_data || {}) as { message?: string };
+                return (
+                  <tr key={log.id} className="border-b border-zayro-border last:border-0 align-top">
+                    <td className="py-2 pr-3 text-zayro-gray whitespace-nowrap">{fmtTime(log.created_at)}</td>
+                    <td className="pr-3">{log.integration_type === 'google_calendar' ? 'Calendar' : 'Sheets'}</td>
+                    <td className="pr-3 font-mono">{(log.booking_id && bookingNumberByUuid.get(log.booking_id)) || '—'}</td>
+                    <td className={`pr-3 font-medium ${log.status === 'success' ? 'text-green-700' : 'text-red-700'}`}>{log.status}</td>
+                    <td className="text-zayro-gray break-words max-w-[360px]">{log.error_message || data.message || ''}</td>
+                  </tr>
+                );
+              })}
+              {googleLogs.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-4 text-center text-zayro-gray">
+                    No Calendar/Sheets activity yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-xs text-zayro-gray mt-3">
+          Only yes/no status is shown here. Credentials are managed in Vercel environment variables and are never displayed.
+        </p>
+      </section>
 
       <div className="mb-6">
         <AdminServicesManager initialRows={services} />

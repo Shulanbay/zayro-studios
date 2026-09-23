@@ -1,65 +1,46 @@
-import { db } from './db';
-import { bookings, integrationLogs } from './db/schema';
-import { eq } from 'drizzle-orm';
 import type { Booking, Service } from './db/schema';
 import { sendBookingConfirmationEmail, sendOwnerNotificationEmail } from './email';
-import { createCalendarEventForBooking } from './googleCalendar';
+import { logIntegration, syncGoogleIntegrations } from './integrationSync';
+import type { CalendarSyncResult } from './googleCalendar';
+import type { SheetsSyncResult } from './googleSheets';
 
-async function logIntegration(
-  type: 'email' | 'google_calendar',
-  bookingId: string,
-  status: 'success' | 'failed',
-  message: string
-) {
-  try {
-    await db.insert(integrationLogs).values({
-      integration_type: type,
-      booking_id: bookingId,
-      status,
-      error_message: status === 'failed' ? message : null,
-      response_data: { message, timestamp: new Date().toISOString() },
-    });
-  } catch (err) {
-    console.error('Error logging integration:', err);
-  }
+export interface PostConfirmationResult {
+  customerEmail: { sent: boolean; error?: string };
+  ownerEmail: { sent: boolean; error?: string };
+  calendar: CalendarSyncResult;
+  sheets: SheetsSyncResult;
 }
 
 /**
- * Fires everything that should happen once a booking is confirmed
- * (paid or free): customer + owner emails, and a Google Calendar event.
- * Every side effect is independent and non-blocking for the caller — a
- * failure here never un-confirms the booking, it's just logged.
+ * Fires everything that should happen once a booking is confirmed (paid or
+ * free): customer + owner emails, a Google Calendar event and a Google
+ * Sheets row. Every side effect runs independently and is logged on its
+ * own; a failure here never un-confirms the booking.
+ *
+ * Callers must only invoke this once per confirmation (the Stripe webhook
+ * and free-confirm route guarantee that with a conditional status update).
+ * The Google steps are additionally idempotent on their own, so the admin
+ * retry can re-run them safely.
  */
-export async function runPostConfirmationSideEffects(booking: Booking, service: Service): Promise<void> {
-  const [customerEmailResult, ownerEmailResult, calendarResult] = await Promise.all([
-    sendBookingConfirmationEmail({ booking, service }),
-    sendOwnerNotificationEmail({ booking, service }),
-    createCalendarEventForBooking(booking, service),
+export async function runPostConfirmationSideEffects(booking: Booking, service: Service): Promise<PostConfirmationResult> {
+  const [customerEmail, ownerEmail, google] = await Promise.all([
+    sendBookingConfirmationEmail({ booking, service }).catch((err) => ({ sent: false, error: String(err?.message || err) })),
+    sendOwnerNotificationEmail({ booking, service }).catch((err) => ({ sent: false, error: String(err?.message || err) })),
+    syncGoogleIntegrations(booking, service),
   ]);
 
   await logIntegration(
     'email',
     booking.id,
-    customerEmailResult.sent ? 'success' : 'failed',
-    customerEmailResult.sent ? 'Customer confirmation email sent' : `Customer email skipped: ${customerEmailResult.error}`
+    customerEmail.sent ? 'success' : 'failed',
+    customerEmail.sent ? 'Customer confirmation email sent' : `Customer email skipped: ${customerEmail.error}`
   );
   await logIntegration(
     'email',
     booking.id,
-    ownerEmailResult.sent ? 'success' : 'failed',
-    ownerEmailResult.sent ? 'Owner notification email sent' : `Owner email skipped: ${ownerEmailResult.error}`
-  );
-  await logIntegration(
-    'google_calendar',
-    booking.id,
-    calendarResult.eventId ? 'success' : 'failed',
-    calendarResult.eventId ? `Calendar event created: ${calendarResult.eventId}` : `Calendar skipped: ${calendarResult.error}`
+    ownerEmail.sent ? 'success' : 'failed',
+    ownerEmail.sent ? 'Owner notification email sent' : `Owner email skipped: ${ownerEmail.error}`
   );
 
-  if (calendarResult.eventId && calendarResult.eventId !== booking.google_calendar_event_id) {
-    await db
-      .update(bookings)
-      .set({ google_calendar_event_id: calendarResult.eventId })
-      .where(eq(bookings.id, booking.id));
-  }
+  return { customerEmail, ownerEmail, calendar: google.calendar, sheets: google.sheets };
 }

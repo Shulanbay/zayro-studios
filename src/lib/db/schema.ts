@@ -60,6 +60,8 @@ export const serviceCategoryEnum = pgEnum('service_category', [
   'video',
   'livestream',
   'editing',
+  // Studio tours are identified by this category, never by a $0 price.
+  'tour',
 ]);
 
 // ========================================

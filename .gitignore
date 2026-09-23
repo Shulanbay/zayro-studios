@@ -53,7 +53,7 @@ Thumbs.db
 .vercel
 
 # Database
-drizzle/
+# drizzle/ holds versioned SQL migrations and must be committed.
 *.db
 *.sqlite
 

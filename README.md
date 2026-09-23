@@ -35,10 +35,10 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ### Database
 
-Initialize the database:
-```bash
-npm run db:push
-```
+Schema changes are versioned SQL migrations in `drizzle/` (generate with
+`npm run db:generate`). They are applied automatically at the start of every
+Vercel **production** build (`scripts/migrate.mjs`); local and preview builds
+skip that step. Every migration must be idempotent.
 
 ### Building for Production
 
@@ -69,6 +69,13 @@ This project uses PostgreSQL with Drizzle ORM for type-safe database operations.
 ## Environment Variables
 
 See `.env.example` for the complete list of required environment variables.
+
+## Google Calendar & Google Sheets
+
+Confirmed bookings are mirrored to a Google Calendar and to the
+"Paid Bookings" / "Studio Tours" tabs of a Google Sheet. Setup, the
+organization-policy workaround for creating the service account key, and
+troubleshooting are in [GOOGLE_INTEGRATION_SETUP.md](GOOGLE_INTEGRATION_SETUP.md).
 
 ## Deployment
 

@@ -43,7 +43,7 @@ export interface ServiceDetails {
   description: string | null;
   base_price: string;
   duration_minutes: number;
-  category: 'podcast' | 'video' | 'livestream' | 'editing';
+  category: 'podcast' | 'video' | 'livestream' | 'editing' | 'tour';
   features: string[];
   is_active: boolean;
 }

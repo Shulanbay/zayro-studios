@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { services } from '@/lib/db/schema';
+import { services, serviceCategoryEnum } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { getAdminSession } from '@/lib/adminAuth';
 
 export const dynamic = 'force-dynamic';
+
+type ServiceCategory = (typeof serviceCategoryEnum.enumValues)[number];
+
+function isServiceCategory(value: unknown): value is ServiceCategory {
+  return typeof value === 'string' && (serviceCategoryEnum.enumValues as readonly string[]).includes(value);
+}
 
 export async function GET() {
   if (!getAdminSession()) {
@@ -30,6 +36,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid base_price' }, { status: 400 });
   }
 
+  if (category !== undefined && category !== '' && !isServiceCategory(category)) {
+    return NextResponse.json({ error: 'Invalid category' }, { status: 400 });
+  }
+
   const inserted = await db
     .insert(services)
     .values({
@@ -37,7 +47,7 @@ export async function POST(request: NextRequest) {
       description: description || null,
       base_price: price.toFixed(2),
       duration_minutes: parseInt(duration_minutes, 10),
-      category: category || 'podcast',
+      category: isServiceCategory(category) ? category : 'podcast',
       is_active: true,
     })
     .returning();
@@ -50,7 +60,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { id, is_active, base_price, duration_minutes, name, description } = await request.json();
+  const { id, is_active, base_price, duration_minutes, name, description, category } = await request.json();
   if (!id) {
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
   }
@@ -73,6 +83,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid duration_minutes' }, { status: 400 });
     }
     updates.duration_minutes = duration;
+  }
+
+  if (category !== undefined) {
+    if (!isServiceCategory(category)) {
+      return NextResponse.json({ error: 'Invalid category' }, { status: 400 });
+    }
+    updates.category = category;
   }
 
   if (typeof name === 'string' && name.trim()) updates.name = name.trim();

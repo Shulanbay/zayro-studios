@@ -8,7 +8,7 @@ import {
   services,
   integrationLogs,
 } from '@/lib/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, ne } from 'drizzle-orm';
 import { calculatePricing } from '@/lib/pricing';
 import { runPostConfirmationSideEffects } from '@/lib/postConfirmation';
 import Stripe from 'stripe';
@@ -203,10 +203,13 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
         });
       }
 
-      // Update and confirm the booking in a transaction
-      await db.transaction(async (tx) => {
+      // Update and confirm the booking in a transaction. The status guard
+      // makes this a compare-and-set: if two deliveries of the same event
+      // race past the idempotency check above, only one of them flips the
+      // booking to confirmed and runs the side effects below.
+      const didConfirm = await db.transaction(async (tx) => {
         // Update booking to confirmed
-        await tx
+        const updated = await tx
           .update(bookings)
           .set({
             status: 'confirmed',
@@ -214,7 +217,10 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
             stripe_payment_id: session.payment_intent as string,
             updated_at: now,
           })
-          .where(eq(bookings.id, existingBooking.id));
+          .where(and(eq(bookings.id, existingBooking.id), ne(bookings.status, 'confirmed')))
+          .returning({ id: bookings.id });
+
+        if (updated.length === 0) return false;
 
         // Mark hold as converted
         await tx
@@ -232,7 +238,20 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
             updated_at: now,
           })
           .where(eq(payments.stripe_payment_id, session.id));
+
+        return true;
       });
+
+      if (!didConfirm) {
+        await logWebhook(session.id, 'success', 'Booking already confirmed by a concurrent delivery (idempotent)', {
+          bookingId: existingBooking.id,
+        });
+        return NextResponse.json({
+          received: true,
+          status: 'already_processed',
+          bookingId: existingBooking.id,
+        });
+      }
 
       await logWebhook(session.id, 'success', 'Booking confirmed from webhook', {
         bookingId: existingBooking.id,

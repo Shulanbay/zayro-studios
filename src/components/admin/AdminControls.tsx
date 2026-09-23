@@ -16,8 +16,11 @@ interface ServiceRow {
   name: string;
   base_price: string;
   duration_minutes: number;
+  category: string;
   is_active: boolean;
 }
+
+const SERVICE_CATEGORIES = ['podcast', 'video', 'livestream', 'editing', 'tour'];
 
 interface BlockedTimeRow {
   id: string;
@@ -194,7 +197,7 @@ export function AdminBlockedTimesManager({ initialRows }: { initialRows: Blocked
 
 export function AdminServicesManager({ initialRows }: { initialRows: ServiceRow[] }) {
   const [rows, setRows] = useState(initialRows);
-  const [form, setForm] = useState({ name: '', base_price: '', duration_minutes: '60' });
+  const [form, setForm] = useState({ name: '', base_price: '', duration_minutes: '60', category: 'podcast' });
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editValues, setEditValues] = useState({ base_price: '', duration_minutes: '' });
@@ -212,7 +215,7 @@ export function AdminServicesManager({ initialRows }: { initialRows: ServiceRow[
       if (response.ok) {
         const created = await response.json();
         setRows((rs) => [...rs, created]);
-        setForm({ name: '', base_price: '', duration_minutes: '60' });
+        setForm({ name: '', base_price: '', duration_minutes: '60', category: 'podcast' });
       }
     } finally {
       setLoading(false);
@@ -225,6 +228,15 @@ export function AdminServicesManager({ initialRows }: { initialRows: ServiceRow[
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: row.id, is_active: !row.is_active }),
+    });
+  };
+
+  const changeCategory = async (row: ServiceRow, category: string) => {
+    setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, category } : r)));
+    await fetch('/api/admin/services', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: row.id, category }),
     });
   };
 
@@ -251,6 +263,7 @@ export function AdminServicesManager({ initialRows }: { initialRows: ServiceRow[
         <thead>
           <tr className="text-left text-zayro-gray border-b border-zayro-border">
             <th className="py-2 font-medium">Name</th>
+            <th className="font-medium">Category</th>
             <th className="font-medium">Price</th>
             <th className="font-medium">Duration</th>
             <th className="font-medium">Active</th>
@@ -267,6 +280,20 @@ export function AdminServicesManager({ initialRows }: { initialRows: ServiceRow[
                     Free
                   </span>
                 )}
+              </td>
+              <td>
+                <select
+                  value={row.category}
+                  onChange={(e) => changeCategory(row, e.target.value)}
+                  className="text-xs py-1 px-2 w-auto"
+                  aria-label={`${row.name} category`}
+                >
+                  {SERVICE_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
               </td>
               {editingId === row.id ? (
                 <>
@@ -350,13 +377,25 @@ export function AdminServicesManager({ initialRows }: { initialRows: ServiceRow[
           className="text-sm py-2 px-2 w-24"
           aria-label="New service duration in minutes"
         />
+        <select
+          value={form.category}
+          onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+          className="text-sm py-2 px-2 w-auto"
+          aria-label="New service category"
+        >
+          {SERVICE_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
         <button type="submit" disabled={loading} className="button button-primary text-sm py-2 px-4">
           Add Service
         </button>
       </form>
       <p className="text-xs text-zayro-gray mt-3">
-        Set price to $0 to create a free (no-Stripe) service — useful for testing the free-booking flow. Deactivate
-        it afterward if it shouldn't stay publicly bookable.
+        Set price to $0 to create a free (no-Stripe) service. Only services with category <strong>tour</strong> are
+        recorded in the &quot;Studio Tours&quot; sheet — a $0 price alone doesn't make a service a tour.
       </p>
     </div>
   );
@@ -406,5 +445,101 @@ export function StripeWebhookStatus() {
         Signing secret is never shown here — configure it directly in Vercel's environment variables.
       </p>
     </div>
+  );
+}
+
+interface IntegrationCheck {
+  ok: boolean;
+  message: string;
+  tabs?: { sheetName: string; ok: boolean; message: string }[];
+}
+
+export function GoogleConnectionTest() {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ calendar?: IntegrationCheck; sheets?: IntegrationCheck; error?: string } | null>(null);
+
+  const run = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/admin/integrations?check=1');
+      const data = await response.json();
+      setResult(response.ok ? data : { error: data.error || 'Check failed' });
+    } catch {
+      setResult({ error: 'Could not reach the server.' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const line = (label: string, check?: IntegrationCheck) =>
+    check && (
+      <div className="text-xs mt-2">
+        <span className={check.ok ? 'text-green-700 font-medium' : 'text-red-700 font-medium'}>
+          {check.ok ? '✓' : '✗'} {label}:
+        </span>{' '}
+        <span className="text-zayro-gray">{check.message}</span>
+        {check.tabs?.map((t) => (
+          <div key={t.sheetName} className="ml-4 mt-1">
+            <span className={t.ok ? 'text-green-700' : 'text-red-700'}>{t.ok ? '✓' : '✗'}</span>{' '}
+            <span className="text-zayro-gray">
+              {t.sheetName}: {t.message}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+
+  return (
+    <div className="mt-4">
+      <button onClick={run} disabled={loading} className="button button-secondary text-sm py-2 px-4">
+        {loading ? 'Checking…' : 'Test connection (read-only)'}
+      </button>
+      {result?.error && <p className="text-xs text-red-700 mt-2">{result.error}</p>}
+      {line('Calendar', result?.calendar)}
+      {line('Sheets', result?.sheets)}
+    </div>
+  );
+}
+
+export function BookingSyncButton({ bookingId }: { bookingId: string }) {
+  const router = useRouter();
+  const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [message, setMessage] = useState('');
+
+  const run = async () => {
+    setState('running');
+    try {
+      const response = await fetch(`/api/admin/bookings/${bookingId}/sync`, { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok) {
+        setState('error');
+        setMessage(data.error || 'Retry failed');
+        return;
+      }
+      const failed = [data.calendar, data.sheets].filter(
+        (r: { status: string }) => r.status === 'failed' || r.status === 'not_configured'
+      );
+      setState(failed.length ? 'error' : 'done');
+      setMessage(failed.length ? failed.map((r: { message: string }) => r.message).join(' · ') : 'Synced');
+      router.refresh();
+    } catch {
+      setState('error');
+      setMessage('Could not reach the server.');
+    }
+  };
+
+  return (
+    <span className="inline-flex flex-col items-start">
+      <button
+        onClick={run}
+        disabled={state === 'running'}
+        className="text-xs text-zayro-primary font-semibold hover:underline disabled:opacity-50"
+      >
+        {state === 'running' ? 'Syncing…' : 'Retry sync'}
+      </button>
+      {message && (
+        <span className={`text-[11px] max-w-[220px] ${state === 'error' ? 'text-red-700' : 'text-green-700'}`}>{message}</span>
+      )}
+    </span>
   );
 }
