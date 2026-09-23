@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAvailableDates } from '@/lib/availability';
+import { findBookableService } from '@/lib/catalogData';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,11 +18,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const available = await getAvailableDates(
-      parseInt(serviceId, 10),
-      fromDate,
-      toDate
-    );
+    const lookup = await findBookableService(serviceId);
+    if (!lookup.ok) {
+      return NextResponse.json({ error: lookup.error }, { status: lookup.status });
+    }
+
+    const available = await getAvailableDates(fromDate, toDate, lookup.service.duration_minutes);
 
     return NextResponse.json({
       available_dates: available,

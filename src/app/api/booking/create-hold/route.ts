@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { temporaryHolds, services } from '@/lib/db/schema';
+import { temporaryHolds } from '@/lib/db/schema';
 import { checkTimeSlotConflict, isSlotActuallyAvailable, timeToMinutes } from '@/lib/availability';
-import { eq } from 'drizzle-orm';
+import { findBookableService } from '@/lib/catalogData';
 import { sql } from 'drizzle-orm';
 
 export const dynamic = 'force-dynamic';
@@ -49,13 +49,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid time range' }, { status: 400 });
     }
 
-    const service = await db.query.services.findFirst({
-      where: eq(services.id, service_id),
-    });
-
-    if (!service || !service.is_active) {
-      return NextResponse.json({ error: 'Service not found' }, { status: 404 });
+    // Rejects inactive services and monthly packages (a package purchase
+    // never occupies a time slot).
+    const lookup = await findBookableService(service_id);
+    if (!lookup.ok) {
+      return NextResponse.json({ error: lookup.error }, { status: lookup.status });
     }
+    const service = lookup.service;
 
     if (service.duration_minutes !== duration_minutes) {
       return NextResponse.json({ error: 'Duration does not match service' }, { status: 400 });
@@ -66,17 +66,18 @@ export async function POST(request: NextRequest) {
     const holdExpiresAt = new Date(now.getTime() + TEMPORARY_HOLD_MINUTES * 60 * 1000);
 
     // Everything from here happens inside a single transaction guarded by a
-    // Postgres advisory lock keyed on (service_id, date). This serializes
-    // concurrent create-hold requests for the same service/day so the
-    // conflict check and the insert are effectively atomic — two people
-    // clicking the same slot at the same instant cannot both succeed.
-    const lockKey = `${service_id}:${booking_date}`;
+    // Postgres advisory lock keyed on the date. The studio is one room, so
+    // this serializes concurrent create-hold requests for that day across
+    // all services — the conflict check and the insert are effectively
+    // atomic, and two people clicking overlapping slots (even for different
+    // services) cannot both succeed.
+    const lockKey = `studio:${booking_date}`;
 
     try {
       const result = await db.transaction(async (tx) => {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
 
-        const hasConflict = await checkTimeSlotConflict(service_id, booking_date, start_time, end_time);
+        const hasConflict = await checkTimeSlotConflict(booking_date, start_time, end_time, tx);
         if (hasConflict) {
           return { conflict: true as const };
         }
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest) {
         // Defense in depth: confirm the requested slot is one the server
         // would actually offer (correct business hours, buffers, advance
         // notice), not just "nothing else booked at this exact time".
-        const isReal = await isSlotActuallyAvailable(service_id, booking_date, start_time, end_time, duration_minutes);
+        const isReal = await isSlotActuallyAvailable(booking_date, start_time, end_time, duration_minutes, tx);
         if (!isReal) {
           return { conflict: true as const };
         }
@@ -92,7 +93,7 @@ export async function POST(request: NextRequest) {
         await tx.insert(temporaryHolds).values({
           id: holdId,
           customer_email,
-          service_id,
+          service_id: service.id,
           booking_date,
           start_time,
           end_time,

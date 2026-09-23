@@ -98,6 +98,10 @@ export async function syncCalendarEvent(
     return { status: 'skipped', eventId: null, message: `Booking is ${booking.status}, not confirmed` };
   }
 
+  if (service.category === 'package') {
+    return { status: 'skipped', eventId: null, message: 'Monthly package purchases have no time slot' };
+  }
+
   if (booking.google_calendar_event_id) {
     return {
       status: 'already_exists',

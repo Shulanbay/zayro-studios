@@ -26,7 +26,8 @@ export async function sendBookingConfirmationEmail({ booking, service }: Booking
   }
 
   try {
-    await resend.emails.send({
+    // Resend reports API failures in the result instead of throwing.
+    const { error: sendError } = await resend.emails.send({
       from: `ZAYRO Studios <${from}>`,
       to: booking.customer_email,
       subject: 'Your ZAYRO Studios Booking Is Confirmed',
@@ -46,6 +47,7 @@ export async function sendBookingConfirmationEmail({ booking, service }: Booking
         </div>
       `,
     });
+    if (sendError) return { sent: false, error: sendError.message };
     return { sent: true };
   } catch (error: any) {
     console.error('Error sending confirmation email:', error);
@@ -63,7 +65,8 @@ export async function sendOwnerNotificationEmail({ booking, service }: BookingEm
   }
 
   try {
-    await resend.emails.send({
+    // Resend reports API failures in the result instead of throwing.
+    const { error: sendError } = await resend.emails.send({
       from: `ZAYRO Studios <${from}>`,
       to: ownerEmail,
       subject: `New Booking: ${service.name} on ${formatBookingDate(booking.booking_date)}`,
@@ -84,6 +87,7 @@ export async function sendOwnerNotificationEmail({ booking, service }: BookingEm
         </div>
       `,
     });
+    if (sendError) return { sent: false, error: sendError.message };
     return { sent: true };
   } catch (error: any) {
     console.error('Error sending owner notification email:', error);

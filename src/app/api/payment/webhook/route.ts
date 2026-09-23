@@ -10,6 +10,8 @@ import {
 } from '@/lib/db/schema';
 import { eq, and, ne } from 'drizzle-orm';
 import { calculatePricing } from '@/lib/pricing';
+import { overlaps, timeToMinutes } from '@/lib/availability';
+import { toDateOnly } from '@/lib/utils';
 import { runPostConfirmationSideEffects } from '@/lib/postConfirmation';
 import Stripe from 'stripe';
 
@@ -181,16 +183,26 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
       // by someone else in the meantime. Payment already succeeded either
       // way, so on conflict we flag for manual review/refund instead of
       // silently double-booking the slot.
-      const conflictingBooking = await db.query.bookings.findFirst({
+      // The studio is one room, so any confirmed booking (for any service)
+      // whose time range overlaps this one is a conflict.
+      const sameDayConfirmed = await db.query.bookings.findMany({
         where: and(
-          eq(bookings.service_id, existingBooking.service_id),
-          eq(bookings.booking_date, existingBooking.booking_date),
-          eq(bookings.start_time, existingBooking.start_time),
+          eq(bookings.booking_date, toDateOnly(existingBooking.booking_date)),
           eq(bookings.status, 'confirmed')
         ),
       });
+      const conflictingBooking = sameDayConfirmed.find(
+        (b) =>
+          b.id !== existingBooking.id &&
+          overlaps(
+            timeToMinutes(existingBooking.start_time),
+            timeToMinutes(existingBooking.end_time),
+            timeToMinutes(b.start_time),
+            timeToMinutes(b.end_time)
+          )
+      );
 
-      if (conflictingBooking && conflictingBooking.id !== existingBooking.id) {
+      if (conflictingBooking) {
         await logWebhook(session.id, 'failed', 'Slot was booked by someone else before this payment landed — needs manual refund review', {
           bookingId: existingBooking.id,
           conflictingBookingId: conflictingBooking.id,

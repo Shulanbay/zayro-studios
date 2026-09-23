@@ -310,6 +310,18 @@ select:disabled {
   text-align: left;
 }
 
+/* The block default above is declared after Tailwind's utilities, so it
+   would otherwise beat `flex` / `grid` on a card (same specificity, later
+   wins). These let layout utilities on a card take effect, e.g. pricing
+   cards that pin their CTA to the bottom with flex-col + mt-auto. */
+.card.flex {
+  display: flex;
+}
+
+.card.grid {
+  display: grid;
+}
+
 .card-interactive {
   cursor: pointer;
 }

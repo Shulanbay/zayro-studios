@@ -59,7 +59,7 @@ export default function FAQSection() {
                   <button
                     id={buttonId}
                     type="button"
-                    className="w-full flex items-start justify-between gap-6 text-left"
+                    className="w-full flex items-start justify-between gap-6 text-left whitespace-normal"
                     aria-expanded={isOpen}
                     aria-controls={panelId}
                     onClick={() => setOpenIndex(isOpen ? null : idx)}

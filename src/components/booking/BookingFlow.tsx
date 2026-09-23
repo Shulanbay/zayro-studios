@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
+import { CATEGORY_LABELS, bookingCategories, formatDuration, formatPrice, isBookable, servicesInCategory, type CatalogService } from '@/lib/catalog';
 
 interface TimeSlot {
   start: string;
@@ -15,6 +17,24 @@ interface Service {
   base_price: string;
   duration_minutes: number;
   is_active: boolean;
+  category: string;
+  features?: string[] | null;
+  badge?: string | null;
+  display_order?: number;
+}
+
+function asCatalog(list: Service[]): CatalogService[] {
+  return list.map((s) => ({
+    features: null,
+    badge: null,
+    display_order: 0,
+    is_featured: false,
+    session_count: null,
+    validity_days: null,
+    package_type: null,
+    package_base_service_id: null,
+    ...s,
+  })) as CatalogService[];
 }
 
 // Steps:
@@ -146,6 +166,8 @@ export default function BookingFlow() {
   const [servicesLoading, setServicesLoading] = useState(true);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
+  const [category, setCategory] = useState<string | null>(null);
+  const deepLinkHandled = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Hydrate from sessionStorage once, then re-validate anything time-sensitive.
@@ -215,6 +237,45 @@ export default function BookingFlow() {
     };
     loadServices();
   }, []);
+
+  // Deep links from the pricing page: /booking?service=ID preselects that
+  // service (and jumps to the date step); /booking?category=photography
+  // opens that category tab. Applied once, after hydration and services load.
+  useEffect(() => {
+    if (!hydrated || servicesLoading || deepLinkHandled.current) return;
+    deepLinkHandled.current = true;
+    let params: URLSearchParams;
+    try {
+      params = new URLSearchParams(window.location.search);
+    } catch {
+      return;
+    }
+    const serviceParam = params.get('service');
+    const categoryParam = params.get('category');
+    if (!serviceParam && !categoryParam) return;
+
+    const target = serviceParam ? allServices.find((s) => String(s.id) === serviceParam) : undefined;
+    if (target && isBookable(target)) {
+      setCategory(target.category);
+      if (state.selectedService?.id !== target.id || state.step === 1) {
+        setState((s) => ({
+          ...initialState,
+          customerInfo: s.customerInfo,
+          selectedService: target,
+          duration: target.duration_minutes,
+          totalAmount: parseFloat(target.base_price),
+          step: 2,
+        }));
+      }
+    } else if (categoryParam) {
+      setCategory(categoryParam);
+    }
+    try {
+      window.history.replaceState(null, '', window.location.pathname);
+    } catch {
+      // ignore
+    }
+  }, [hydrated, servicesLoading, allServices, state.selectedService, state.step]);
 
   // Hold countdown — ticks every second while a hold is active.
   useEffect(() => {
@@ -478,13 +539,22 @@ export default function BookingFlow() {
   // Step 1: Service Selection
   // ========================================
   if (state.step === 1) {
+    const catalog = asCatalog(allServices);
+    const categories = bookingCategories(catalog);
+    const activeCategory =
+      (category && categories.includes(category as any) && category) ||
+      (state.selectedService && categories.includes(state.selectedService.category as any) && state.selectedService.category) ||
+      categories[0] ||
+      null;
+    const visible = activeCategory ? servicesInCategory(catalog, activeCategory).filter(isBookable) : [];
+
     return (
       <div className="container py-12 md:py-20">
         <ProgressBar step={1} />
         <h1 className="text-5xl md:text-7xl font-black leading-tight mb-4 text-zayro-dark">
           SELECT A<br />SERVICE
         </h1>
-        <p className="text-lg text-zayro-gray mb-12">Choose the session that fits what you're recording.</p>
+        <p className="text-lg text-zayro-gray mb-10">Choose what you&apos;re booking, then pick the session that fits.</p>
 
         {servicesLoading && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6" aria-busy="true" aria-label="Loading services">
@@ -493,27 +563,56 @@ export default function BookingFlow() {
           </div>
         )}
         {servicesError && <div className="form-error-banner mb-8">{servicesError}</div>}
-        {!servicesLoading && !servicesError && allServices.length === 0 && (
+        {!servicesLoading && !servicesError && categories.length === 0 && (
           <p className="text-zayro-gray">No services are available for booking right now. Please contact us directly.</p>
         )}
+
+        {categories.length > 0 && (
+          <div role="group" aria-label="Service category" className="flex flex-wrap gap-3 mb-10">
+            {categories.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCategory(c)}
+                aria-pressed={c === activeCategory}
+                className={`button text-base py-2.5 px-5 ${c === activeCategory ? 'button-primary' : 'button-secondary'}`}
+              >
+                {CATEGORY_LABELS[c]}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {allServices.map((service) => (
+          {visible.map((service) => (
             <button
               key={service.id}
-              onClick={() => selectService(service)}
-              className="card card-interactive text-left"
+              type="button"
+              onClick={() => selectService(allServices.find((s) => s.id === service.id)!)}
+              className="card card-interactive text-left h-full flex flex-col items-stretch justify-start min-w-0"
             >
-              <h3 className="text-2xl font-black mb-2 text-zayro-dark">{service.name}</h3>
-              <p className="text-sm text-zayro-gray mb-6">{service.description}</p>
-              <div className="flex items-baseline gap-3">
-                <span className="text-4xl font-black text-zayro-dark">
-                  {parseFloat(service.base_price) > 0 ? `$${service.base_price}` : 'Free'}
+              {service.badge && (
+                <span className="self-start mb-3 rounded-full bg-gradient-cta px-3 py-1 text-sm font-semibold text-white">
+                  {service.badge}
                 </span>
-                <span className="text-sm text-zayro-gray">{service.duration_minutes} minutes</span>
+              )}
+              <h3 className="text-2xl font-black mb-2 text-zayro-dark break-words">{service.name}</h3>
+              {service.description && <p className="text-base text-zayro-gray mb-6">{service.description}</p>}
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mt-auto">
+                <span className="text-4xl font-black text-zayro-dark">{formatPrice(service.base_price)}</span>
+                <span className="text-base text-zayro-gray">{formatDuration(service.duration_minutes)}</span>
               </div>
             </button>
           ))}
         </div>
+
+        <p className="text-base text-zayro-gray mt-10">
+          Looking for monthly podcast packages? They&apos;re prepaid and arranged by request —{' '}
+          <Link href="/pricing#monthly" className="text-zayro-primary font-semibold hover:underline">
+            see Monthly Packages
+          </Link>
+          .
+        </p>
       </div>
     );
   }
@@ -535,7 +634,7 @@ export default function BookingFlow() {
           SELECT A<br />DATE
         </h1>
         <p className="text-lg text-zayro-gray mb-12">
-          {state.selectedService?.name} · {state.duration} minutes
+          {state.selectedService?.name} · {formatDuration(state.duration)}
         </p>
         <div className="card max-w-md">
           <label htmlFor="booking-date" className="field-label">
@@ -789,7 +888,7 @@ export default function BookingFlow() {
                 })}
               </p>
               <p className="text-lg font-bold mt-1 text-zayro-primary">
-                {state.selectedTime} ET · {state.duration} minutes
+                {state.selectedTime} ET · {formatDuration(state.duration)}
               </p>
             </div>
 

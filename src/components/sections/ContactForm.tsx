@@ -1,9 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 export default function ContactForm() {
-  const [form, setForm] = useState({ name: '', email: '', message: '' });
+  const [form, setForm] = useState({ name: '', email: '', message: '', topic: '' });
+
+  // Prefill from ?topic= (set by "Request Monthly Package" / "Request
+  // On-location Shoot" buttons on the pricing page).
+  useEffect(() => {
+    try {
+      const topic = new URLSearchParams(window.location.search).get('topic')?.trim().slice(0, 200);
+      if (topic) {
+        setForm((f) => ({
+          ...f,
+          topic,
+          message: f.message || `Hi, I'd like to request: ${topic}.\n\nPreferred start date:\n`,
+        }));
+      }
+    } catch {
+      // ignore malformed URLs
+    }
+  }, []);
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +42,7 @@ export default function ContactForm() {
       }
 
       setStatus('sent');
-      setForm({ name: '', email: '', message: '' });
+      setForm({ name: '', email: '', message: '', topic: '' });
     } catch (err: any) {
       setStatus('error');
       setError(err.message || 'Something went wrong. Please email us directly.');
@@ -46,6 +63,18 @@ export default function ContactForm() {
       <h2 className="text-2xl font-bold mb-6 text-center text-zayro-dark">Send us a Message</h2>
 
       <form className="space-y-5" onSubmit={handleSubmit}>
+        {form.topic && (
+          <div>
+            <label htmlFor="contact-topic" className="field-label">Regarding</label>
+            <input
+              id="contact-topic"
+              type="text"
+              value={form.topic}
+              onChange={(e) => setForm((f) => ({ ...f, topic: e.target.value.slice(0, 200) }))}
+            />
+          </div>
+        )}
+
         <div>
           <label htmlFor="contact-name" className="field-label">Name</label>
           <input

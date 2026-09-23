@@ -15,6 +15,20 @@
       "when": 1790174085228,
       "tag": "0001_service_category_tour",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1790183376503,
+      "tag": "0002_service_catalog_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1790183383895,
+      "tag": "0003_pricing_catalog",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-// Applies pending SQL migrations from ./drizzle using drizzle's migrator.
+// Applies pending SQL migrations from ./drizzle (see migrationRunner.mjs).
 //
 // Runs automatically as part of `npm run build`, but only for Vercel
 // production builds (VERCEL_ENV=production) or when RUN_DB_MIGRATIONS=1 is
@@ -9,9 +9,8 @@
 //
 // A failure exits non-zero, which fails the build and leaves the previous
 // production deployment serving traffic.
-import { drizzle } from 'drizzle-orm/postgres-js';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
+import { applyMigrations } from './migrationRunner.mjs';
 
 const shouldRun = process.env.VERCEL_ENV === 'production' || process.env.RUN_DB_MIGRATIONS === '1';
 
@@ -29,8 +28,14 @@ if (!url) {
 const client = postgres(url, { prepare: false, max: 1, onnotice: () => {} });
 
 try {
-  await migrate(drizzle(client), { migrationsFolder: './drizzle' });
-  console.log('[migrate] Database migrations are up to date.');
+  const applied = await applyMigrations(
+    {
+      exec: (text, params = []) => client.unsafe(text, params),
+      transaction: (fn) => client.begin((tx) => fn((text, params = []) => tx.unsafe(text, params))),
+    },
+    { migrationsFolder: './drizzle', log: console.log }
+  );
+  console.log(`[migrate] Database migrations are up to date (${applied.length} applied in this run).`);
 } catch (error) {
   // Only the message — never the connection string.
   console.error('[migrate] Migration failed:', error?.message || error);

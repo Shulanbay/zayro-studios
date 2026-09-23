@@ -2,6 +2,13 @@ import { db } from './db';
 import { bookings, temporaryHolds, blockedTimes, availability as availabilityTable, businessSettings } from './db/schema';
 import { eq, and, gte, lte } from 'drizzle-orm';
 
+/**
+ * The db handle or an open transaction. Passing the transaction from
+ * create-hold keeps the availability reads on the same connection as the
+ * advisory lock and the insert.
+ */
+type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 export interface TimeSlot {
   start: string;
   end: string;
@@ -82,35 +89,36 @@ export function generateSlotsForDay(params: {
   return slots;
 }
 
-async function getBusinessHours(dayOfWeek: string) {
-  const hours = await db.query.availability.findFirst({
+async function getBusinessHours(dayOfWeek: string, exec: Executor = db) {
+  const hours = await exec.query.availability.findFirst({
     where: and(eq(availabilityTable.day_of_week, dayOfWeek as any), eq(availabilityTable.is_available, true)),
   });
   return hours;
 }
 
-async function getSetting(key: string): Promise<string | null> {
-  const result = await db.query.businessSettings.findFirst({
+async function getSetting(key: string, exec: Executor = db): Promise<string | null> {
+  const result = await exec.query.businessSettings.findFirst({
     where: eq(businessSettings.setting_key, key),
   });
   return result?.setting_value || null;
 }
 
-async function getConfirmedBookings(serviceId: number, bookingDate: string) {
-  return await db.query.bookings.findMany({
+// The studio is a single room: every confirmed booking and every active
+// hold blocks the studio, whichever service it is for (a podcast session, a
+// photoshoot and a studio tour can't overlap).
+async function getConfirmedBookings(bookingDate: string, exec: Executor = db) {
+  return await exec.query.bookings.findMany({
     where: and(
-      eq(bookings.service_id, serviceId),
       eq(bookings.booking_date, bookingDate),
       eq(bookings.status, 'confirmed'),
     ),
   });
 }
 
-async function getActiveHolds(serviceId: number, bookingDate: string) {
+async function getActiveHolds(bookingDate: string, exec: Executor = db) {
   const now = new Date();
-  return await db.query.temporaryHolds.findMany({
+  return await exec.query.temporaryHolds.findMany({
     where: and(
-      eq(temporaryHolds.service_id, serviceId),
       eq(temporaryHolds.booking_date, bookingDate),
       eq(temporaryHolds.status, 'active'),
       gte(temporaryHolds.hold_expires_at, now),
@@ -118,22 +126,21 @@ async function getActiveHolds(serviceId: number, bookingDate: string) {
   });
 }
 
-export async function expireOldHolds(serviceId?: number, bookingDate?: string) {
+export async function expireOldHolds(bookingDate?: string, exec: Executor = db) {
   const now = new Date();
   const conditions = [eq(temporaryHolds.status, 'active'), lte(temporaryHolds.hold_expires_at, now)];
-  if (serviceId !== undefined) conditions.push(eq(temporaryHolds.service_id, serviceId));
   if (bookingDate !== undefined) conditions.push(eq(temporaryHolds.booking_date, bookingDate));
 
-  await db.update(temporaryHolds)
+  await exec.update(temporaryHolds)
     .set({ status: 'expired' })
     .where(and(...conditions));
 }
 
-async function getBusySettings() {
-  const bufferBefore = parseInt((await getSetting('buffer_before_booking')) || '0');
-  const bufferAfter = parseInt((await getSetting('buffer_after_booking')) || '0');
-  const increment = parseInt((await getSetting('booking_increment_minutes')) || '30');
-  const minAdvanceHours = parseFloat((await getSetting('min_advance_notice_hours')) || '1');
+async function getBusySettings(exec: Executor = db) {
+  const bufferBefore = parseInt((await getSetting('buffer_before_booking', exec)) || '0');
+  const bufferAfter = parseInt((await getSetting('buffer_after_booking', exec)) || '0');
+  const increment = parseInt((await getSetting('booking_increment_minutes', exec)) || '30');
+  const minAdvanceHours = parseFloat((await getSetting('min_advance_notice_hours', exec)) || '1');
   return { bufferBefore, bufferAfter, increment, minAdvanceHours };
 }
 
@@ -157,35 +164,36 @@ function computeMinSlotStart(bookingDate: string, businessStart: number, minAdva
   return businessStart;
 }
 
+/** Slots of `durationMinutes` (the selected service's length) for the whole studio. */
 export async function getAvailableTimeSlotsForDate(
-  serviceId: number,
   bookingDate: string,
-  durationMinutes: number
+  durationMinutes: number,
+  exec: Executor = db
 ): Promise<TimeSlot[]> {
   try {
     const date = new Date(bookingDate + 'T00:00:00Z');
     const dayOfWeek = getDayOfWeek(date);
 
-    const businessHours = await getBusinessHours(dayOfWeek);
+    const businessHours = await getBusinessHours(dayOfWeek, exec);
     if (!businessHours) {
       return [];
     }
 
-    await expireOldHolds(serviceId, bookingDate);
+    await expireOldHolds(bookingDate, exec);
 
-    const confirmedBookings = await getConfirmedBookings(serviceId, bookingDate);
-    const activeHolds = await getActiveHolds(serviceId, bookingDate);
+    const confirmedBookings = await getConfirmedBookings(bookingDate, exec);
+    const activeHolds = await getActiveHolds(bookingDate, exec);
 
     const dateStart = new Date(bookingDate + 'T00:00:00Z');
     const dateEnd = new Date(bookingDate + 'T23:59:59Z');
-    const blockedForDate = await db.query.blockedTimes.findMany({
+    const blockedForDate = await exec.query.blockedTimes.findMany({
       where: and(
         lte(blockedTimes.start_datetime, dateEnd),
         gte(blockedTimes.end_datetime, dateStart),
       ),
     });
 
-    const { bufferBefore, bufferAfter, increment, minAdvanceHours } = await getBusySettings();
+    const { bufferBefore, bufferAfter, increment, minAdvanceHours } = await getBusySettings(exec);
 
     const businessStart = timeToMinutes(businessHours.start_time);
     const businessEnd = timeToMinutes(businessHours.end_time);
@@ -224,7 +232,6 @@ export async function getAvailableTimeSlotsForDate(
 }
 
 export async function getAvailableDates(
-  serviceId: number,
   fromDate: string,
   toDate: string,
   durationMinutes = 60
@@ -237,7 +244,7 @@ export async function getAvailableDates(
 
     while (current <= end) {
       const dateStr = current.toISOString().split('T')[0];
-      const slots = await getAvailableTimeSlotsForDate(serviceId, dateStr, durationMinutes);
+      const slots = await getAvailableTimeSlotsForDate(dateStr, durationMinutes);
 
       if (slots.some((s) => s.available)) {
         availableDates.push(dateStr);
@@ -261,28 +268,28 @@ export async function getAvailableDates(
  * offered.
  */
 export async function isSlotActuallyAvailable(
-  serviceId: number,
   bookingDate: string,
   startTime: string,
   endTime: string,
-  durationMinutes: number
+  durationMinutes: number,
+  exec: Executor = db
 ): Promise<boolean> {
-  const slots = await getAvailableTimeSlotsForDate(serviceId, bookingDate, durationMinutes);
+  const slots = await getAvailableTimeSlotsForDate(bookingDate, durationMinutes, exec);
   return slots.some((s) => s.start === startTime && s.end === endTime && s.available);
 }
 
 export async function checkTimeSlotConflict(
-  serviceId: number,
   bookingDate: string,
   startTime: string,
-  endTime: string
+  endTime: string,
+  exec: Executor = db
 ): Promise<boolean> {
-  await expireOldHolds(serviceId, bookingDate);
+  await expireOldHolds(bookingDate, exec);
 
   const startMinutes = timeToMinutes(startTime);
   const endMinutes = timeToMinutes(endTime);
 
-  const confirmedBookings = await getConfirmedBookings(serviceId, bookingDate);
+  const confirmedBookings = await getConfirmedBookings(bookingDate, exec);
   for (const booking of confirmedBookings) {
     const bookingStart = timeToMinutes(booking.start_time);
     const bookingEnd = timeToMinutes(booking.end_time);
@@ -291,7 +298,7 @@ export async function checkTimeSlotConflict(
     }
   }
 
-  const activeHolds = await getActiveHolds(serviceId, bookingDate);
+  const activeHolds = await getActiveHolds(bookingDate, exec);
   for (const hold of activeHolds) {
     const holdStart = timeToMinutes(hold.start_time);
     const holdEnd = timeToMinutes(hold.end_time);
@@ -302,7 +309,7 @@ export async function checkTimeSlotConflict(
 
   const dateStart = new Date(bookingDate + 'T00:00:00Z');
   const dateEnd = new Date(bookingDate + 'T23:59:59Z');
-  const blockedForDate = await db.query.blockedTimes.findMany({
+  const blockedForDate = await exec.query.blockedTimes.findMany({
     where: and(
       lte(blockedTimes.start_datetime, dateEnd),
       gte(blockedTimes.end_datetime, dateStart),

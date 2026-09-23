@@ -10,7 +10,8 @@ import {
 } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { calculatePricing } from '@/lib/pricing';
-import { generateBookingId, isValidEmail, isValidPhone, getBaseUrl, formatBookingDateUTC } from '@/lib/utils';
+import { checkBookable } from '@/lib/catalogData';
+import { generateBookingId, isValidEmail, isValidPhone, getBaseUrl, formatBookingDateUTC, toDateOnly } from '@/lib/utils';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
@@ -93,6 +94,13 @@ export async function POST(request: NextRequest) {
         { error: 'Service not found' },
         { status: 404 }
       );
+    }
+
+    // Monthly packages are never booked into a time slot.
+    const bookable = checkBookable(service);
+    if (!bookable.ok) {
+      await logIntegration('stripe', null, 'failed', 'Checkout attempted for a package');
+      return NextResponse.json({ error: bookable.error }, { status: bookable.status });
     }
 
     const pricing = await calculatePricing(hold.service_id);
@@ -207,7 +215,8 @@ export async function POST(request: NextRequest) {
       booking_id: bookingIdString,
       customer_id: customerId,
       service_id: hold.service_id,
-      booking_date: hold.booking_date,
+      // Plain YYYY-MM-DD (see confirm-free): never send the driver's Date object.
+      booking_date: toDateOnly(hold.booking_date),
       start_time: hold.start_time,
       end_time: hold.end_time,
       duration_minutes: hold.duration_minutes,

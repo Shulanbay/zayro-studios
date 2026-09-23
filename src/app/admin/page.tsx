@@ -10,19 +10,20 @@ import { getSheetTarget } from '@/lib/googleSheets';
 import {
   AdminAvailabilityManager,
   AdminBlockedTimesManager,
-  AdminServicesManager,
   AdminLogoutButton,
   StripeWebhookStatus,
   GoogleConnectionTest,
   BookingSyncButton,
 } from '@/components/admin/AdminControls';
+import AdminServicesManager from '@/components/admin/AdminServicesManager';
+import { CATEGORY_LABELS, SERVICE_CATEGORIES } from '@/lib/catalog';
 
 export const dynamic = 'force-dynamic';
 
 const STATUS_OPTIONS = ['confirmed', 'payment_pending', 'pending', 'cancelled', 'completed', 'refunded'];
 
 interface AdminPageProps {
-  searchParams: { status?: string; date?: string; q?: string };
+  searchParams: { status?: string; date?: string; q?: string; category?: string };
 }
 
 export default async function AdminPage({ searchParams }: AdminPageProps) {
@@ -31,7 +32,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     redirect('/admin/login');
   }
 
-  const { status, date, q } = searchParams;
+  const { status, date, q, category } = searchParams;
 
   const conditions = [];
   if (status && STATUS_OPTIONS.includes(status)) {
@@ -58,7 +59,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
       limit: 100,
     }),
     db.query.availability.findMany({ orderBy: (a, { asc }) => [asc(a.id)] }),
-    db.query.services.findMany({ orderBy: (s, { asc }) => [asc(s.id)] }),
+    db.query.services.findMany({ orderBy: (s, { asc }) => [asc(s.display_order), asc(s.id)] }),
     db.query.blockedTimes.findMany({ orderBy: (b, { desc }) => [desc(b.start_datetime)] }),
     db.query.integrationLogs.findMany({
       where: inArray(integrationLogs.integration_type, ['google_calendar', 'google_sheets']),
@@ -71,6 +72,10 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
 
   const googleConfig = getGoogleConfigStatus();
   const serviceById = new Map(services.map((s) => [s.id, s]));
+  const categoryFilter = category && (SERVICE_CATEGORIES as readonly string[]).includes(category) ? category : null;
+  const shownBookings = categoryFilter
+    ? recentBookings.filter((b) => serviceById.get(b.service_id)?.category === categoryFilter)
+    : recentBookings;
   const bookingNumberByUuid = new Map(recentBookings.map((b) => [b.id, b.booking_id]));
   const fmtTime = (d: Date | undefined | null) =>
     d ? d.toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' }) + ' ET' : 'never';
@@ -96,7 +101,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
 
       <section className="mb-10">
         <div className="flex flex-wrap justify-between items-center gap-4 mb-4">
-          <h2 className="text-lg font-bold text-zayro-dark">Bookings ({recentBookings.length})</h2>
+          <h2 className="text-lg font-bold text-zayro-dark">Bookings ({shownBookings.length})</h2>
         </div>
 
         <form method="get" className="flex flex-wrap gap-3 mb-4">
@@ -116,6 +121,14 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
               </option>
             ))}
           </select>
+          <select name="category" defaultValue={categoryFilter || ''} className="text-sm py-2 px-3 w-auto" aria-label="Filter by category">
+            <option value="">All categories</option>
+            {SERVICE_CATEGORIES.filter((c) => c !== 'package').map((c) => (
+              <option key={c} value={c}>
+                {CATEGORY_LABELS[c]}
+              </option>
+            ))}
+          </select>
           <input
             type="date"
             name="date"
@@ -126,7 +139,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
           <button type="submit" className="button button-secondary text-sm py-2 px-4">
             Filter
           </button>
-          {(status || date || q) && (
+          {(status || date || q || categoryFilter) && (
             <a href="/admin" className="button button-ghost text-sm py-2 px-4">
               Clear
             </a>
@@ -147,7 +160,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
               </tr>
             </thead>
             <tbody>
-              {recentBookings.map((b) => (
+              {shownBookings.map((b) => (
                 <tr key={b.id} className="border-b border-zayro-border last:border-0">
                   <td className="py-3 px-4 font-mono text-xs text-zayro-dark">{b.booking_id}</td>
                   <td className="px-4">
@@ -166,7 +179,8 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                     {(() => {
                       const service = serviceById.get(b.service_id);
                       const kind = service ? getBookingKind(b, service) : parseFloat(b.total_amount) > 0 ? 'paid' : 'free';
-                      return kind === 'tour' ? 'Tour' : kind === 'paid' ? 'Paid' : 'Free';
+                      const label = service ? CATEGORY_LABELS[service.category] ?? service.category : '';
+                      return `${label}${label ? ' · ' : ''}${kind === 'tour' ? 'Tour' : kind === 'paid' ? 'Paid' : 'Free'}`;
                     })()}
                   </td>
                   <td className="px-4 text-zayro-dark font-medium">${b.total_amount}</td>
@@ -193,7 +207,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                   </td>
                 </tr>
               ))}
-              {recentBookings.length === 0 && (
+              {shownBookings.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-8 px-4 text-center text-zayro-gray">
                     No bookings match these filters.

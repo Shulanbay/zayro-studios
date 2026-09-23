@@ -1,28 +1,34 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { services } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { getActiveServices } from '@/lib/catalogData';
+import { bookableServices } from '@/lib/catalog';
 
 export const dynamic = 'force-dynamic';
 
+// Public list of services a customer can book as a single time slot:
+// active only, monthly packages excluded, in admin-defined display order.
 export async function GET() {
   try {
-    const allServices = await db.query.services.findMany({
-      where: eq(services.is_active, true),
-    });
-
-    return NextResponse.json(allServices);
-  } catch (error: any) {
-    const errorMessage = error?.message || String(error);
-    const errorCode = error?.code || 'UNKNOWN';
-    console.error('Services API Error:', {
-      message: errorMessage,
-      code: errorCode,
-      type: error?.constructor?.name,
-    });
+    const rows = bookableServices(await getActiveServices());
     return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+      rows.map((s) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        base_price: s.base_price,
+        duration_minutes: s.duration_minutes,
+        category: s.category,
+        features: s.features ?? [],
+        is_active: s.is_active,
+        display_order: s.display_order,
+        is_featured: s.is_featured,
+        badge: s.badge,
+      }))
     );
+  } catch (error: any) {
+    console.error('Services API Error:', {
+      message: error?.message || String(error),
+      code: error?.code || 'UNKNOWN',
+    });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

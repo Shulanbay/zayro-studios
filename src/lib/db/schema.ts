@@ -62,6 +62,9 @@ export const serviceCategoryEnum = pgEnum('service_category', [
   'editing',
   // Studio tours are identified by this category, never by a $0 price.
   'tour',
+  'photography',
+  // Prepaid monthly packages. Never bookable as a single time slot.
+  'package',
 ]);
 
 // ========================================
@@ -79,6 +82,16 @@ export const services = pgTable(
     category: serviceCategoryEnum('category').notNull().default('podcast'),
     features: jsonb('features').$type<string[]>().default(sql`'[]'::jsonb`),
     is_active: boolean('is_active').notNull().default(true),
+    display_order: integer('display_order').notNull().default(0),
+    is_featured: boolean('is_featured').notNull().default(false),
+    badge: varchar('badge', { length: 40 }),
+    // Monthly package fields — only set for category 'package'.
+    session_count: integer('session_count'),
+    validity_days: integer('validity_days'),
+    package_type: varchar('package_type', { length: 40 }),
+    // The single-session service a package is priced from (regular price =
+    // session_count × that service's base_price).
+    package_base_service_id: integer('package_base_service_id'),
     created_at: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

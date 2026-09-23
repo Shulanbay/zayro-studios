@@ -12,7 +12,7 @@ export default function EquipmentSection() {
     <section className="section-padding surface-soft">
       <div className="container max-w-5xl">
         <Reveal>
-          <h2 className="text-5xl md:text-7xl font-black mb-4 text-zayro-dark">
+          <h2 className="text-4xl sm:text-5xl md:text-7xl font-black mb-4 text-zayro-dark">
             PROFESSIONAL
             <br />
             EQUIPMENT

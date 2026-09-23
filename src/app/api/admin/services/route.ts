@@ -1,22 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { services, serviceCategoryEnum } from '@/lib/db/schema';
+import { services } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { getAdminSession } from '@/lib/adminAuth';
+import { parseServiceInput, type ServiceValues } from '@/lib/serviceInput';
 
 export const dynamic = 'force-dynamic';
 
-type ServiceCategory = (typeof serviceCategoryEnum.enumValues)[number];
+async function readJson(request: NextRequest): Promise<Record<string, unknown> | null> {
+  try {
+    const body = await request.json();
+    return body && typeof body === 'object' && !Array.isArray(body) ? body : null;
+  } catch {
+    return null;
+  }
+}
 
-function isServiceCategory(value: unknown): value is ServiceCategory {
-  return typeof value === 'string' && (serviceCategoryEnum.enumValues as readonly string[]).includes(value);
+/** A package's base service must be an existing single-session service. */
+async function validateBaseService(values: ServiceValues, selfId?: number): Promise<string | null> {
+  const baseId = values.package_base_service_id;
+  if (baseId === undefined || baseId === null) return null;
+  if (baseId === selfId) return 'A package cannot be its own base service';
+  const base = await db.query.services.findFirst({ where: eq(services.id, baseId) });
+  if (!base || base.category === 'package') return 'Base service must be an existing single-session service';
+  return null;
 }
 
 export async function GET() {
   if (!getAdminSession()) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  const rows = await db.query.services.findMany({ orderBy: (s, { asc }) => [asc(s.id)] });
+  const rows = await db.query.services.findMany({ orderBy: (s, { asc }) => [asc(s.display_order), asc(s.id)] });
   return NextResponse.json(rows);
 }
 
@@ -25,30 +39,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { name, description, base_price, duration_minutes, category } = await request.json();
+  const body = await readJson(request);
+  if (!body) return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
 
-  if (!name || base_price === undefined || !duration_minutes) {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
-  }
+  const parsed = parseServiceInput(body, { partial: false });
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
-  const price = parseFloat(base_price);
-  if (isNaN(price) || price < 0) {
-    return NextResponse.json({ error: 'Invalid base_price' }, { status: 400 });
-  }
+  const baseError = await validateBaseService(parsed.values);
+  if (baseError) return NextResponse.json({ error: baseError }, { status: 400 });
 
-  if (category !== undefined && category !== '' && !isServiceCategory(category)) {
-    return NextResponse.json({ error: 'Invalid category' }, { status: 400 });
-  }
-
+  const v = parsed.values;
   const inserted = await db
     .insert(services)
     .values({
-      name,
-      description: description || null,
-      base_price: price.toFixed(2),
-      duration_minutes: parseInt(duration_minutes, 10),
-      category: isServiceCategory(category) ? category : 'podcast',
-      is_active: true,
+      name: v.name!,
+      description: v.description ?? null,
+      base_price: v.base_price!,
+      duration_minutes: v.duration_minutes!,
+      category: v.category ?? 'podcast',
+      features: v.features ?? [],
+      badge: v.badge ?? null,
+      is_active: v.is_active ?? true,
+      is_featured: v.is_featured ?? false,
+      display_order: v.display_order ?? 0,
+      session_count: v.session_count ?? null,
+      validity_days: v.validity_days ?? null,
+      package_type: v.package_type ?? null,
+      package_base_service_id: v.package_base_service_id ?? null,
     })
     .returning();
 
@@ -60,41 +77,29 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { id, is_active, base_price, duration_minutes, name, description, category } = await request.json();
-  if (!id) {
+  const body = await readJson(request);
+  if (!body) return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+
+  const id = typeof body.id === 'number' ? body.id : parseInt(String(body.id ?? ''), 10);
+  if (!Number.isInteger(id) || id < 1) {
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
   }
 
-  const updates: Record<string, unknown> = { updated_at: new Date() };
+  const existing = await db.query.services.findFirst({ where: eq(services.id, id) });
+  if (!existing) return NextResponse.json({ error: 'Service not found' }, { status: 404 });
 
-  if (typeof is_active === 'boolean') updates.is_active = is_active;
+  const { id: _ignored, ...fields } = body;
+  const parsed = parseServiceInput(fields, { partial: true, existingCategory: existing.category });
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
-  if (base_price !== undefined) {
-    const price = parseFloat(base_price);
-    if (isNaN(price) || price < 0) {
-      return NextResponse.json({ error: 'Invalid base_price' }, { status: 400 });
-    }
-    updates.base_price = price.toFixed(2);
-  }
+  const baseError = await validateBaseService(parsed.values, id);
+  if (baseError) return NextResponse.json({ error: baseError }, { status: 400 });
 
-  if (duration_minutes !== undefined) {
-    const duration = parseInt(duration_minutes, 10);
-    if (isNaN(duration) || duration <= 0) {
-      return NextResponse.json({ error: 'Invalid duration_minutes' }, { status: 400 });
-    }
-    updates.duration_minutes = duration;
-  }
+  const updated = await db
+    .update(services)
+    .set({ ...parsed.values, updated_at: new Date() })
+    .where(eq(services.id, id))
+    .returning();
 
-  if (category !== undefined) {
-    if (!isServiceCategory(category)) {
-      return NextResponse.json({ error: 'Invalid category' }, { status: 400 });
-    }
-    updates.category = category;
-  }
-
-  if (typeof name === 'string' && name.trim()) updates.name = name.trim();
-  if (typeof description === 'string') updates.description = description;
-
-  await db.update(services).set(updates).where(eq(services.id, id));
-  return NextResponse.json({ success: true });
+  return NextResponse.json(updated[0]);
 }

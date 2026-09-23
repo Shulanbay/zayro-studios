@@ -9,6 +9,7 @@ import {
 } from '@/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
 import { calculatePricing } from '@/lib/pricing';
+import { checkBookable } from '@/lib/catalogData';
 import { generateBookingId, isValidEmail, isValidPhone, toDateOnly } from '@/lib/utils';
 import { runPostConfirmationSideEffects } from '@/lib/postConfirmation';
 
@@ -101,6 +102,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Service not found' }, { status: 404 });
     }
 
+    // Monthly packages are never booked into a time slot.
+    const bookable = checkBookable(service);
+    if (!bookable.ok) {
+      await logIntegration(null, 'failed', 'Free confirm: service is a package');
+      return NextResponse.json({ error: bookable.error }, { status: bookable.status });
+    }
+
     const pricing = await calculatePricing(hold.service_id);
     if (!pricing) {
       await logIntegration(null, 'failed', 'Free confirm: pricing calculation failed');
@@ -160,7 +168,9 @@ export async function POST(request: NextRequest) {
           booking_id: bookingIdString,
           customer_id: customerId,
           service_id: hold.service_id,
-          booking_date: hold.booking_date,
+          // Always a plain YYYY-MM-DD: the driver may hand back a Date, which
+          // Postgres would otherwise convert using the session time zone.
+          booking_date: toDateOnly(hold.booking_date),
           start_time: hold.start_time,
           end_time: hold.end_time,
           duration_minutes: hold.duration_minutes,

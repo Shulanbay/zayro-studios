@@ -73,7 +73,8 @@ export type SheetTargetDecision = { target: SheetTarget } | { target: null; reas
  * - only confirmed bookings whose payment succeeded (free confirmations are
  *   recorded as succeeded too);
  * - category 'tour' → Studio Tours;
- * - any other service with total > 0 → Paid Bookings;
+ * - any other service with total > 0 (podcast, photography, …) → Paid Bookings;
+ * - monthly packages → nowhere (a package purchase isn't a studio session);
  * - any other $0 service → nowhere. Being free does not make it a tour.
  */
 export function getSheetTarget(booking: Booking, service: Service): SheetTargetDecision {
@@ -82,6 +83,9 @@ export function getSheetTarget(booking: Booking, service: Service): SheetTargetD
   }
   if (booking.payment_status !== 'succeeded') {
     return { target: null, reason: `Payment status is ${booking.payment_status}` };
+  }
+  if (service.category === 'package') {
+    return { target: null, reason: 'Monthly package purchases are not studio sessions' };
   }
   const kind = getBookingKind(booking, service);
   if (kind === 'tour') return { target: SHEET_TABS[1] };
