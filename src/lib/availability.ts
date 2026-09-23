@@ -2,31 +2,89 @@ import { db } from './db';
 import { bookings, temporaryHolds, blockedTimes, availability as availabilityTable, businessSettings } from './db/schema';
 import { eq, and, gte, lte } from 'drizzle-orm';
 
-interface TimeSlot {
+export interface TimeSlot {
   start: string;
   end: string;
   available: boolean;
 }
 
-function timeToMinutes(timeStr: string): number {
+interface BusyRange {
+  start: number; // minutes since midnight
+  end: number; // minutes since midnight
+}
+
+export function timeToMinutes(timeStr: string): number {
   const [hours, minutes] = timeStr.split(':').map(Number);
   return hours * 60 + minutes;
 }
 
-function minutesToTime(minutes: number): string {
+export function minutesToTime(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-function getDayOfWeek(date: Date): string {
+export function getDayOfWeek(date: Date): string {
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  return days[date.getDay()];
+  return days[date.getUTCDay()];
+}
+
+export function overlaps(slot1Start: number, slot1End: number, slot2Start: number, slot2End: number): boolean {
+  return slot1Start < slot2End && slot2Start < slot1End;
+}
+
+/**
+ * Pure slot generator — no DB access. Takes pre-fetched business hours and
+ * busy ranges (already including buffers) and returns every candidate slot
+ * for the day, marked available/unavailable. Kept pure so it can be unit
+ * tested without a database.
+ */
+export function generateSlotsForDay(params: {
+  businessStart: number; // minutes since midnight
+  businessEnd: number; // minutes since midnight
+  durationMinutes: number;
+  incrementMinutes: number;
+  minSlotStart: number; // earliest allowed slot start (advance notice / "now" cutoff), minutes since midnight
+  busyRanges: BusyRange[]; // bookings + holds, buffers already applied
+  blockedRanges: BusyRange[]; // blocked times, minutes since midnight, already clipped to this day
+}): TimeSlot[] {
+  const { businessStart, businessEnd, durationMinutes, incrementMinutes, minSlotStart, busyRanges, blockedRanges } = params;
+  const slots: TimeSlot[] = [];
+  const start = Math.max(businessStart, minSlotStart);
+
+  for (let slotStart = start; slotStart + durationMinutes <= businessEnd; slotStart += incrementMinutes) {
+    const slotEnd = slotStart + durationMinutes;
+    let isAvailable = true;
+
+    for (const busy of busyRanges) {
+      if (overlaps(slotStart, slotEnd, busy.start, busy.end)) {
+        isAvailable = false;
+        break;
+      }
+    }
+
+    if (isAvailable) {
+      for (const blocked of blockedRanges) {
+        if (overlaps(slotStart, slotEnd, blocked.start, blocked.end)) {
+          isAvailable = false;
+          break;
+        }
+      }
+    }
+
+    slots.push({
+      start: minutesToTime(slotStart),
+      end: minutesToTime(slotEnd),
+      available: isAvailable,
+    });
+  }
+
+  return slots;
 }
 
 async function getBusinessHours(dayOfWeek: string) {
   const hours = await db.query.availability.findFirst({
-    where: eq(availabilityTable.day_of_week, dayOfWeek as any),
+    where: and(eq(availabilityTable.day_of_week, dayOfWeek as any), eq(availabilityTable.is_available, true)),
   });
   return hours;
 }
@@ -60,22 +118,43 @@ async function getActiveHolds(serviceId: number, bookingDate: string) {
   });
 }
 
-async function expireOldHolds(serviceId: number, bookingDate: string) {
+export async function expireOldHolds(serviceId?: number, bookingDate?: string) {
   const now = new Date();
+  const conditions = [eq(temporaryHolds.status, 'active'), lte(temporaryHolds.hold_expires_at, now)];
+  if (serviceId !== undefined) conditions.push(eq(temporaryHolds.service_id, serviceId));
+  if (bookingDate !== undefined) conditions.push(eq(temporaryHolds.booking_date, bookingDate));
+
   await db.update(temporaryHolds)
     .set({ status: 'expired' })
-    .where(
-      and(
-        eq(temporaryHolds.service_id, serviceId),
-        eq(temporaryHolds.booking_date, bookingDate),
-        eq(temporaryHolds.status, 'active'),
-        lte(temporaryHolds.hold_expires_at, now),
-      )
-    );
+    .where(and(...conditions));
 }
 
-function overlaps(slot1Start: number, slot1End: number, slot2Start: number, slot2End: number): boolean {
-  return slot1Start < slot2End && slot2Start < slot1End;
+async function getBusySettings() {
+  const bufferBefore = parseInt((await getSetting('buffer_before_booking')) || '0');
+  const bufferAfter = parseInt((await getSetting('buffer_after_booking')) || '0');
+  const increment = parseInt((await getSetting('booking_increment_minutes')) || '30');
+  const minAdvanceHours = parseFloat((await getSetting('min_advance_notice_hours')) || '1');
+  return { bufferBefore, bufferAfter, increment, minAdvanceHours };
+}
+
+function computeMinSlotStart(bookingDate: string, businessStart: number, minAdvanceHours: number): number {
+  const now = new Date();
+  const bookingDateTime = new Date(bookingDate + 'T00:00:00Z');
+  const minAdvanceMs = minAdvanceHours * 60 * 60 * 1000;
+  const minStartTime = now.getTime() + minAdvanceMs;
+  const bookingDateMs = bookingDateTime.getTime();
+
+  if (bookingDateMs + 24 * 60 * 60 * 1000 <= minStartTime) {
+    // Entire day is before the cutoff — no slot can qualify.
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  if (bookingDateMs <= minStartTime) {
+    const minStartMinutes = Math.ceil((minStartTime - bookingDateMs) / 60000);
+    return Math.max(businessStart, minStartMinutes);
+  }
+
+  return businessStart;
 }
 
 export async function getAvailableTimeSlotsForDate(
@@ -84,24 +163,19 @@ export async function getAvailableTimeSlotsForDate(
   durationMinutes: number
 ): Promise<TimeSlot[]> {
   try {
-    // Get date object from ISO string
     const date = new Date(bookingDate + 'T00:00:00Z');
     const dayOfWeek = getDayOfWeek(date);
 
-    // Get business hours
     const businessHours = await getBusinessHours(dayOfWeek);
     if (!businessHours) {
       return [];
     }
 
-    // Expire old holds
     await expireOldHolds(serviceId, bookingDate);
 
-    // Get all conflicting bookings
     const confirmedBookings = await getConfirmedBookings(serviceId, bookingDate);
     const activeHolds = await getActiveHolds(serviceId, bookingDate);
 
-    // Get blocked times for this date
     const dateStart = new Date(bookingDate + 'T00:00:00Z');
     const dateEnd = new Date(bookingDate + 'T23:59:59Z');
     const blockedForDate = await db.query.blockedTimes.findMany({
@@ -111,80 +185,38 @@ export async function getAvailableTimeSlotsForDate(
       ),
     });
 
-    // Get settings
-    const bufferBefore = parseInt(await getSetting('buffer_before_booking') || '0');
-    const bufferAfter = parseInt(await getSetting('buffer_after_booking') || '0');
-    const increment = parseInt(await getSetting('booking_increment_minutes') || '30');
-    const minAdvanceHours = parseInt(await getSetting('min_advance_notice_hours') || '24');
+    const { bufferBefore, bufferAfter, increment, minAdvanceHours } = await getBusySettings();
 
-    // Parse business hours
     const businessStart = timeToMinutes(businessHours.start_time);
     const businessEnd = timeToMinutes(businessHours.end_time);
+    const minSlotStart = computeMinSlotStart(bookingDate, businessStart, minAdvanceHours);
 
-    // Check advance notice
-    const now = new Date();
-    const bookingDateTime = new Date(bookingDate + 'T00:00:00Z');
-    const minAdvanceMs = minAdvanceHours * 60 * 60 * 1000;
-    const minStartTime = now.getTime() + minAdvanceMs;
-    const bookingDateMs = bookingDateTime.getTime();
+    const busyRanges: BusyRange[] = [
+      ...confirmedBookings.map((b) => ({
+        start: timeToMinutes(b.start_time) - bufferBefore,
+        end: timeToMinutes(b.end_time) + bufferAfter,
+      })),
+      ...activeHolds.map((h) => ({
+        start: timeToMinutes(h.start_time) - bufferBefore,
+        end: timeToMinutes(h.end_time) + bufferAfter,
+      })),
+    ];
 
-    let minSlotStart = businessStart;
-    if (bookingDateMs <= minStartTime) {
-      // Same day or advance notice not met
-      const minStartMinutes = Math.ceil((minStartTime - bookingDateMs) / 60000);
-      minSlotStart = Math.max(businessStart, minStartMinutes);
-    }
+    const blockedRanges: BusyRange[] = blockedForDate.map((blocked) => {
+      const blockStartMinutes = Math.floor((blocked.start_datetime.getTime() - dateStart.getTime()) / 60000);
+      const blockEndMinutes = Math.ceil((blocked.end_datetime.getTime() - dateStart.getTime()) / 60000);
+      return { start: blockStartMinutes, end: blockEndMinutes };
+    });
 
-    // Generate time slots
-    const slots: TimeSlot[] = [];
-    for (let slotStart = minSlotStart; slotStart + durationMinutes <= businessEnd; slotStart += increment) {
-      const slotEnd = slotStart + durationMinutes;
-
-      // Check for conflicts
-      let isAvailable = true;
-
-      // Check confirmed bookings
-      for (const booking of confirmedBookings) {
-        const bookingStart = timeToMinutes(booking.start_time);
-        const bookingEnd = timeToMinutes(booking.end_time);
-        if (overlaps(slotStart, slotEnd, bookingStart - bufferBefore, bookingEnd + bufferAfter)) {
-          isAvailable = false;
-          break;
-        }
-      }
-
-      // Check active holds
-      if (isAvailable) {
-        for (const hold of activeHolds) {
-          const holdStart = timeToMinutes(hold.start_time);
-          const holdEnd = timeToMinutes(hold.end_time);
-          if (overlaps(slotStart, slotEnd, holdStart - bufferBefore, holdEnd + bufferAfter)) {
-            isAvailable = false;
-            break;
-          }
-        }
-      }
-
-      // Check blocked times
-      if (isAvailable && blockedForDate.length > 0) {
-        const slotStartDate = new Date(bookingDate + 'T' + minutesToTime(slotStart) + ':00Z');
-        const slotEndDate = new Date(bookingDate + 'T' + minutesToTime(slotEnd) + ':00Z');
-        for (const blocked of blockedForDate) {
-          if (slotStartDate < blocked.end_datetime && blocked.start_datetime < slotEndDate) {
-            isAvailable = false;
-            break;
-          }
-        }
-      }
-
-      slots.push({
-        start: minutesToTime(slotStart),
-        end: minutesToTime(slotEnd),
-        available: isAvailable,
-      });
-    }
-
-    return slots;
+    return generateSlotsForDay({
+      businessStart,
+      businessEnd,
+      durationMinutes,
+      incrementMinutes: increment,
+      minSlotStart,
+      busyRanges,
+      blockedRanges,
+    });
   } catch (error) {
     console.error('Error getting available time slots:', error);
     return [];
@@ -194,10 +226,10 @@ export async function getAvailableTimeSlotsForDate(
 export async function getAvailableDates(
   serviceId: number,
   fromDate: string,
-  toDate: string
+  toDate: string,
+  durationMinutes = 60
 ): Promise<string[]> {
   try {
-    const durationMinutes = 60;
     const availableDates: string[] = [];
 
     let current = new Date(fromDate + 'T00:00:00Z');
@@ -221,19 +253,35 @@ export async function getAvailableDates(
   }
 }
 
+/**
+ * Authoritative server-side check that a specific requested slot is a real,
+ * currently-available slot for the service (correct business hours, not in
+ * the past, no conflicting booking/hold/blocked time). Used to defend
+ * create-hold against a client requesting a slot that was never actually
+ * offered.
+ */
+export async function isSlotActuallyAvailable(
+  serviceId: number,
+  bookingDate: string,
+  startTime: string,
+  endTime: string,
+  durationMinutes: number
+): Promise<boolean> {
+  const slots = await getAvailableTimeSlotsForDate(serviceId, bookingDate, durationMinutes);
+  return slots.some((s) => s.start === startTime && s.end === endTime && s.available);
+}
+
 export async function checkTimeSlotConflict(
   serviceId: number,
   bookingDate: string,
   startTime: string,
   endTime: string
 ): Promise<boolean> {
-  // Expire old holds first
   await expireOldHolds(serviceId, bookingDate);
 
   const startMinutes = timeToMinutes(startTime);
   const endMinutes = timeToMinutes(endTime);
 
-  // Check confirmed bookings
   const confirmedBookings = await getConfirmedBookings(serviceId, bookingDate);
   for (const booking of confirmedBookings) {
     const bookingStart = timeToMinutes(booking.start_time);
@@ -243,7 +291,6 @@ export async function checkTimeSlotConflict(
     }
   }
 
-  // Check active holds
   const activeHolds = await getActiveHolds(serviceId, bookingDate);
   for (const hold of activeHolds) {
     const holdStart = timeToMinutes(hold.start_time);
@@ -253,7 +300,6 @@ export async function checkTimeSlotConflict(
     }
   }
 
-  // Check blocked times
   const dateStart = new Date(bookingDate + 'T00:00:00Z');
   const dateEnd = new Date(bookingDate + 'T23:59:59Z');
   const blockedForDate = await db.query.blockedTimes.findMany({

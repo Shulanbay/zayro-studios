@@ -5,10 +5,12 @@ import {
   temporaryHolds,
   bookings,
   payments,
+  services,
   integrationLogs,
 } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { calculatePricing } from '@/lib/pricing';
+import { runPostConfirmationSideEffects } from '@/lib/postConfirmation';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
@@ -208,6 +210,22 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
         bookingIdString: existingBooking.booking_id,
         holdId,
       });
+
+      // Email + owner notification + calendar event. Best-effort: a
+      // failure here is logged but never reverses the confirmed booking.
+      const confirmedService = await db.query.services.findFirst({
+        where: eq(services.id, existingBooking.service_id),
+      });
+      if (confirmedService) {
+        const confirmedBooking = await db.query.bookings.findFirst({
+          where: eq(bookings.id, existingBooking.id),
+        });
+        if (confirmedBooking) {
+          await runPostConfirmationSideEffects(confirmedBooking, confirmedService).catch((err) =>
+            console.error('Post-confirmation side effects failed:', err)
+          );
+        }
+      }
 
       return NextResponse.json({
         received: true,

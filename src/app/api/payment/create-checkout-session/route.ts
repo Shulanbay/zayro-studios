@@ -10,15 +10,10 @@ import {
 } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { calculatePricing } from '@/lib/pricing';
+import { generateBookingId, isValidEmail, isValidPhone } from '@/lib/utils';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
-
-function generateBookingId(): string {
-  const timestamp = Date.now().toString(36).toUpperCase();
-  const random = Math.random().toString(36).substring(2, 8).toUpperCase();
-  return `BK-${timestamp}-${random}`;
-}
 
 export const dynamic = 'force-dynamic';
 
@@ -35,12 +30,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Email format validation
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return NextResponse.json(
-        { error: 'Invalid email format' },
-        { status: 400 }
-      );
+    if (!isValidEmail(email)) {
+      return NextResponse.json({ error: 'Invalid email format' }, { status: 400 });
+    }
+
+    if (!isValidPhone(phone)) {
+      return NextResponse.json({ error: 'Invalid phone number' }, { status: 400 });
     }
 
     // ========================================
@@ -60,7 +55,6 @@ export async function POST(request: NextRequest) {
 
     const now = new Date();
 
-    // Check if hold has expired
     if (hold.hold_expires_at <= now) {
       await logIntegration('stripe', null, 'failed', 'Hold expired');
       return NextResponse.json(
@@ -69,7 +63,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if hold is still active
     if (hold.status !== 'active') {
       await logIntegration('stripe', null, 'failed', 'Hold not active');
       return NextResponse.json(
@@ -78,8 +71,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // A hold created for a different customer's email cannot be checked out
+    // by someone else supplying different contact details.
+    if (hold.customer_email.toLowerCase() !== email.toLowerCase()) {
+      return NextResponse.json(
+        { error: 'This hold belongs to a different customer' },
+        { status: 403 }
+      );
+    }
+
     // ========================================
-    // GET SERVICE AND CALCULATE PRICING
+    // GET SERVICE AND CALCULATE PRICING (SERVER-SIDE, AUTHORITATIVE)
     // ========================================
     const service = await db.query.services.findFirst({
       where: eq(services.id, hold.service_id),
@@ -93,7 +95,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Calculate pricing server-side
     const pricing = await calculatePricing(hold.service_id);
 
     if (!pricing) {
@@ -101,6 +102,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Could not calculate pricing' },
         { status: 500 }
+      );
+    }
+
+    // Free services never go through Stripe — the client must call
+    // /api/booking/confirm-free instead. This also blocks a tampered
+    // client from routing a paid service into a "free" confirmation path,
+    // since the server (not the client) decides which path is valid.
+    if (pricing.total <= 0) {
+      return NextResponse.json(
+        { error: 'This service has no charge; use the free booking confirmation instead.', freeBooking: true },
+        { status: 400 }
       );
     }
 
@@ -123,7 +135,11 @@ export async function POST(request: NextRequest) {
                 holdId: hold.id,
               },
             },
-            unit_amount: pricing.subtotal,
+            // Charge the tax-inclusive total as a single line item so the
+            // amount Stripe actually collects matches what the webhook
+            // validates against (pricing.total). The subtotal/tax split is
+            // still shown to the customer in our own UI and emails.
+            unit_amount: pricing.total,
           },
           quantity: 1,
         },
@@ -152,7 +168,6 @@ export async function POST(request: NextRequest) {
     const bookingIdString = generateBookingId();
     const bookingId = crypto.randomUUID();
 
-    // Get or create customer
     let customerId: string;
     const existingCustomer = await db.query.customers.findFirst({
       where: eq(customers.email, email),
@@ -160,6 +175,10 @@ export async function POST(request: NextRequest) {
 
     if (existingCustomer) {
       customerId = existingCustomer.id;
+      await db
+        .update(customers)
+        .set({ first_name: firstName, last_name: lastName, phone, company: company || null, updated_at: now })
+        .where(eq(customers.id, existingCustomer.id));
     } else {
       const newCustomers = await db
         .insert(customers)
@@ -175,7 +194,6 @@ export async function POST(request: NextRequest) {
       customerId = newCustomers[0].id;
     }
 
-    // Create payment_pending booking
     await db.insert(bookings).values({
       id: bookingId,
       booking_id: bookingIdString,
@@ -201,7 +219,6 @@ export async function POST(request: NextRequest) {
       updated_at: now,
     });
 
-    // Create payment record
     await db.insert(payments).values({
       booking_id: bookingId,
       stripe_payment_id: session.id,

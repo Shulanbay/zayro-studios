@@ -25,6 +25,7 @@ interface BookingConfirmation {
 function SuccessContent() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('session_id');
+  const bookingId = searchParams.get('booking_id');
 
   const [booking, setBooking] = useState<BookingConfirmation | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,19 +33,24 @@ function SuccessContent() {
 
   useEffect(() => {
     async function verifyBooking() {
-      if (!sessionId) {
-        setError('No session found');
+      if (!sessionId && !bookingId) {
+        setError('No booking reference found');
         setLoading(false);
         return;
       }
 
       try {
-        // Query server for booking status
-        const response = await fetch(`/api/booking/verify-session`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId }),
-        });
+        // Query server for booking status — paid bookings verify via the
+        // Stripe session, free bookings verify via the booking ID directly.
+        // Either way the server (not the URL) is the source of truth.
+        const response = await fetch(
+          sessionId ? '/api/booking/verify-session' : '/api/booking/verify-booking',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sessionId ? { sessionId } : { bookingId }),
+          }
+        );
 
         if (!response.ok) {
           throw new Error('Failed to verify booking');
@@ -68,7 +74,7 @@ function SuccessContent() {
     }
 
     verifyBooking();
-  }, [sessionId]);
+  }, [sessionId, bookingId]);
 
   if (loading) {
     return (

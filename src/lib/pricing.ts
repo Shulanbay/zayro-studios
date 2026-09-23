@@ -2,12 +2,29 @@ import { db } from './db';
 import { services, businessSettings } from './db/schema';
 import { eq } from 'drizzle-orm';
 
-interface PricingCalculation {
+export interface PricingCalculation {
   subtotal: number; // in cents
   taxAmount: number; // in cents
   total: number; // in cents
   currency: string;
   taxRate: number;
+}
+
+/**
+ * Pure pricing math — no DB access, safe to unit test directly.
+ */
+export function computePricing(basePriceDollars: number, taxRate: number): PricingCalculation {
+  const subtotal = Math.round(basePriceDollars * 100);
+  const taxAmount = Math.round(subtotal * taxRate);
+  const total = subtotal + taxAmount;
+
+  return {
+    subtotal,
+    taxAmount,
+    total,
+    currency: 'USD',
+    taxRate,
+  };
 }
 
 async function getTaxRate(): Promise<number> {
@@ -27,7 +44,7 @@ async function getTaxRate(): Promise<number> {
   }
 }
 
-async function getServicePrice(serviceId: number): Promise<number | null> {
+async function getServiceBasePrice(serviceId: number): Promise<number | null> {
   try {
     const service = await db.query.services.findFirst({
       where: eq(services.id, serviceId),
@@ -37,8 +54,7 @@ async function getServicePrice(serviceId: number): Promise<number | null> {
       return null;
     }
 
-    // Convert decimal to cents (integer)
-    return Math.round(parseFloat(service.base_price) * 100);
+    return parseFloat(service.base_price);
   } catch (error) {
     console.error('Error getting service price:', error);
     return null;
@@ -47,23 +63,14 @@ async function getServicePrice(serviceId: number): Promise<number | null> {
 
 export async function calculatePricing(serviceId: number): Promise<PricingCalculation | null> {
   try {
-    const subtotal = await getServicePrice(serviceId);
+    const basePrice = await getServiceBasePrice(serviceId);
 
-    if (subtotal === null) {
+    if (basePrice === null) {
       return null;
     }
 
     const taxRate = await getTaxRate();
-    const taxAmount = Math.round(subtotal * taxRate);
-    const total = subtotal + taxAmount;
-
-    return {
-      subtotal,
-      taxAmount,
-      total,
-      currency: 'USD',
-      taxRate,
-    };
+    return computePricing(basePrice, taxRate);
   } catch (error) {
     console.error('Error calculating pricing:', error);
     return null;
