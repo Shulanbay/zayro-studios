@@ -3,6 +3,7 @@ import { getAdminSession } from '@/lib/adminAuth';
 import { db } from '@/lib/db';
 import { bookings } from '@/lib/db/schema';
 import { and, eq, or, ilike } from 'drizzle-orm';
+import { toDateOnly } from '@/lib/utils';
 import {
   AdminAvailabilityManager,
   AdminBlockedTimesManager,
@@ -131,7 +132,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                     <div className="text-zayro-gray text-xs">{b.customer_email}</div>
                   </td>
                   <td className="px-4 text-zayro-gray">
-                    {b.booking_date} {b.start_time}-{b.end_time}
+                    {toDateOnly(b.booking_date)} {b.start_time}-{b.end_time}
                   </td>
                   <td className="px-4">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColor[b.status] || ''}`}>{b.status}</span>

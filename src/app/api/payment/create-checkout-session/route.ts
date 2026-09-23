@@ -10,7 +10,7 @@ import {
 } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { calculatePricing } from '@/lib/pricing';
-import { generateBookingId, isValidEmail, isValidPhone, getBaseUrl } from '@/lib/utils';
+import { generateBookingId, isValidEmail, isValidPhone, getBaseUrl, formatBookingDateUTC } from '@/lib/utils';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
     // ========================================
     // CREATE STRIPE CHECKOUT SESSION
     // ========================================
-    const bookingDateTime = `${hold.booking_date} ${hold.start_time} ET`;
+    const bookingDateTime = `${formatBookingDateUTC(hold.booking_date)}, ${hold.start_time} ET`;
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],

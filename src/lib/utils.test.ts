@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isValidEmail, isValidPhone, generateBookingId, getBaseUrl } from './utils';
+import { isValidEmail, isValidPhone, generateBookingId, getBaseUrl, formatBookingDateUTC, toDateOnly } from './utils';
 import type { NextRequest } from 'next/server';
 
 describe('isValidEmail', () => {
@@ -50,5 +50,32 @@ describe('getBaseUrl', () => {
     process.env.NEXTAUTH_URL = 'https://example.test';
     expect(getBaseUrl()).toBe('https://example.test');
     process.env.NEXTAUTH_URL = original;
+  });
+});
+
+describe('formatBookingDateUTC / toDateOnly', () => {
+  // Regression coverage: production testing found that postgres-js hands
+  // back `date` columns as either a bare "YYYY-MM-DD" string, a full ISO
+  // timestamp string (after JSON serialization of a Date), or an actual
+  // Date object depending on the code path — and naive `new Date(x)` /
+  // string concatenation on that value shifted the displayed day by one
+  // for any viewer behind UTC, or produced "Invalid Date" / a raw
+  // toString() dump in Stripe's checkout description.
+  it('formats a bare date string without a day shift', () => {
+    expect(formatBookingDateUTC('2026-09-26')).toBe('Saturday, September 26, 2026');
+  });
+
+  it('formats a full ISO timestamp string the same way', () => {
+    expect(formatBookingDateUTC('2026-09-26T00:00:00.000Z')).toBe('Saturday, September 26, 2026');
+  });
+
+  it('formats an actual Date object the same way', () => {
+    expect(formatBookingDateUTC(new Date('2026-09-26T00:00:00.000Z'))).toBe('Saturday, September 26, 2026');
+  });
+
+  it('toDateOnly normalizes all three shapes to the same YYYY-MM-DD', () => {
+    expect(toDateOnly('2026-09-26')).toBe('2026-09-26');
+    expect(toDateOnly('2026-09-26T00:00:00.000Z')).toBe('2026-09-26');
+    expect(toDateOnly(new Date('2026-09-26T00:00:00.000Z'))).toBe('2026-09-26');
   });
 });

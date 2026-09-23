@@ -54,6 +54,32 @@ export function minutesToTime(minutes: number): string {
 }
 
 // Date formatting
+/**
+ * Formats a SQL `date` value for display, safe regardless of whether the
+ * driver handed it back as a bare "YYYY-MM-DD" string, a full ISO
+ * timestamp string, or an actual Date object (postgres-js has returned all
+ * three depending on context in this codebase). Always anchors to UTC on
+ * both ends so the calendar date never shifts by a day for viewers behind
+ * UTC.
+ */
+export function formatBookingDateUTC(value: string | Date): string {
+  const raw = value instanceof Date ? value.toISOString() : value;
+  const datePart = raw.slice(0, 10);
+  return new Date(datePart + 'T00:00:00Z').toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** Same as formatBookingDateUTC but short "YYYY-MM-DD" output, e.g. for admin tables. */
+export function toDateOnly(value: string | Date): string {
+  const raw = value instanceof Date ? value.toISOString() : value;
+  return raw.slice(0, 10);
+}
+
 export function formatDate(dateStr: string): string {
   const date = new Date(dateStr);
   return date.toLocaleDateString('en-US', {

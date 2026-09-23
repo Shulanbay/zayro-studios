@@ -9,7 +9,7 @@ import {
 } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { calculatePricing } from '@/lib/pricing';
-import { generateBookingId, isValidEmail, isValidPhone } from '@/lib/utils';
+import { generateBookingId, isValidEmail, isValidPhone, toDateOnly } from '@/lib/utils';
 import { runPostConfirmationSideEffects } from '@/lib/postConfirmation';
 
 export const dynamic = 'force-dynamic';
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
           where: eq(bookings.customer_email, email),
           orderBy: (b, { desc }) => [desc(b.created_at)],
         });
-        if (existing && existing.booking_date === hold.booking_date && existing.start_time === hold.start_time) {
+        if (existing && toDateOnly(existing.booking_date) === toDateOnly(hold.booking_date) && existing.start_time === hold.start_time) {
           return NextResponse.json({ status: 'already_confirmed', bookingId: existing.booking_id });
         }
       }

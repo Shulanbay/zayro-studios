@@ -1,20 +1,11 @@
 import { Resend } from 'resend';
 import type { Booking, Service } from './db/schema';
+import { formatBookingDateUTC as formatBookingDate } from './utils';
 
 function getResendClient(): Resend | null {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return null;
   return new Resend(apiKey);
-}
-
-function formatBookingDate(dateStr: string): string {
-  return new Date(dateStr + 'T00:00:00Z').toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
 }
 
 interface BookingEmailData {
@@ -75,7 +66,7 @@ export async function sendOwnerNotificationEmail({ booking, service }: BookingEm
     await resend.emails.send({
       from: `ZAYRO Studios <${from}>`,
       to: ownerEmail,
-      subject: `New Booking: ${service.name} on ${booking.booking_date}`,
+      subject: `New Booking: ${service.name} on ${formatBookingDate(booking.booking_date)}`,
       html: `
         <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto;">
           <h1 style="font-size: 20px;">New booking received</h1>

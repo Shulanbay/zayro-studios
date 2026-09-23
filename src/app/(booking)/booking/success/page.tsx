@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { formatBookingDateUTC } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -150,14 +151,7 @@ function SuccessContent() {
 
             <div className="card">
               <h3 className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-2">Date & Time</h3>
-              <p className="text-xl font-black text-zayro-dark">
-                {new Date(booking.bookingDate + 'T00:00:00').toLocaleDateString('en-US', {
-                  weekday: 'long',
-                  month: 'long',
-                  day: 'numeric',
-                  year: 'numeric',
-                })}
-              </p>
+              <p className="text-xl font-black text-zayro-dark">{formatBookingDateUTC(booking.bookingDate)}</p>
               <p className="text-lg font-bold mt-1 text-zayro-primary">
                 {booking.startTime} - {booking.endTime} ET · {booking.durationMinutes} min
               </p>

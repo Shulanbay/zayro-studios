@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import type { Booking, Service } from './db/schema';
+import { toDateOnly } from './utils';
 
 function isConfigured(): boolean {
   return !!(
@@ -41,8 +42,9 @@ export async function createCalendarEventForBooking(
     const calendar = getCalendarClient();
     const calendarId = process.env.GOOGLE_CALENDAR_ID!;
 
-    const startDateTime = `${booking.booking_date}T${booking.start_time}:00`;
-    const endDateTime = `${booking.booking_date}T${booking.end_time}:00`;
+    const datePart = toDateOnly(booking.booking_date);
+    const startDateTime = `${datePart}T${booking.start_time}:00`;
+    const endDateTime = `${datePart}T${booking.end_time}:00`;
 
     const event = await calendar.events.insert({
       calendarId,
