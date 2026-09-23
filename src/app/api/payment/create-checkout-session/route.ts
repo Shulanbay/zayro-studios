@@ -159,7 +159,15 @@ export async function POST(request: NextRequest) {
         companyName: company || '',
         notes: notes || '',
       },
-      expires_at: Math.floor(hold.hold_expires_at.getTime() / 1000),
+      // Stripe requires expires_at to be at least 30 minutes out, but our
+      // hold is shorter (15 min by default) — so the Stripe session outlives
+      // the hold. The webhook re-validates the slot is still actually free
+      // (not just that the hold object is still 'active') before confirming,
+      // so a late payment can't silently create a double-booking.
+      expires_at: Math.max(
+        Math.floor(hold.hold_expires_at.getTime() / 1000),
+        Math.floor(Date.now() / 1000) + 30 * 60
+      ),
     });
 
     // ========================================

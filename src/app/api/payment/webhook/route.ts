@@ -174,6 +174,35 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
         );
       }
 
+      // Our hold (15 min) is shorter than Stripe's minimum session
+      // lifetime (30 min), so a payment can land after the hold object
+      // itself has expired. Don't trust the hold's own status for that —
+      // re-check the actual slot for a conflicting CONFIRMED booking made
+      // by someone else in the meantime. Payment already succeeded either
+      // way, so on conflict we flag for manual review/refund instead of
+      // silently double-booking the slot.
+      const conflictingBooking = await db.query.bookings.findFirst({
+        where: and(
+          eq(bookings.service_id, existingBooking.service_id),
+          eq(bookings.booking_date, existingBooking.booking_date),
+          eq(bookings.start_time, existingBooking.start_time),
+          eq(bookings.status, 'confirmed')
+        ),
+      });
+
+      if (conflictingBooking && conflictingBooking.id !== existingBooking.id) {
+        await logWebhook(session.id, 'failed', 'Slot was booked by someone else before this payment landed — needs manual refund review', {
+          bookingId: existingBooking.id,
+          conflictingBookingId: conflictingBooking.id,
+          holdId,
+        });
+        return NextResponse.json({
+          received: true,
+          status: 'conflict_needs_manual_review',
+          bookingId: existingBooking.id,
+        });
+      }
+
       // Update and confirm the booking in a transaction
       await db.transaction(async (tx) => {
         // Update booking to confirmed
