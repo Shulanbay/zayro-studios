@@ -4,9 +4,10 @@ Every confirmed booking is mirrored to Google:
 
 | Booking | Google Calendar | Google Sheet tab |
 | --- | --- | --- |
-| Paid (Stripe payment succeeded) | event | **Paid Bookings** |
+| Paid podcast or photography session (Stripe payment succeeded) | event | **Paid Bookings** |
 | Service with category `tour` (e.g. Free Studio Tour) | event | **Studio Tours** |
 | Any other $0 service | event | — (not recorded) |
+| Monthly package (category `package`) | — (never a time slot) | — (requested via contact form, not a studio session) |
 | Pending / payment_pending / failed / cancelled | — | — |
 
 A $0 price never makes a booking a tour — only the service category `tour` does.
