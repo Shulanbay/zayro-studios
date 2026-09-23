@@ -297,6 +297,13 @@ select:disabled {
   padding: 2rem;
   box-shadow: var(--shadow-sm);
   transition: transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out), border-color 0.25s var(--ease-out);
+  /* Cards are sometimes rendered as <button> (e.g. selectable service
+     cards). The base button rule sets white-space: nowrap for small
+     buttons' labels — that must not leak into card content, which is
+     paragraph text that needs to wrap normally on narrow viewports. */
+  white-space: normal;
+  width: 100%;
+  text-align: left;
 }
 
 .card-interactive {
