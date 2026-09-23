@@ -298,9 +298,13 @@ select:disabled {
   box-shadow: var(--shadow-sm);
   transition: transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out), border-color 0.25s var(--ease-out);
   /* Cards are sometimes rendered as <button> (e.g. selectable service
-     cards). The base button rule sets white-space: nowrap for small
-     buttons' labels — that must not leak into card content, which is
-     paragraph text that needs to wrap normally on narrow viewports. */
+     cards). The base button rule makes buttons `display: inline-flex`
+     with a row direction, centered content, and white-space: nowrap —
+     all correct for a compact button label, all wrong for a card whose
+     children (heading, paragraph, price row) need to stack vertically
+     and wrap normally. `display: block` drops the flex behavior
+     entirely so a card-as-button lays out identically to a card-as-div. */
+  display: block;
   white-space: normal;
   width: 100%;
   text-align: left;
