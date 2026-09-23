@@ -151,7 +151,7 @@ function SuccessContent() {
             <div className="card">
               <h3 className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-2">Date & Time</h3>
               <p className="text-xl font-black text-zayro-dark">
-                {new Date(booking.bookingDate).toLocaleDateString('en-US', {
+                {new Date(booking.bookingDate + 'T00:00:00').toLocaleDateString('en-US', {
                   weekday: 'long',
                   month: 'long',
                   day: 'numeric',
