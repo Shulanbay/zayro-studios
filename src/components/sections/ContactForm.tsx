@@ -34,55 +34,54 @@ export default function ContactForm() {
 
   if (status === 'sent') {
     return (
-      <div className="max-w-xl mx-auto text-center bg-white border border-zayro-bg p-8">
-        <h2 className="text-2xl font-bold mb-2">Message sent</h2>
+      <div className="max-w-xl mx-auto text-center card">
+        <h2 className="text-2xl font-bold mb-2 text-zayro-dark">Message sent</h2>
         <p className="text-zayro-gray">Thanks for reaching out — we'll get back to you soon.</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-xl mx-auto">
-      <h2 className="text-3xl font-bold mb-6 text-center">Send us a Message</h2>
+    <div className="max-w-xl mx-auto card">
+      <h2 className="text-2xl font-bold mb-6 text-center text-zayro-dark">Send us a Message</h2>
 
-      <form className="space-y-4" onSubmit={handleSubmit}>
+      <form className="space-y-5" onSubmit={handleSubmit}>
         <div>
-          <label className="block text-sm font-semibold mb-2">Name</label>
+          <label htmlFor="contact-name" className="field-label">Name</label>
           <input
+            id="contact-name"
             type="text"
-            placeholder="Your name"
+            autoComplete="name"
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            className="w-full px-4 py-3 border border-zayro-bg rounded focus:border-zayro-primary focus:outline-none"
             required
           />
         </div>
 
         <div>
-          <label className="block text-sm font-semibold mb-2">Email</label>
+          <label htmlFor="contact-email" className="field-label">Email</label>
           <input
+            id="contact-email"
             type="email"
-            placeholder="your@email.com"
+            autoComplete="email"
             value={form.email}
             onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-            className="w-full px-4 py-3 border border-zayro-bg rounded focus:border-zayro-primary focus:outline-none"
             required
           />
         </div>
 
         <div>
-          <label className="block text-sm font-semibold mb-2">Message</label>
+          <label htmlFor="contact-message" className="field-label">Message</label>
           <textarea
-            placeholder="Your message..."
+            id="contact-message"
             rows={6}
             value={form.message}
             onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
-            className="w-full px-4 py-3 border border-zayro-bg rounded focus:border-zayro-primary focus:outline-none"
             required
           />
         </div>
 
-        {error && <p className="text-red-600 text-sm">{error}</p>}
+        {error && <p className="field-error" role="alert">{error}</p>}
 
         <button type="submit" disabled={status === 'sending'} className="button button-primary w-full disabled:opacity-50">
           {status === 'sending' ? 'Sending...' : 'Send Message'}

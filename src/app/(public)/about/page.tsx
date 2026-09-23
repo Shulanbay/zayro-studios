@@ -8,63 +8,60 @@ export const metadata: Metadata = {
 export default function AboutPage() {
   return (
     <main>
-      <section className="py-16 md:py-24 bg-zayro-bg">
+      <section className="section-padding surface-soft">
         <div className="container max-w-3xl">
-          <h1 className="text-5xl md:text-6xl font-bold mb-6">
+          <h1 className="text-5xl md:text-6xl font-bold mb-6 text-zayro-dark">
             About ZAYRO Studios
           </h1>
           <p className="text-xl text-zayro-gray leading-relaxed">
-            Premium podcast and video recording studio in the heart of Midtown Manhattan.
+            A podcast and video recording studio in the heart of Midtown Manhattan.
           </p>
         </div>
       </section>
 
-      <section className="py-16 md:py-24 bg-white">
-        <div className="container max-w-3xl space-y-8">
-          <div>
-            <h2 className="text-3xl font-bold mb-4">Our Mission</h2>
+      <section className="section-padding bg-white">
+        <div className="container max-w-3xl space-y-6">
+          <div className="card">
+            <h2 className="text-2xl font-bold mb-4 text-zayro-dark">Our Mission</h2>
             <p className="text-zayro-gray leading-relaxed">
-              To empower creators and podcasters with professional-grade equipment and expertise,
-              making high-quality content production accessible and effortless. We believe that
-              great content deserves great production.
+              To give creators and podcasters access to professional-grade equipment and a space
+              built for focused, high-quality recording — without needing a production team of their own.
             </p>
           </div>
 
-          <div>
-            <h2 className="text-3xl font-bold mb-4">Why ZAYRO?</h2>
+          <div className="card">
+            <h2 className="text-2xl font-bold mb-4 text-zayro-dark">Why ZAYRO?</h2>
             <p className="text-zayro-gray leading-relaxed mb-4">
-              Built by creators, for creators. We understand what it takes to produce professional
-              content at scale. Our team has years of experience in podcasting, video production,
-              and live streaming.
+              Every session comes with multi-camera 4K video, broadcast-quality audio, and a producer
+              on hand — you show up and record, we handle the technical side.
             </p>
             <p className="text-zayro-gray leading-relaxed">
-              We don't just rent studio space. We provide a complete creative partner experience,
-              from booking to delivery.
+              We don't just rent studio space. Editing and fast delivery are part of every booking.
             </p>
           </div>
 
-          <div>
-            <h2 className="text-3xl font-bold mb-4">Our Commitment</h2>
+          <div className="card">
+            <h2 className="text-2xl font-bold mb-4 text-zayro-dark">Our Commitment</h2>
             <ul className="space-y-3 text-zayro-gray">
               <li className="flex gap-3">
-                <span className="text-zayro-primary">✓</span>
-                <span>Professional-grade equipment always</span>
+                <span className="text-zayro-primary" aria-hidden="true">✓</span>
+                <span>Professional-grade equipment, every session</span>
               </li>
               <li className="flex gap-3">
-                <span className="text-zayro-primary">✓</span>
-                <span>Fast, reliable turnaround</span>
+                <span className="text-zayro-primary" aria-hidden="true">✓</span>
+                <span>Fast, reliable turnaround on editing and delivery</span>
               </li>
               <li className="flex gap-3">
-                <span className="text-zayro-primary">✓</span>
-                <span>Expert support throughout your session</span>
+                <span className="text-zayro-primary" aria-hidden="true">✓</span>
+                <span>Support throughout your session</span>
               </li>
               <li className="flex gap-3">
-                <span className="text-zayro-primary">✓</span>
-                <span>Transparent, competitive pricing</span>
+                <span className="text-zayro-primary" aria-hidden="true">✓</span>
+                <span>Transparent, upfront pricing</span>
               </li>
               <li className="flex gap-3">
-                <span className="text-zayro-primary">✓</span>
-                <span>Premium NYC location</span>
+                <span className="text-zayro-primary" aria-hidden="true">✓</span>
+                <span>Midtown Manhattan location</span>
               </li>
             </ul>
           </div>

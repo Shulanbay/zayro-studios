@@ -48,29 +48,43 @@ export default function FAQSection() {
           Everything you need to know about booking and using ZAYRO Studios.
         </p>
 
-        <div className="space-y-0">
-          {faqs.map((faq, idx) => (
-            <div
-              key={idx}
-              className="border-b border-zayro-gray py-6 cursor-pointer group"
-              onClick={() => setOpenIndex(openIndex === idx ? null : idx)}
-            >
-              <div className="flex items-start justify-between gap-6">
-                <h3 className="text-lg md:text-xl font-semibold text-zayro-dark flex-1 group-hover:text-zayro-primary transition-colors">
-                  {faq.question}
+        <div className="space-y-3">
+          {faqs.map((faq, idx) => {
+            const panelId = `faq-panel-${idx}`;
+            const buttonId = `faq-button-${idx}`;
+            const isOpen = openIndex === idx;
+            return (
+              <div key={idx} className="card overflow-hidden">
+                <h3>
+                  <button
+                    id={buttonId}
+                    type="button"
+                    className="w-full flex items-start justify-between gap-6 text-left"
+                    aria-expanded={isOpen}
+                    aria-controls={panelId}
+                    onClick={() => setOpenIndex(isOpen ? null : idx)}
+                  >
+                    <span className="text-lg font-semibold text-zayro-dark">{faq.question}</span>
+                    <span
+                      className={`text-xl text-zayro-primary flex-shrink-0 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
+                      aria-hidden="true"
+                    >
+                      ▾
+                    </span>
+                  </button>
                 </h3>
-                <span className={`text-2xl text-zayro-primary flex-shrink-0 transition-transform ${openIndex === idx ? 'rotate-180' : ''}`}>
-                  ▼
-                </span>
-              </div>
 
-              {openIndex === idx && (
-                <p className="mt-6 text-zayro-gray leading-relaxed font-light">
-                  {faq.answer}
-                </p>
-              )}
-            </div>
-          ))}
+                <div
+                  id={panelId}
+                  role="region"
+                  aria-labelledby={buttonId}
+                  className={`grid transition-all duration-300 ease-out ${isOpen ? 'grid-rows-[1fr] mt-4' : 'grid-rows-[0fr]'}`}
+                >
+                  <p className="overflow-hidden text-zayro-gray leading-relaxed font-light">{faq.answer}</p>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         <div className="mt-12 text-center">

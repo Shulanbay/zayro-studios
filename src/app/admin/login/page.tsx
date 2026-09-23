@@ -27,33 +27,39 @@ function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zayro-bg px-4">
-      <div className="bg-white border border-zayro-bg p-8 md:p-12 max-w-md w-full">
-        <h1 className="text-3xl font-black mb-2">ADMIN SIGN IN</h1>
-        <p className="text-zayro-gray mb-8">ZAYRO Studios</p>
+    <div className="min-h-screen flex items-center justify-center surface-soft px-4">
+      <div className="card max-w-md w-full">
+        <h1 className="text-2xl font-black mb-1 text-zayro-dark">Admin Sign In</h1>
+        <p className="text-zayro-gray mb-8 text-sm">ZAYRO Studios</p>
 
         {urlError && !sent && (
-          <p className="text-red-600 text-sm mb-6">
+          <p className="field-error mb-6" role="alert">
             {urlError === 'invalid_or_expired' ? 'That sign-in link expired or was already used. Request a new one below.' : 'Sign-in failed. Please try again.'}
           </p>
         )}
 
         {sent ? (
-          <p className="text-zayro-gray">
-            If that email is an admin account, a sign-in link was just sent. Check your inbox — the link expires in 15 minutes.
+          <p className="text-zayro-gray" role="status">
+            If that email is an admin account, a sign-in link was just sent. Check your inbox — the link expires in 15 minutes and can only be used once.
           </p>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
-            <input
-              type="email"
-              required
-              placeholder="you@zayro.studio"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-4 border border-zayro-bg text-lg"
-            />
-            <button type="submit" disabled={loading} className="button button-primary w-full py-3 disabled:opacity-50">
-              {loading ? 'Sending...' : 'Send sign-in link'}
+            <div>
+              <label htmlFor="admin-email" className="field-label">
+                Email
+              </label>
+              <input
+                id="admin-email"
+                type="email"
+                required
+                autoComplete="email"
+                placeholder="you@zayro.studio"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <button type="submit" disabled={loading} className={`button button-primary w-full py-3 ${loading ? 'is-loading' : ''}`}>
+              Send Sign-in Link
             </button>
           </form>
         )}

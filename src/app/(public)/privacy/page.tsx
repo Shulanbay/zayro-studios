@@ -8,16 +8,16 @@ export const metadata: Metadata = {
 export default function PrivacyPage() {
   return (
     <main>
-      <section className="py-16 md:py-24 bg-zayro-bg">
+      <section className="section-padding surface-soft">
         <div className="container">
-          <h1 className="text-5xl md:text-6xl font-bold mb-4">
+          <h1 className="text-5xl md:text-6xl font-bold mb-4 text-zayro-dark">
             Privacy Policy
           </h1>
         </div>
       </section>
 
-      <section className="py-16 md:py-24 bg-white">
-        <div className="container max-w-3xl prose prose-sm">
+      <section className="section-padding bg-white">
+        <div className="container max-w-3xl card">
           <p className="text-zayro-gray leading-relaxed mb-6">
             Last updated: {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
           </p>

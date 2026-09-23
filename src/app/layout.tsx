@@ -13,20 +13,12 @@ export const metadata: Metadata = {
     description: 'Premium podcast and video recording studio in Midtown Manhattan',
     url: 'https://zayro.studio',
     siteName: 'ZAYRO Studios',
-    images: [
-      {
-        url: '/og-image.jpg',
-        width: 1200,
-        height: 630,
-      },
-    ],
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'ZAYRO Studios | Podcast & Video Studio NYC',
     description: 'Professional podcast and video recording studio in Midtown Manhattan',
-    images: ['/og-image.jpg'],
   },
   robots: {
     index: true,
@@ -44,32 +36,61 @@ export const metadata: Metadata = {
   },
 };
 
+const localBusinessJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'LocalBusiness',
+  name: 'ZAYRO Studios',
+  url: 'https://zayro.studio',
+  email: 'hello@zayro.studio',
+  address: {
+    '@type': 'PostalAddress',
+    streetAddress: '40 W 37th St, Suite 603',
+    addressLocality: 'New York',
+    addressRegion: 'NY',
+    postalCode: '10018',
+    addressCountry: 'US',
+  },
+};
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const gaId = process.env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID;
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <link rel="canonical" href="https://zayro.studio" />
+        <script
+          type="application/ld+json"
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }}
+        />
       </head>
       <body className="bg-zayro-bg text-zayro-dark">
+        <a href="#main-content" className="skip-link">
+          Skip to content
+        </a>
         <Header />
-        <main className="min-h-screen">
+        <main id="main-content" className="min-h-screen">
           {children}
         </main>
         <Footer />
 
-        {/* Analytics Scripts */}
-        {process.env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID && (
-          <script
-            async
-            src={`https://www.googletagmanager.com/gtag/js?id=${process.env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID}`}
-          />
+        {gaId && (
+          <>
+            <script async src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`} />
+            <script
+              // eslint-disable-next-line react/no-danger
+              dangerouslySetInnerHTML={{
+                __html: `window.dataLayer = window.dataLayer || [];function gtag(){dataLayer.push(arguments);}gtag('js', new Date());gtag('config', '${gaId}');`,
+              }}
+            />
+          </>
         )}
       </body>
     </html>

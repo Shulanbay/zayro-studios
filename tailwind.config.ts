@@ -9,20 +9,38 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // ZAYRO Brand Colors
-        'zayro-primary': '#315CFF', // Electric Blue
-        'zayro-dark': '#0A0A0B', // Dark/Black
-        'zayro-bg': '#F7F7F5', // Off-white background
-        'zayro-white': '#FFFFFF', // White
-        'zayro-gray': '#8A8A8F', // Gray
+        // ZAYRO Brand Colors — light, cool, premium-service palette
+        'zayro-primary': '#3D7DFF', // Blue
+        'zayro-primary-deep': '#2557D6',
+        'zayro-sky': '#8ED8FF',
+        'zayro-violet': '#625CFF',
+        'zayro-dark': '#0B1220', // Deep navy (not pure black)
+        'zayro-bg': '#F4F8FC', // Cool off-white background
+        'zayro-white': '#FFFFFF',
+        'zayro-gray': '#5B6472', // Secondary text
+        'zayro-border': '#E3E9F2',
 
         // Semantic colors
-        'primary': '#315CFF',
-        'dark': '#0A0A0B',
-        'light': '#F7F7F5',
-        'text-primary': '#0A0A0B',
-        'text-secondary': '#8A8A8F',
-        'border-color': '#E5E5E3',
+        'primary': '#3D7DFF',
+        'dark': '#0B1220',
+        'light': '#F4F8FC',
+        'text-primary': '#0B1220',
+        'text-secondary': '#5B6472',
+        'border-color': '#E3E9F2',
+      },
+      backgroundImage: {
+        'gradient-cta': 'linear-gradient(135deg, #6FC3FF 0%, #3D7DFF 50%, #5750E8 100%)',
+        'gradient-soft': 'linear-gradient(160deg, #EAF4FF 0%, #F4F8FC 60%)',
+        'gradient-dark': 'linear-gradient(160deg, #101832 0%, #0B1220 70%)',
+      },
+      borderRadius: {
+        'md-plus': '18px',
+        'xl-plus': '28px',
+      },
+      boxShadow: {
+        'soft': '0 8px 24px rgba(11, 18, 32, 0.08)',
+        'lift': '0 20px 48px rgba(11, 18, 32, 0.10)',
+        'glow': '0 8px 30px rgba(61, 125, 255, 0.35)',
       },
       fontFamily: {
         'sans': ['system-ui', '-apple-system', 'sans-serif'],

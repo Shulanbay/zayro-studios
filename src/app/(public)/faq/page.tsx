@@ -9,9 +9,9 @@ export const metadata: Metadata = {
 export default function FAQPage() {
   return (
     <main>
-      <section className="py-16 md:py-24 bg-zayro-bg">
+      <section className="section-padding surface-soft">
         <div className="container">
-          <h1 className="text-5xl md:text-6xl font-bold mb-4">
+          <h1 className="text-5xl md:text-6xl font-bold mb-4 text-zayro-dark">
             Frequently Asked Questions
           </h1>
           <p className="text-xl text-zayro-gray">

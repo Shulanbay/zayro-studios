@@ -78,21 +78,22 @@ function SuccessContent() {
 
   if (loading) {
     return (
-      <div className="container py-32 text-center">
-        <h1 className="text-4xl font-black mb-4">Verifying Payment...</h1>
-        <p className="text-lg text-zayro-gray">Please wait while we confirm your booking.</p>
+      <div className="container py-24 md:py-32 text-center" aria-busy="true">
+        <div className="spinner mx-auto mb-6" style={{ width: '2rem', height: '2rem' }} />
+        <h1 className="text-3xl font-black mb-2 text-zayro-dark">Verifying your booking...</h1>
+        <p className="text-lg text-zayro-gray">This only takes a moment.</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="container py-32">
-        <div className="max-w-2xl mx-auto bg-red-50 border-2 border-red-200 p-8 md:p-12">
-          <h1 className="text-3xl font-black mb-4 text-red-900">Payment Issue</h1>
-          <p className="text-lg text-red-800 mb-8">{error}</p>
-          <p className="text-zayro-gray mb-8">
-            If you have questions about your payment or booking, please contact us at{' '}
+      <div className="container py-24 md:py-32">
+        <div className="max-w-xl mx-auto card">
+          <h1 className="text-2xl font-black mb-4 text-zayro-dark">We couldn't confirm that yet</h1>
+          <p className="text-zayro-gray mb-6">{error}</p>
+          <p className="text-zayro-gray mb-8 text-sm">
+            If you have questions about your payment or booking, contact us at{' '}
             <a href="mailto:hello@zayro.studio" className="text-zayro-primary font-bold">
               hello@zayro.studio
             </a>
@@ -107,10 +108,10 @@ function SuccessContent() {
 
   if (!booking) {
     return (
-      <div className="container py-32">
-        <div className="max-w-2xl mx-auto text-center">
-          <h1 className="text-3xl font-black mb-4">Booking Not Found</h1>
-          <p className="text-lg text-zayro-gray mb-8">
+      <div className="container py-24 md:py-32">
+        <div className="max-w-xl mx-auto card text-center">
+          <h1 className="text-2xl font-black mb-4 text-zayro-dark">Booking Not Found</h1>
+          <p className="text-zayro-gray mb-8">
             We could not find your booking. Please check your email for confirmation details.
           </p>
           <Link href="/booking" className="button button-primary">
@@ -123,40 +124,33 @@ function SuccessContent() {
 
   return (
     <main className="min-h-screen bg-zayro-bg">
-      <div className="container py-16 md:py-32">
-        {/* Success Header */}
-        <div className="max-w-4xl mx-auto mb-16">
-          <div className="text-6xl md:text-8xl font-black mb-8 text-zayro-primary">
-            ✓ CONFIRMED
-          </div>
-          <h1 className="text-4xl md:text-5xl font-black leading-tight">
-            Your Booking Is Confirmed
-          </h1>
-          <p className="text-lg text-zayro-gray mt-6">
-            Confirmation details have been sent to your email. You're all set!
+      <div className="container py-16 md:py-24">
+        <div className="max-w-4xl mx-auto mb-14 text-center">
+          <span className="chip mb-6" role="status">
+            <span className="chip-dot" aria-hidden="true" />
+            Confirmed
+          </span>
+          <h1 className="text-4xl md:text-5xl font-black leading-tight text-zayro-dark">Your Booking Is Confirmed</h1>
+          <p className="text-lg text-zayro-gray mt-4">
+            A confirmation email is on its way. Check your spam folder if you don't see it soon.
           </p>
         </div>
 
-        {/* Booking Details */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-12 mb-16">
-          {/* Details Column */}
-          <div className="md:col-span-2 space-y-12">
-            {/* Booking ID */}
-            <div className="border-b border-zayro-bg pb-8">
-              <h3 className="text-sm font-bold text-zayro-gray uppercase mb-4">Booking ID</h3>
-              <p className="text-2xl font-black font-mono">{booking.bookingId}</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12 max-w-4xl mx-auto">
+          <div className="md:col-span-2 space-y-6">
+            <div className="card">
+              <h3 className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-2">Booking ID</h3>
+              <p className="text-xl font-black font-mono text-zayro-dark">{booking.bookingId}</p>
             </div>
 
-            {/* Service */}
-            <div className="border-b border-zayro-bg pb-8">
-              <h3 className="text-sm font-bold text-zayro-gray uppercase mb-4">Service</h3>
-              <p className="text-3xl font-black">{booking.service.name}</p>
+            <div className="card">
+              <h3 className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-2">Service</h3>
+              <p className="text-2xl font-black text-zayro-dark">{booking.service.name}</p>
             </div>
 
-            {/* Date & Time */}
-            <div className="border-b border-zayro-bg pb-8">
-              <h3 className="text-sm font-bold text-zayro-gray uppercase mb-4">Date & Time</h3>
-              <p className="text-2xl font-black">
+            <div className="card">
+              <h3 className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-2">Date & Time</h3>
+              <p className="text-xl font-black text-zayro-dark">
                 {new Date(booking.bookingDate).toLocaleDateString('en-US', {
                   weekday: 'long',
                   month: 'long',
@@ -164,67 +158,55 @@ function SuccessContent() {
                   year: 'numeric',
                 })}
               </p>
-              <p className="text-xl font-bold mt-2 text-zayro-primary">
-                {booking.startTime} - {booking.endTime} ET
-              </p>
-              <p className="text-lg text-zayro-gray mt-2">
-                Duration: {booking.durationMinutes} minutes
+              <p className="text-lg font-bold mt-1 text-zayro-primary">
+                {booking.startTime} - {booking.endTime} ET · {booking.durationMinutes} min
               </p>
             </div>
 
-            {/* Customer Info */}
-            <div className="border-b border-zayro-bg pb-8">
-              <h3 className="text-sm font-bold text-zayro-gray uppercase mb-4">Customer Info</h3>
-              <p className="text-lg font-bold">{booking.customerName}</p>
-              <p className="text-lg">{booking.customerEmail}</p>
-              <p className="text-lg">{booking.customerPhone}</p>
+            <div className="card">
+              <h3 className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-2">Customer Info</h3>
+              <p className="font-bold text-zayro-dark">{booking.customerName}</p>
+              <p className="text-zayro-gray">{booking.customerEmail}</p>
+              <p className="text-zayro-gray">{booking.customerPhone}</p>
             </div>
 
-            {/* Location */}
-            <div>
-              <h3 className="text-sm font-bold text-zayro-gray uppercase mb-4">Location</h3>
-              <p className="text-lg font-bold">ZAYRO Studios</p>
-              <p className="text-lg">40 W 37th St, Suite 603</p>
-              <p className="text-lg">New York, NY 10018</p>
+            <div className="card">
+              <h3 className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-2">Location</h3>
+              <p className="font-bold text-zayro-dark">ZAYRO Studios</p>
+              <p className="text-zayro-gray">40 W 37th St, Suite 603, New York, NY 10018</p>
             </div>
           </div>
 
-          {/* Pricing Column */}
-          <div className="bg-white p-8 md:p-12 border border-zayro-bg h-fit">
-            <h3 className="text-sm font-bold text-zayro-gray uppercase mb-8">Amount Paid</h3>
-            <div className="text-4xl font-black text-zayro-primary mb-8">
-              ${booking.totalAmount}
-            </div>
-            <div className="space-y-4 border-t border-zayro-bg pt-8">
-              <p className="text-sm text-zayro-gray">
-                A confirmation email has been sent. Check your spam folder if you don't see it.
-              </p>
-            </div>
+          <div className="card h-fit">
+            <h3 className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-6">Amount Paid</h3>
+            <div className="text-4xl font-black text-zayro-primary mb-6">${booking.totalAmount}</div>
+            <p className="text-sm text-zayro-gray border-t border-zayro-border pt-6">
+              A confirmation email has been sent. Check your spam folder if you don't see it.
+            </p>
           </div>
         </div>
 
-        {/* Next Steps */}
-        <div className="bg-white p-8 md:p-12 border border-zayro-bg max-w-2xl mx-auto mb-16">
-          <h3 className="text-2xl font-bold mb-6">What's Next?</h3>
-          <ul className="space-y-4 text-lg">
-            <li className="flex gap-4">
-              <span className="text-zayro-primary font-bold">→</span>
-              <span>A calendar invite will be sent to your email shortly</span>
+        <div className="card max-w-2xl mx-auto mb-14">
+          <h3 className="text-xl font-bold mb-5 text-zayro-dark">What's Next?</h3>
+          <ul className="space-y-3">
+            <li className="flex gap-3">
+              <span className="text-zayro-primary font-bold" aria-hidden="true">→</span>
+              <span className="text-zayro-gray">Arrive 10 minutes early for your session</span>
             </li>
-            <li className="flex gap-4">
-              <span className="text-zayro-primary font-bold">→</span>
-              <span>Arrive 10 minutes early for your session</span>
-            </li>
-            <li className="flex gap-4">
-              <span className="text-zayro-primary font-bold">→</span>
-              <span>Questions? Contact us at hello@zayro.studio</span>
+            <li className="flex gap-3">
+              <span className="text-zayro-primary font-bold" aria-hidden="true">→</span>
+              <span className="text-zayro-gray">
+                Questions? Contact us at{' '}
+                <a href="mailto:hello@zayro.studio" className="text-zayro-primary font-semibold">
+                  hello@zayro.studio
+                </a>
+              </span>
             </li>
           </ul>
         </div>
 
-        {/* Action */}
         <div className="text-center">
-          <Link href="/" className="button button-primary text-lg py-4 px-8">
+          <Link href="/" className="button button-primary px-8 py-4">
             Back to Home
           </Link>
         </div>
