@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { isAdminEmail, createLoginToken } from '@/lib/adminAuth';
-import { isValidEmail } from '@/lib/utils';
+import { isValidEmail, getBaseUrl } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     }
 
     const token = createLoginToken(email);
-    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+    const baseUrl = getBaseUrl(request);
     const link = `${baseUrl}/api/admin/verify?token=${encodeURIComponent(token)}`;
 
     const resend = new Resend(apiKey);

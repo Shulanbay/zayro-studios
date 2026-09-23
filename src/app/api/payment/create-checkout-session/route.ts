@@ -10,7 +10,7 @@ import {
 } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { calculatePricing } from '@/lib/pricing';
-import { generateBookingId, isValidEmail, isValidPhone } from '@/lib/utils';
+import { generateBookingId, isValidEmail, isValidPhone, getBaseUrl } from '@/lib/utils';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
@@ -146,8 +146,8 @@ export async function POST(request: NextRequest) {
       ],
       billing_address_collection: 'required',
       customer_email: email,
-      success_url: `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/booking/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/booking/cancel?hold_id=${holdId}`,
+      success_url: `${getBaseUrl(request)}/booking/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${getBaseUrl(request)}/booking/cancel?hold_id=${holdId}`,
       mode: 'payment',
       metadata: {
         holdId: hold.id,

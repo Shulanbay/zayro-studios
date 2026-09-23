@@ -1,7 +1,27 @@
 import { clsx, type ClassValue } from 'clsx';
+import type { NextRequest } from 'next/server';
 
 export function cn(...inputs: ClassValue[]) {
   return clsx(inputs);
+}
+
+/**
+ * The origin to build absolute URLs (Stripe redirect URLs, magic-link
+ * emails) from. Prefers the actual origin the request came in on — this is
+ * correct in production (zayro.studio), previews, and local dev alike, and
+ * doesn't depend on NEXTAUTH_URL being set to the right value for the
+ * environment. Falls back to NEXTAUTH_URL, then localhost, only if the
+ * request's origin can't be determined.
+ */
+export function getBaseUrl(request?: NextRequest): string {
+  if (request) {
+    try {
+      return request.nextUrl.origin;
+    } catch {
+      // fall through
+    }
+  }
+  return process.env.NEXTAUTH_URL || 'http://localhost:3000';
 }
 
 // Time formatting
