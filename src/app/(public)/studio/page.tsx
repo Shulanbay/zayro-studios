@@ -63,7 +63,7 @@ export default function StudioPage() {
                 </li>
                 <li className="flex gap-3">
                   <span className="text-zayro-primary" aria-hidden="true">✓</span>
-                  <span>Fast turnaround editing and same-day delivery</span>
+                  <span>Professional editing with the Full Podcast Package, or as an add-on</span>
                 </li>
               </ul>
             </div>

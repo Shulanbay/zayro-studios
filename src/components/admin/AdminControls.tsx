@@ -284,7 +284,7 @@ export function GoogleConnectionTest() {
   );
 }
 
-export function BookingSyncButton({ bookingId }: { bookingId: string }) {
+export function BookingSyncButton({ bookingId, label = 'Retry sync' }: { bookingId: string; label?: string }) {
   const router = useRouter();
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [message, setMessage] = useState('');
@@ -318,7 +318,85 @@ export function BookingSyncButton({ bookingId }: { bookingId: string }) {
         disabled={state === 'running'}
         className="text-xs text-zayro-primary font-semibold hover:underline disabled:opacity-50"
       >
-        {state === 'running' ? 'Syncing…' : 'Retry sync'}
+        {state === 'running' ? 'Syncing…' : label}
+      </button>
+      {message && (
+        <span className={`text-[11px] max-w-[220px] ${state === 'error' ? 'text-red-700' : 'text-green-700'}`}>{message}</span>
+      )}
+    </span>
+  );
+}
+
+export function CancelBookingButton({
+  bookingId,
+  bookingNumber,
+  status,
+  paymentStatus,
+}: {
+  bookingId: string;
+  bookingNumber: string;
+  status: string;
+  paymentStatus: string;
+}) {
+  const router = useRouter();
+  const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [message, setMessage] = useState('');
+
+  const run = async () => {
+    const paid = paymentStatus === 'succeeded';
+    const lines = [
+      `Cancel booking ${bookingNumber}?`,
+      '',
+      '• The booking is marked cancelled and its time slot is released.',
+      '• The Google Calendar event is renamed "CANCELLED — …" (not deleted).',
+      '• The Google Sheets row is marked cancelled (not deleted).',
+      status !== 'confirmed' ? '• Any open Stripe Checkout link for it is expired.' : null,
+      paid
+        ? '• NO refund is issued. Refund it separately in the Stripe Dashboard if needed.'
+        : '• No payment was taken, so nothing needs refunding.',
+      '• No email is sent to the customer.',
+    ].filter((l) => l !== null);
+    if (!window.confirm(lines.join('\n'))) return;
+
+    setState('running');
+    try {
+      const response = await fetch(`/api/admin/bookings/${bookingId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmBookingId: bookingNumber }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setState('error');
+        setMessage(data.error || 'Cancel failed');
+        return;
+      }
+      const problems = [data.calendar, data.sheets, data.stripeSession].filter(
+        (r: { status: string }) => r.status === 'failed' || r.status === 'not_configured'
+      );
+      setState(problems.length ? 'error' : 'done');
+      setMessage(
+        problems.length
+          ? `Cancelled, but: ${problems.map((r: { message: string }) => r.message).join(' · ')}`
+          : paid
+            ? 'Cancelled. Refund in Stripe if needed.'
+            : 'Cancelled.'
+      );
+      router.refresh();
+    } catch {
+      setState('error');
+      setMessage('Could not reach the server.');
+    }
+  };
+
+  return (
+    <span className="inline-flex flex-col items-start">
+      <button
+        onClick={run}
+        disabled={state === 'running' || state === 'done'}
+        className="text-xs text-red-700 font-semibold hover:underline disabled:opacity-50"
+      >
+        {state === 'running' ? 'Cancelling…' : 'Cancel booking'}
       </button>
       {message && (
         <span className={`text-[11px] max-w-[220px] ${state === 'error' ? 'text-red-700' : 'text-green-700'}`}>{message}</span>

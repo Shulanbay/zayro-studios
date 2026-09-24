@@ -433,6 +433,77 @@ export async function syncBookingToSheet(
   }
 }
 
+export type SheetsCancelResult =
+  | { status: 'updated'; rowId: string; message: string }
+  | { status: 'skipped' | 'not_configured' | 'failed'; rowId: null; message: string };
+
+/**
+ * Reflects a cancellation in the booking's existing row: Studio Tours gets
+ * Status = "cancelled", Paid Bookings (which has no status column) gets a
+ * "CANCELLED …" prefix in Notes. Payment columns are left as they are —
+ * a cancellation is not a refund. Only ever updates a row that still holds
+ * this booking's ID; never appends or deletes. Never throws.
+ */
+export async function markBookingCancelledInSheet(
+  booking: Booking,
+  service: Service,
+  options: { sheets?: sheets_v4.Sheets; now?: Date } = {}
+): Promise<SheetsCancelResult> {
+  if (booking.status !== 'cancelled') {
+    return { status: 'skipped', rowId: null, message: `Booking is ${booking.status}, not cancelled` };
+  }
+  const stored = parseRowId(booking.google_sheets_row_id);
+  const target = SHEET_TABS.find((t) => t.sheetName === stored?.sheetName);
+  if (!stored || !target || stored.row < 2) {
+    return { status: 'skipped', rowId: null, message: 'Booking has no sheet row' };
+  }
+
+  const missing = options.sheets ? null : describeMissingConfig('sheets');
+  if (missing) return { status: 'not_configured', rowId: null, message: missing };
+
+  try {
+    const sheets = options.sheets ?? getSheetsClient();
+    const spreadsheetId = getSheetsId();
+    const { rowCount } = await validateSheetTab(sheets, spreadsheetId, target);
+
+    let row: number | null = null;
+    if ((await readBookingIdAt(sheets, spreadsheetId, target, stored.row)) === booking.booking_id) {
+      row = stored.row;
+    } else {
+      row = await findBookingRow(sheets, spreadsheetId, target, booking.booking_id, rowCount);
+    }
+    if (row === null) {
+      return { status: 'skipped', rowId: null, message: `Row for ${booking.booking_id} not found in "${target.sheetName}"` };
+    }
+
+    const when = (options.now ?? new Date()).toISOString().slice(0, 10);
+    const values =
+      target.sheetName === PAID_BOOKINGS_SHEET
+        ? buildPaidBookingRow(
+            { ...booking, notes: `CANCELLED ${when}${booking.notes ? ` — ${booking.notes}` : ''}` },
+            service,
+            booking.google_calendar_event_id
+          )
+        : buildStudioTourRow(booking, booking.google_calendar_event_id);
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: rowRange(target, row),
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [values] },
+    });
+    return {
+      status: 'updated',
+      rowId: formatRowId(target, row),
+      message: `Marked row ${row} in "${target.sheetName}" as cancelled`,
+    };
+  } catch (error) {
+    const message = error instanceof SheetsValidationError ? error.message : safeGoogleErrorMessage(error);
+    console.error(`Google Sheets cancel-marking failed for booking ${booking.booking_id}: ${message}`);
+    return { status: 'failed', rowId: null, message };
+  }
+}
+
 /** Read-only check of both tabs and header rows for admin diagnostics. */
 export async function checkSheetsConnection(): Promise<{ ok: boolean; message: string; tabs: { sheetName: string; ok: boolean; message: string }[] }> {
   const missing = describeMissingConfig('sheets');

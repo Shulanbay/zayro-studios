@@ -8,7 +8,7 @@ import {
   services,
   integrationLogs,
 } from '@/lib/db/schema';
-import { eq, and, ne } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { calculatePricing } from '@/lib/pricing';
 import { overlaps, timeToMinutes } from '@/lib/availability';
 import { toDateOnly } from '@/lib/utils';
@@ -218,7 +218,9 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
       // Update and confirm the booking in a transaction. The status guard
       // makes this a compare-and-set: if two deliveries of the same event
       // race past the idempotency check above, only one of them flips the
-      // booking to confirmed and runs the side effects below.
+      // booking to confirmed and runs the side effects below. Only a booking
+      // still waiting for payment can be confirmed — one an admin cancelled
+      // in the meantime stays cancelled.
       const didConfirm = await db.transaction(async (tx) => {
         // Update booking to confirmed
         const updated = await tx
@@ -229,7 +231,7 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
             stripe_payment_id: session.payment_intent as string,
             updated_at: now,
           })
-          .where(and(eq(bookings.id, existingBooking.id), ne(bookings.status, 'confirmed')))
+          .where(and(eq(bookings.id, existingBooking.id), inArray(bookings.status, ['pending', 'payment_pending'])))
           .returning({ id: bookings.id });
 
         if (updated.length === 0) return false;
@@ -255,6 +257,29 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
       });
 
       if (!didConfirm) {
+        const current = await db.query.bookings.findFirst({ where: eq(bookings.id, existingBooking.id) });
+        if (current && current.status !== 'confirmed') {
+          // Paid after the booking was cancelled (e.g. an old Checkout tab).
+          // Record the payment so it can be found and refunded, but don't
+          // resurrect the booking or its slot.
+          await db
+            .update(bookings)
+            .set({ payment_status: 'succeeded', stripe_payment_id: session.payment_intent as string, updated_at: now })
+            .where(eq(bookings.id, existingBooking.id));
+          await db
+            .update(payments)
+            .set({ status: 'succeeded', updated_at: now })
+            .where(eq(payments.stripe_payment_id, session.id));
+          await logWebhook(session.id, 'failed', `Payment received for a ${current.status} booking — needs manual refund review`, {
+            bookingId: existingBooking.id,
+            bookingIdString: existingBooking.booking_id,
+          });
+          return NextResponse.json({
+            received: true,
+            status: 'booking_not_confirmable_needs_manual_review',
+            bookingId: existingBooking.id,
+          });
+        }
         await logWebhook(session.id, 'success', 'Booking already confirmed by a concurrent delivery (idempotent)', {
           bookingId: existingBooking.id,
         });

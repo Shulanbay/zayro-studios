@@ -18,7 +18,7 @@ import { syncBookingToSheet, type SheetsSyncResult } from './googleSheets';
 // two-int pg_advisory_xact_lock form).
 const LOCK_NAMESPACE = { google_calendar: 7301, google_sheets: 7302 } as const;
 
-type IntegrationType = 'email' | 'google_calendar' | 'google_sheets';
+type IntegrationType = 'email' | 'google_calendar' | 'google_sheets' | 'admin';
 
 export async function logIntegration(
   type: IntegrationType,
@@ -50,7 +50,7 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
  * lock is released automatically on commit, rollback or a dropped
  * connection.
  */
-async function withBookingLock<T>(
+export async function withBookingLock<T>(
   type: keyof typeof LOCK_NAMESPACE,
   bookingUuid: string,
   fn: (tx: Tx, fresh: Booking) => Promise<T>

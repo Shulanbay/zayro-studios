@@ -29,6 +29,13 @@
       "when": 1790183383895,
       "tag": "0003_pricing_catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1790269783895,
+      "tag": "0004_admin_audit_log",
+      "breakpoints": true
     }
   ]
 }

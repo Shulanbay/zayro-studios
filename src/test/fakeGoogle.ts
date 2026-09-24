@@ -76,6 +76,7 @@ export function apiError(status: number, message: string) {
 export class FakeCalendar {
   store = new Map<string, any>();
   insertCalls = 0;
+  patchCalls = 0;
   failWith: Error | null = null;
 
   events = {
@@ -92,6 +93,17 @@ export class FakeCalendar {
       const event = this.store.get(eventId);
       if (!event) throw apiError(404, 'Not Found');
       return { data: event };
+    },
+    patch: async ({ eventId, requestBody }: any) => {
+      this.patchCalls++;
+      const event = this.store.get(eventId);
+      if (!event) throw apiError(404, 'Not Found');
+      const next = { ...event, ...requestBody };
+      this.store.set(eventId, next);
+      return { data: next };
+    },
+    delete: async () => {
+      throw new Error('FakeCalendar: events.delete must never be called');
     },
   };
 

@@ -7,7 +7,7 @@ export default function StudioExperienceSection() {
     { title: 'Studio Lighting', description: 'Professional lighting rigs for cinematic production value' },
     { title: 'Green Screen', description: 'Full green screen setup for virtual backgrounds' },
     { title: 'Live Streaming', description: 'Equipment and support for live multi-platform streaming' },
-    { title: 'Same-Day Delivery', description: 'Fast turnaround editing and file delivery' },
+    { title: 'Editing Available', description: 'Included in the Full Podcast Package, or add it to any session' },
   ];
 
   return (

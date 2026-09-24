@@ -19,7 +19,7 @@ export default function FAQSection() {
     {
       question: 'Do you offer editing services?',
       answer:
-        'Yes! All studio bookings include professional editing and delivery. We provide color grading, audio mixing, and final export in your choice of formats.',
+        'Yes. Professional editing is included in the Full Podcast Package. Single Podcaster and Podcast Pro are recording-only sessions: you get the raw files, and editing can be added separately — just ask us for a quote.',
     },
     {
       question: 'Can you handle live streaming?',

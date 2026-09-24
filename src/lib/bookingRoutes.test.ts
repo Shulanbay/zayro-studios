@@ -7,6 +7,8 @@ import type { Service } from '@/lib/db/schema';
 const h = vi.hoisted(() => ({
   stripeCreate: null as any,
   stripeEvent: null as any,
+  stripeRetrieve: null as any,
+  stripeExpire: null as any,
   sideEffects: null as any,
   session: null as { email: string } | null,
 }));
@@ -17,7 +19,13 @@ vi.mock('@/lib/db', async () => {
 });
 vi.mock('stripe', () => ({
   default: class {
-    checkout = { sessions: { create: (...args: any[]) => h.stripeCreate(...args) } };
+    checkout = {
+      sessions: {
+        create: (...args: any[]) => h.stripeCreate(...args),
+        retrieve: (...args: any[]) => h.stripeRetrieve(...args),
+        expire: (...args: any[]) => h.stripeExpire(...args),
+      },
+    };
     webhooks = { constructEvent: () => h.stripeEvent };
   },
 }));
@@ -35,6 +43,7 @@ const freeRoute = await import('@/app/api/booking/confirm-free/route');
 const checkoutRoute = await import('@/app/api/payment/create-checkout-session/route');
 const adminServicesRoute = await import('@/app/api/admin/services/route');
 const webhookRoute = await import('@/app/api/payment/webhook/route');
+const cancelRoute = await import('@/app/api/admin/bookings/[id]/cancel/route');
 
 // ---------------------------------------------------------------------------
 // Catalog fixture (mirrors the production catalog)
@@ -88,6 +97,8 @@ beforeEach(() => {
   h.session = null;
   h.stripeCreate = vi.fn(async () => ({ id: 'cs_test_1', url: 'https://checkout.stripe.com/c/pay/cs_test_1' }));
   h.sideEffects = vi.fn(async () => ({}));
+  h.stripeRetrieve = vi.fn(async () => ({ id: 'cs_test_1', status: 'open' }));
+  h.stripeExpire = vi.fn(async () => ({ id: 'cs_test_1', status: 'expired' }));
   db.script.findFirst = {
     services: (w) => byId.get(Number(w.params[0])),
     businessSettings: (w) => (w.params[0] === 'tax_rate' ? { setting_key: 'tax_rate', setting_value: '0.08875' } : undefined),
@@ -386,6 +397,24 @@ describe('Stripe webhook: studio-wide conflict check', () => {
     expect(h.sideEffects).not.toHaveBeenCalled();
   });
 
+  it('never resurrects a booking an admin cancelled before the payment landed', async () => {
+    db.script.findMany!.bookings = () => [];
+    db.script.findFirst!.bookings = (w) => (w.sql.includes('"status"') ? undefined : { ...pending, status: 'cancelled' });
+    // The guarded confirm (status in pending/payment_pending) matches nothing.
+    db.script.updateReturning = { bookings: (w) => (w.sql.includes('"status" in') ? [] : [{ id: pending.id }]) };
+
+    const res = await deliver();
+    expect((await res.json()).status).toBe('booking_not_confirmable_needs_manual_review');
+    expect(h.sideEffects).not.toHaveBeenCalled();
+    const bookingUpdates = db.log.updates.filter((u) => u.table === 'bookings');
+    expect(bookingUpdates.some((u) => u.values.status === 'confirmed' && u.where.sql.includes('"status" in'))).toBe(true);
+    // The follow-up write records the payment but never touches the status.
+    const recorded = bookingUpdates[bookingUpdates.length - 1];
+    expect(recorded.values).toMatchObject({ payment_status: 'succeeded', stripe_payment_id: 'pi_test_1' });
+    expect(recorded.values.status).toBeUndefined();
+    expect(db.log.inserts.some((i) => i.table === 'integration_logs' && /needs manual refund review/.test(i.values.error_message))).toBe(true);
+  });
+
   it('confirms when nothing overlaps (touching edges are fine)', async () => {
     db.script.findMany!.bookings = () => [
       { id: 'b-podcast', service_id: 2, booking_date: DATE, start_time: '14:00', end_time: '15:00', status: 'confirmed' },
@@ -393,5 +422,103 @@ describe('Stripe webhook: studio-wide conflict check', () => {
     const res = await deliver();
     expect((await res.json()).status).toBe('booking_confirmed');
     expect(h.sideEffects).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('POST /api/admin/bookings/[id]/cancel', () => {
+  const UUID = '11111111-2222-4333-8444-555555555555';
+  const base = {
+    id: UUID,
+    booking_id: 'ZAY-TESTCANCEL1',
+    customer_id: 'c-1',
+    service_id: 11,
+    booking_date: DATE,
+    start_time: '12:00',
+    end_time: '12:45',
+    duration_minutes: 45,
+    customer_first_name: 'Ada',
+    customer_last_name: 'Lovelace',
+    customer_email: EMAIL,
+    customer_phone: '+1 212 555 0100',
+    company_name: null,
+    notes: null,
+    subtotal: '250.00',
+    tax_amount: '0.00',
+    total_amount: '250.00',
+    stripe_payment_id: null,
+    google_calendar_event_id: null,
+    google_sheets_row_id: null,
+  };
+
+  beforeEach(() => {
+    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+  });
+
+  function cancel(body: unknown, id = UUID) {
+    return cancelRoute.POST(post(`/api/admin/bookings/${id}/cancel`, body), { params: { id } });
+  }
+
+  function seedBooking(overrides: Record<string, unknown>) {
+    const row = { ...base, ...overrides };
+    db.script.findFirst!.bookings = () => row;
+    db.script.updateReturning = {
+      bookings: (w) => (w.sql.includes('"status" in') ? [{ ...row, status: 'cancelled' }] : []),
+      temporary_holds: () => [{ id: 'hold-1' }],
+    };
+    return row;
+  }
+
+  it('requires an admin session', async () => {
+    seedBooking({ status: 'payment_pending', payment_status: 'pending', stripe_session_id: 'cs_test_1' });
+    const res = await cancel({ confirmBookingId: base.booking_id });
+    expect(res.status).toBe(401);
+    expect(db.log.updates).toHaveLength(0);
+  });
+
+  it('requires the booking ID to be repeated as confirmation', async () => {
+    h.session = { email: 'owner@zayro.studio' };
+    seedBooking({ status: 'payment_pending', payment_status: 'pending', stripe_session_id: 'cs_test_1' });
+    expect((await cancel({})).status).toBe(400);
+    expect((await cancel({ confirmBookingId: 'ZAY-SOMETHINGELSE' })).status).toBe(400);
+    expect(db.log.updates).toHaveLength(0);
+  });
+
+  it('cancels an unpaid booking: guarded status flip, hold released, Checkout expired, audit log, no refund', async () => {
+    h.session = { email: 'owner@zayro.studio' };
+    seedBooking({ status: 'payment_pending', payment_status: 'pending', stripe_session_id: 'cs_test_1' });
+
+    const res = await cancel({ confirmBookingId: base.booking_id });
+    const data = await res.json();
+    expect(res.status).toBe(200);
+    expect(data).toMatchObject({ status: 'cancelled', previousStatus: 'payment_pending', holdsReleased: 1, refundIssued: false });
+    expect(data.stripeSession.status).toBe('expired');
+    expect(h.stripeExpire).toHaveBeenCalledWith('cs_test_1');
+
+    const statusFlip = db.log.updates.find((u) => u.table === 'bookings');
+    expect(statusFlip?.values.status).toBe('cancelled');
+    expect(statusFlip?.where.sql).toContain('"status" in');
+    const holdRelease = db.log.updates.find((u) => u.table === 'temporary_holds');
+    expect(holdRelease?.values.status).toBe('cancelled');
+    // Nothing in payments is touched and nothing is deleted.
+    expect(db.log.updates.some((u) => u.table === 'payments')).toBe(false);
+    const audit = db.log.inserts.find((i) => i.table === 'integration_logs' && i.values.integration_type === 'admin');
+    expect(audit?.values.response_data).toMatchObject({ action: 'cancel_booking', previousStatus: 'payment_pending', refundIssued: false });
+  });
+
+  it('does not touch Stripe for a paid, confirmed booking (refunds stay manual)', async () => {
+    h.session = { email: 'owner@zayro.studio' };
+    seedBooking({ status: 'confirmed', payment_status: 'succeeded', stripe_session_id: 'cs_test_paid' });
+    const data = await (await cancel({ confirmBookingId: base.booking_id })).json();
+    expect(data).toMatchObject({ status: 'cancelled', paymentStatus: 'succeeded', refundIssued: false });
+    expect(h.stripeRetrieve).not.toHaveBeenCalled();
+    expect(h.stripeExpire).not.toHaveBeenCalled();
+  });
+
+  it('refuses to cancel an already cancelled booking', async () => {
+    h.session = { email: 'owner@zayro.studio' };
+    seedBooking({ status: 'cancelled', payment_status: 'pending', stripe_session_id: null });
+    const res = await cancel({ confirmBookingId: base.booking_id });
+    expect(res.status).toBe(409);
+    expect(db.log.updates).toHaveLength(0);
   });
 });

@@ -60,3 +60,8 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 .env*
+
+# Google service-account keys — never commit
+zayro-studios-booking-*.json
+*service-account*.json
+*-sa-key*.json

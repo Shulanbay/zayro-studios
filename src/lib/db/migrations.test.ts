@@ -49,7 +49,8 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
   it('adds photography, packages and the tour without touching existing prices', async () => {
     const db = await productionLikeDb();
     const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
-    expect(applied).toHaveLength(2);
+    // 0002, 0003 and 0004 (admin audit log enum value).
+    expect(applied).toHaveLength(3);
 
     const rows = await services(db);
     const byName = Object.fromEntries(rows.map((r) => [r.name, r]));
@@ -116,9 +117,17 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
   it('works on an empty database (packages simply have no base service yet)', async () => {
     const db = new PGlite();
     const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
-    expect(applied).toHaveLength(4);
+    expect(applied).toHaveLength(5);
     const rows = await services(db);
     expect(rows.filter((r) => r.category === 'package').every((r) => r.package_base_service_id === null)).toBe(true);
     expect(rows.filter((r) => r.category === 'photography')).toHaveLength(3);
+  });
+
+  it('0004 adds the admin integration type so cancellations can be audited', async () => {
+    const db = await productionLikeDb();
+    await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
+    const res = await db.query<{ v: string }>("SELECT unnest(enum_range(NULL::integration_type))::text AS v");
+    expect(res.rows.map((r) => r.v)).toEqual(['stripe', 'google_calendar', 'google_sheets', 'email', 'admin']);
+    await db.query("INSERT INTO integration_logs (integration_type, status) VALUES ('admin', 'success')");
   });
 });

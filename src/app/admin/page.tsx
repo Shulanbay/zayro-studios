@@ -14,7 +14,9 @@ import {
   StripeWebhookStatus,
   GoogleConnectionTest,
   BookingSyncButton,
+  CancelBookingButton,
 } from '@/components/admin/AdminControls';
+import { CANCELLABLE_STATUSES } from '@/lib/cancelBooking';
 import AdminServicesManager from '@/components/admin/AdminServicesManager';
 import { CATEGORY_LABELS, SERVICE_CATEGORIES } from '@/lib/catalog';
 
@@ -62,7 +64,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     db.query.services.findMany({ orderBy: (s, { asc }) => [asc(s.display_order), asc(s.id)] }),
     db.query.blockedTimes.findMany({ orderBy: (b, { desc }) => [desc(b.start_datetime)] }),
     db.query.integrationLogs.findMany({
-      where: inArray(integrationLogs.integration_type, ['google_calendar', 'google_sheets']),
+      where: inArray(integrationLogs.integration_type, ['google_calendar', 'google_sheets', 'admin']),
       orderBy: (l, { desc }) => [desc(l.created_at)],
       limit: 15,
     }),
@@ -173,7 +175,17 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                     {toDateOnly(b.booking_date)} {b.start_time}-{b.end_time}
                   </td>
                   <td className="px-4">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColor[b.status] || ''}`}>{b.status}</span>
+                    <div className="flex flex-col items-start gap-1 py-2">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColor[b.status] || ''}`}>{b.status}</span>
+                      {(CANCELLABLE_STATUSES as readonly string[]).includes(b.status) && (
+                        <CancelBookingButton
+                          bookingId={b.id}
+                          bookingNumber={b.booking_id}
+                          status={b.status}
+                          paymentStatus={b.payment_status}
+                        />
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 text-zayro-gray text-xs">
                     {(() => {
@@ -200,7 +212,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                               {sheetExpected ? (sheetsOk ? '✓' : '✗') : '–'} Sheet
                             </span>
                           </span>
-                          {(!calendarOk || !sheetsOk) && <BookingSyncButton bookingId={b.id} />}
+                          <BookingSyncButton bookingId={b.id} label={calendarOk && sheetsOk ? 'Re-sync' : 'Retry sync'} />
                         </div>
                       );
                     })()}
@@ -252,7 +264,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
 
         <GoogleConnectionTest />
 
-        <h3 className="text-sm font-bold text-zayro-dark mt-6 mb-2">Recent Calendar / Sheets activity</h3>
+        <h3 className="text-sm font-bold text-zayro-dark mt-6 mb-2">Recent Calendar / Sheets / admin activity</h3>
         <div className="overflow-x-auto">
           <table className="w-full text-xs min-w-[640px]">
             <thead>
@@ -270,7 +282,9 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                 return (
                   <tr key={log.id} className="border-b border-zayro-border last:border-0 align-top">
                     <td className="py-2 pr-3 text-zayro-gray whitespace-nowrap">{fmtTime(log.created_at)}</td>
-                    <td className="pr-3">{log.integration_type === 'google_calendar' ? 'Calendar' : 'Sheets'}</td>
+                    <td className="pr-3">
+                      {log.integration_type === 'google_calendar' ? 'Calendar' : log.integration_type === 'google_sheets' ? 'Sheets' : 'Admin'}
+                    </td>
                     <td className="pr-3 font-mono">{(log.booking_id && bookingNumberByUuid.get(log.booking_id)) || '—'}</td>
                     <td className={`pr-3 font-medium ${log.status === 'success' ? 'text-green-700' : 'text-red-700'}`}>{log.status}</td>
                     <td className="text-zayro-gray break-words max-w-[360px]">{log.error_message || data.message || ''}</td>

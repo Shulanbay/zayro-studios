@@ -47,6 +47,8 @@ export const integrationTypeEnum = pgEnum('integration_type', [
   'google_calendar',
   'google_sheets',
   'email',
+  // Admin actions on a booking (e.g. cancellation) — an audit trail.
+  'admin',
 ]);
 
 export const integrationStatusEnum = pgEnum('integration_status', [

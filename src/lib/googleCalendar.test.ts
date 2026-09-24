@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { buildCalendarEvent, calendarEventIdForBooking, syncCalendarEvent } from './googleCalendar';
+import { buildCalendarEvent, calendarEventIdForBooking, markCalendarEventCancelled, syncCalendarEvent } from './googleCalendar';
 import { FakeCalendar, apiError, clearGoogleEnv, makeBooking, makeService, setGoogleEnv, tourService } from '@/test/fakeGoogle';
 
 describe('calendarEventIdForBooking', () => {
@@ -128,5 +128,51 @@ describe('syncCalendarEvent', () => {
     const r = await syncCalendarEvent(makeBooking(), makeService());
     expect(r.status).toBe('not_configured');
     expect(r.message).toMatch(/GOOGLE_CALENDAR_PRIVATE_KEY/);
+  });
+});
+
+describe('markCalendarEventCancelled', () => {
+  let calendar: FakeCalendar;
+  beforeEach(() => {
+    setGoogleEnv();
+    calendar = new FakeCalendar();
+  });
+  afterEach(() => clearGoogleEnv());
+
+  const now = new Date('2026-09-23T15:00:00Z');
+
+  it('renames the event with a CANCELLED prefix, frees the time, and never deletes it', async () => {
+    const booking = makeBooking();
+    const created = await syncCalendarEvent(booking, makeService(), { calendar: calendar as any });
+    const withEvent = { ...booking, google_calendar_event_id: created.eventId };
+
+    const r = await markCalendarEventCancelled(withEvent, 'owner@zayro.studio', { calendar: calendar as any, now });
+    expect(r.status).toBe('marked_cancelled');
+    const event = calendar.store.get(created.eventId!);
+    expect(event.summary).toBe('CANCELLED — Paid Booking: Single Podcaster — Ada Lovelace');
+    expect(event.transparency).toBe('transparent');
+    expect(event.description).toMatch(/^CANCELLED on 2026-09-23 by owner@zayro\.studio/);
+    expect(event.description).toContain('Booking ID: ZAY-TEST00000001');
+    expect(calendar.store.size).toBe(1);
+  });
+
+  it('is idempotent: a second cancel does not stack prefixes', async () => {
+    const booking = makeBooking();
+    const created = await syncCalendarEvent(booking, makeService(), { calendar: calendar as any });
+    const withEvent = { ...booking, google_calendar_event_id: created.eventId };
+    await markCalendarEventCancelled(withEvent, 'owner@zayro.studio', { calendar: calendar as any, now });
+    const again = await markCalendarEventCancelled(withEvent, 'owner@zayro.studio', { calendar: calendar as any, now });
+    expect(again.status).toBe('already_marked');
+    expect(calendar.patchCalls).toBe(1);
+    expect(calendar.store.get(created.eventId!).summary.match(/CANCELLED/g)).toHaveLength(1);
+  });
+
+  it('skips bookings without an event and events already removed in Google', async () => {
+    expect((await markCalendarEventCancelled(makeBooking(), 'a', { calendar: calendar as any })).status).toBe('skipped');
+    const gone = await markCalendarEventCancelled(makeBooking({ google_calendar_event_id: 'missing' }), 'a', {
+      calendar: calendar as any,
+    });
+    expect(gone.status).toBe('skipped');
+    expect(calendar.patchCalls).toBe(0);
   });
 });

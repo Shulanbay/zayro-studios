@@ -141,6 +141,25 @@ applied automatically on the production build). Create it in `/admin` → *Servi
 "Free Studio Tour", price 0, duration as desired, category **tour**. It is booked through the
 normal flow: free confirmation without Stripe, the slot is blocked like any other booking.
 
+## Cancelling a booking (admin)
+
+`/admin` → Bookings → **Cancel booking** (pending, payment_pending or confirmed
+bookings only). After a confirmation dialog, and a server-side check that the
+request repeats the booking ID:
+
+- the booking becomes `cancelled` and its slot is released immediately (an
+  active hold for it is released too);
+- an unpaid booking's open Stripe Checkout session is expired, so the old
+  payment link can't be used. If a payment still lands, the webhook records it
+  but leaves the booking cancelled and logs it for a manual refund;
+- **no refund is issued.** Refund paid bookings in the Stripe Dashboard;
+- the Calendar event is renamed `CANCELLED — …` and stops showing as busy. It
+  is **never deleted** automatically;
+- the sheet row is updated in place: Studio Tours → Status `cancelled`,
+  Paid Bookings → Notes `CANCELLED <date> — …`. Rows are never removed;
+- the booking, payment history and an `admin` audit entry in
+  `integration_logs` are kept. No email goes to the customer.
+
 ## Troubleshooting
 
 | Symptom in logs / Test connection | Fix |

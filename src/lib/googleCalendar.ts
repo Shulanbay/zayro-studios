@@ -145,6 +145,67 @@ export async function syncCalendarEvent(
   }
 }
 
+export const CANCELLED_PREFIX = 'CANCELLED — ';
+
+export type CalendarCancelResult =
+  | { status: 'marked_cancelled' | 'already_marked'; message: string }
+  | { status: 'skipped' | 'not_configured' | 'failed'; message: string };
+
+/**
+ * Marks a cancelled booking's event instead of deleting it: the title gets
+ * a "CANCELLED — " prefix, the event stops showing as busy, and a line at
+ * the top of the description says when and by whom. Deleting stays a
+ * manual decision in Google Calendar. Never throws.
+ */
+export async function markCalendarEventCancelled(
+  booking: Pick<Booking, 'booking_id' | 'google_calendar_event_id'>,
+  cancelledBy: string,
+  options: { calendar?: calendar_v3.Calendar; now?: Date } = {}
+): Promise<CalendarCancelResult> {
+  const eventId = booking.google_calendar_event_id;
+  if (!eventId) return { status: 'skipped', message: 'Booking has no calendar event' };
+
+  const missing = options.calendar ? null : describeMissingConfig('calendar');
+  if (missing) return { status: 'not_configured', message: missing };
+
+  try {
+    const calendar = options.calendar ?? getCalendarClient();
+    const calendarId = getCalendarId();
+    let existing: calendar_v3.Schema$Event;
+    try {
+      existing = (await calendar.events.get({ calendarId, eventId })).data;
+    } catch (error) {
+      const status = googleErrorStatus(error);
+      if (status === 404 || status === 410) {
+        return { status: 'skipped', message: 'Calendar event no longer exists; nothing to mark' };
+      }
+      throw error;
+    }
+
+    const summary = existing.summary || '';
+    if (summary.startsWith(CANCELLED_PREFIX)) {
+      return { status: 'already_marked', message: 'Calendar event was already marked cancelled' };
+    }
+
+    const when = (options.now ?? new Date()).toISOString().slice(0, 10);
+    await calendar.events.patch({
+      calendarId,
+      eventId,
+      sendUpdates: 'none',
+      requestBody: {
+        summary: `${CANCELLED_PREFIX}${summary}`,
+        transparency: 'transparent',
+        description: `CANCELLED on ${when} by ${cancelledBy}. The slot has been released.\n\n${existing.description || ''}`.trim(),
+      },
+    });
+    return { status: 'marked_cancelled', message: 'Calendar event marked CANCELLED (not deleted)' };
+  } catch (error) {
+    const message = safeGoogleErrorMessage(error);
+    console.error(`Google Calendar cancel-marking failed for booking ${booking.booking_id}: ${message}`);
+    return { status: 'failed', message };
+  }
+}
+
 /** Read-only connection check for admin diagnostics. */
 export async function checkCalendarConnection(): Promise<{ ok: boolean; message: string }> {
   const missing = describeMissingConfig('calendar');

@@ -12,6 +12,7 @@ import {
   formatRowId,
   compareHeaders,
   syncBookingToSheet,
+  markBookingCancelledInSheet,
   findBookingRow,
   SHEET_TABS,
   PAID_BOOKINGS_HEADERS,
@@ -237,5 +238,62 @@ describe('syncBookingToSheet', () => {
     const r = await syncBookingToSheet(makeBooking(), makeService(), null);
     expect(r.status).toBe('not_configured');
     expect(r.message).toMatch(/GOOGLE_SHEETS_ID/);
+  });
+});
+
+describe('markBookingCancelledInSheet', () => {
+  let sheets: FakeSheets;
+  beforeEach(() => {
+    setGoogleEnv();
+    sheets = new FakeSheets();
+  });
+  afterEach(() => clearGoogleEnv());
+
+  const opts = () => ({ sheets: sheets as any, now: new Date('2026-09-23T15:00:00Z') });
+
+  it('sets Status = cancelled on the existing Studio Tours row, in place', async () => {
+    const tour = makeBooking(free);
+    const synced = await syncBookingToSheet(tour, tourService(), 'evt1', opts());
+    const cancelled = { ...tour, status: 'cancelled' as const, google_sheets_row_id: synced.rowId, google_calendar_event_id: 'evt1' };
+
+    const r = await markBookingCancelledInSheet(cancelled, tourService(), opts());
+    expect(r).toMatchObject({ status: 'updated', rowId: 'Studio Tours!A2:M2' });
+    const rows = sheets.dataRows('Studio Tours');
+    expect(rows).toHaveLength(1);
+    expect(rows[0][1]).toBe('ZAY-TEST00000001');
+    expect(rows[0][11]).toBe('cancelled');
+    expect(sheets.calls.filter((c) => c.method === 'append')).toHaveLength(1); // only the original sync
+  });
+
+  it('marks a Paid Bookings row via Notes, keeping the payment columns (no refund implied)', async () => {
+    const paid = makeBooking({ notes: 'Bring mics' });
+    const synced = await syncBookingToSheet(paid, makeService(), 'evt1', opts());
+    const cancelled = { ...paid, status: 'cancelled' as const, google_sheets_row_id: synced.rowId };
+
+    const r = await markBookingCancelledInSheet(cancelled, makeService(), opts());
+    expect(r.status).toBe('updated');
+    const row = sheets.dataRows('Paid Bookings')[0];
+    expect(sheets.dataRows('Paid Bookings')).toHaveLength(1);
+    expect(row[19]).toBe('CANCELLED 2026-09-23 — Bring mics');
+    expect(row[14]).toBe(184.66);
+    expect(row[15]).toBe('succeeded');
+  });
+
+  it('never appends: no stored row, or a row that now holds another booking, is skipped', async () => {
+    const noRow = await markBookingCancelledInSheet(makeBooking({ status: 'cancelled' }), makeService(), opts());
+    expect(noRow.status).toBe('skipped');
+
+    const other = await markBookingCancelledInSheet(
+      makeBooking({ status: 'cancelled', google_sheets_row_id: 'Paid Bookings!A5:T5' }),
+      makeService(),
+      opts()
+    );
+    expect(other.status).toBe('skipped');
+    expect(sheets.calls.some((c) => c.method === 'append' || c.method === 'update')).toBe(false);
+  });
+
+  it('refuses to mark a booking that is not cancelled', async () => {
+    const r = await markBookingCancelledInSheet(makeBooking({ google_sheets_row_id: 'Paid Bookings!A2:T2' }), makeService(), opts());
+    expect(r.status).toBe('skipped');
   });
 });
