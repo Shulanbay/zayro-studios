@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { temporaryHolds } from '@/lib/db/schema';
-import { checkTimeSlotConflict, isSlotActuallyAvailable, timeToMinutes } from '@/lib/availability';
+import { checkTimeSlotConflict, isSlotActuallyAvailable, lockStudioDates, timeToMinutes } from '@/lib/availability';
 import { findBookableService } from '@/lib/catalogData';
-import { sql } from 'drizzle-orm';
+import { enforceRateLimit, isHoneypotTripped } from '@/lib/crm/rateLimit';
+import { isDateString, isTimeString } from '@/lib/crm/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,8 +15,11 @@ function isValidEmail(email: string): boolean {
 }
 
 export async function POST(request: NextRequest) {
+  const limited = await enforceRateLimit(request, 'create-hold', 30, 600);
+  if (limited) return limited;
   try {
     const body = await request.json();
+    if (isHoneypotTripped(body)) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
     const {
       customer_email,
       service_id,
@@ -41,8 +45,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(booking_date)) {
+    if (!isDateString(booking_date)) {
       return NextResponse.json({ error: 'Invalid booking_date format' }, { status: 400 });
+    }
+
+    if (!isTimeString(start_time) || !isTimeString(end_time)) {
+      return NextResponse.json({ error: 'Invalid time format' }, { status: 400 });
     }
 
     if (timeToMinutes(end_time) <= timeToMinutes(start_time)) {
@@ -71,11 +79,10 @@ export async function POST(request: NextRequest) {
     // all services — the conflict check and the insert are effectively
     // atomic, and two people clicking overlapping slots (even for different
     // services) cannot both succeed.
-    const lockKey = `studio:${booking_date}`;
 
     try {
       const result = await db.transaction(async (tx) => {
-        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+        await lockStudioDates(tx, [booking_date]);
 
         const hasConflict = await checkTimeSlotConflict(booking_date, start_time, end_time, tx);
         if (hasConflict) {

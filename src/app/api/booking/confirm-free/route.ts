@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import {
-  temporaryHolds,
-  services,
-  bookings,
-  customers,
-  integrationLogs,
-} from '@/lib/db/schema';
+import { temporaryHolds, services, bookings, integrationLogs } from '@/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
+import { pgErrorCode } from '@/lib/db/types';
+import { lockStudioDates } from '@/lib/availability';
+import { upsertCustomer, refreshCustomerStats } from '@/lib/crm/customers';
+import { createPurchase, orderNumberForBooking } from '@/lib/crm/purchases';
+import { enforceRateLimit, isHoneypotTripped } from '@/lib/crm/rateLimit';
 import { calculatePricing } from '@/lib/pricing';
 import { checkBookable } from '@/lib/catalogData';
 import { generateBookingId, isValidEmail, isValidPhone, toDateOnly } from '@/lib/utils';
@@ -37,8 +36,11 @@ async function logIntegration(bookingId: string | null, status: 'success' | 'fai
  * body.
  */
 export async function POST(request: NextRequest) {
+  const limited = await enforceRateLimit(request, 'confirm-free', 20, 600);
+  if (limited) return limited;
   try {
     const body = await request.json();
+    if (isHoneypotTripped(body)) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
     const { holdId, firstName, lastName, email, phone, company, notes } = body;
 
     if (!holdId || !firstName || !lastName || !email || !phone) {
@@ -78,7 +80,7 @@ export async function POST(request: NextRequest) {
       // request from the client doesn't look like a failure.
       if (hold.status === 'converted_to_booking') {
         const existing = await db.query.bookings.findFirst({
-          where: eq(bookings.customer_email, email),
+          where: and(eq(bookings.customer_email, hold.customer_email), eq(bookings.service_id, hold.service_id)),
           orderBy: (b, { desc }) => [desc(b.created_at)],
         });
         if (existing && toDateOnly(existing.booking_date) === toDateOnly(hold.booking_date) && existing.start_time === hold.start_time) {
@@ -89,7 +91,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Booking hold is no longer active' }, { status: 409 });
     }
 
-    if (hold.customer_email.toLowerCase() !== email.toLowerCase()) {
+    if (hold.customer_email.trim().toLowerCase() !== String(email).trim().toLowerCase()) {
       return NextResponse.json({ error: 'This hold belongs to a different customer' }, { status: 403 });
     }
 
@@ -128,70 +130,84 @@ export async function POST(request: NextRequest) {
     const bookingIdString = generateBookingId();
     const bookingUuid = crypto.randomUUID();
 
-    let customerId: string;
-    const existingCustomer = await db.query.customers.findFirst({
-      where: eq(customers.email, email),
-    });
+    const bookingDate = toDateOnly(hold.booking_date);
+    const isTour = service.category === 'tour';
 
-    if (existingCustomer) {
-      customerId = existingCustomer.id;
-      await db
-        .update(customers)
-        .set({ first_name: firstName, last_name: lastName, phone, company: company || null, updated_at: now })
-        .where(eq(customers.id, existingCustomer.id));
-    } else {
-      const newCustomers = await db
-        .insert(customers)
-        .values({ email, first_name: firstName, last_name: lastName, phone, company: company || null })
-        .returning();
-      customerId = newCustomers[0].id;
-    }
+    // Atomic: under the studio date lock, convert the hold and confirm the
+    // booking together. If the hold was converted by a concurrent request,
+    // the guarded update affects 0 rows; an overlap the checks missed is
+    // rejected by the bookings_no_overlap constraint.
+    let confirmed: typeof bookings.$inferSelect | null;
+    try {
+      confirmed = await db.transaction(async (tx) => {
+        await lockStudioDates(tx, [bookingDate]);
+        const updatedHolds = await tx
+          .update(temporaryHolds)
+          .set({ status: 'converted_to_booking' })
+          .where(and(eq(temporaryHolds.id, holdId), eq(temporaryHolds.status, 'active')))
+          .returning();
+        if (updatedHolds.length === 0) return null;
 
-    // Atomic: confirm the booking and convert the hold together. If the
-    // hold got converted by a concurrent request between our check above
-    // and here, this update affects 0 rows and we treat it as a conflict.
-    const confirmed = await db.transaction(async (tx) => {
-      const updatedHolds = await tx
-        .update(temporaryHolds)
-        .set({ status: 'converted_to_booking' })
-        .where(and(eq(temporaryHolds.id, holdId), eq(temporaryHolds.status, 'active')))
-        .returning();
+        const customer = await upsertCustomer(tx, { email, firstName, lastName, phone, company }, { updateContact: true });
+        const purchase = await createPurchase(tx, {
+          orderNumber: orderNumberForBooking(bookingIdString),
+          customerId: customer.id,
+          type: isTour ? 'studio_tour' : 'individual',
+          status: 'approved',
+          taxCents: pricing.taxAmount,
+          paymentMethod: 'comp',
+          purchasedAt: now,
+          items: [
+            {
+              itemType: 'service',
+              referenceId: service.id,
+              description: `${service.name} — ${bookingDate} ${hold.start_time}–${hold.end_time} ET`,
+              unitPriceCents: pricing.subtotal,
+              metadata: { bookingId: bookingIdString, category: service.category, durationMinutes: hold.duration_minutes },
+            },
+          ],
+        });
 
-      if (updatedHolds.length === 0) {
-        return null;
+        const inserted = await tx
+          .insert(bookings)
+          .values({
+            id: bookingUuid,
+            booking_id: bookingIdString,
+            customer_id: customer.id,
+            service_id: hold.service_id,
+            // Always a plain YYYY-MM-DD: the driver may hand back a Date, which
+            // Postgres would otherwise convert using the session time zone.
+            booking_date: bookingDate,
+            start_time: hold.start_time,
+            end_time: hold.end_time,
+            duration_minutes: hold.duration_minutes,
+            customer_first_name: firstName,
+            customer_last_name: lastName,
+            customer_email: email,
+            customer_phone: phone,
+            company_name: company || null,
+            notes: notes || null,
+            status: 'confirmed',
+            payment_status: 'succeeded',
+            subtotal: (pricing.subtotal / 100).toFixed(2),
+            tax_amount: (pricing.taxAmount / 100).toFixed(2),
+            total_amount: (pricing.total / 100).toFixed(2),
+            purchase_id: purchase.id,
+            source: isTour ? 'studio_tour' : 'individual',
+            created_at: now,
+            updated_at: now,
+          })
+          .returning();
+        await refreshCustomerStats(tx, customer.id);
+        return inserted[0];
+      });
+    } catch (txError) {
+      if (pgErrorCode(txError) === '23P01') {
+        await logIntegration(null, 'failed', 'Free confirm: slot was taken by another booking');
+        return NextResponse.json({ error: 'That time was just booked by someone else. Please pick another slot.' }, { status: 409 });
       }
-
-      const inserted = await tx
-        .insert(bookings)
-        .values({
-          id: bookingUuid,
-          booking_id: bookingIdString,
-          customer_id: customerId,
-          service_id: hold.service_id,
-          // Always a plain YYYY-MM-DD: the driver may hand back a Date, which
-          // Postgres would otherwise convert using the session time zone.
-          booking_date: toDateOnly(hold.booking_date),
-          start_time: hold.start_time,
-          end_time: hold.end_time,
-          duration_minutes: hold.duration_minutes,
-          customer_first_name: firstName,
-          customer_last_name: lastName,
-          customer_email: email,
-          customer_phone: phone,
-          company_name: company || null,
-          notes: notes || null,
-          status: 'confirmed',
-          payment_status: 'succeeded',
-          subtotal: (pricing.subtotal / 100).toFixed(2),
-          tax_amount: (pricing.taxAmount / 100).toFixed(2),
-          total_amount: (pricing.total / 100).toFixed(2),
-          created_at: now,
-          updated_at: now,
-        })
-        .returning();
-
-      return inserted[0];
-    });
+      throw txError;
+    }
 
     if (!confirmed) {
       await logIntegration(null, 'failed', 'Free confirm: hold was no longer active at confirmation time');

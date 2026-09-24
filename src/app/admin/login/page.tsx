@@ -34,7 +34,13 @@ function LoginForm() {
 
         {urlError && !sent && (
           <p className="field-error mb-6" role="alert">
-            {urlError === 'invalid_or_expired' ? 'That sign-in link expired or was already used. Request a new one below.' : 'Sign-in failed. Please try again.'}
+            {urlError === 'invalid_or_expired'
+              ? 'That sign-in link expired or is not valid. Request a new one below.'
+              : urlError === 'already_used'
+                ? 'That sign-in link was already used. Request a new one below.'
+                : urlError === 'rate_limited'
+                  ? 'Too many attempts. Wait a few minutes and try again.'
+                  : 'Sign-in failed. Please try again.'}
           </p>
         )}
 

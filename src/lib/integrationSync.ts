@@ -18,7 +18,7 @@ import { syncBookingToSheet, type SheetsSyncResult } from './googleSheets';
 // two-int pg_advisory_xact_lock form).
 const LOCK_NAMESPACE = { google_calendar: 7301, google_sheets: 7302 } as const;
 
-type IntegrationType = 'email' | 'google_calendar' | 'google_sheets' | 'admin';
+type IntegrationType = 'stripe' | 'email' | 'google_calendar' | 'google_sheets' | 'admin';
 
 export async function logIntegration(
   type: IntegrationType,

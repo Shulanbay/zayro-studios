@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
-import { isAdminEmail, createLoginToken } from '@/lib/adminAuth';
+import { createLoginToken } from '@/lib/adminAuth';
+import { canRequestLogin } from '@/lib/crm/auth';
+import { enforceRateLimit } from '@/lib/crm/rateLimit';
 import { isValidEmail, getBaseUrl } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -8,6 +10,8 @@ export const dynamic = 'force-dynamic';
 // Always returns the same generic response whether or not the email is an
 // admin, so this endpoint can't be used to enumerate admin addresses.
 export async function POST(request: NextRequest) {
+  const limited = await enforceRateLimit(request, 'admin-login', 5, 900);
+  if (limited) return limited;
   try {
     const { email } = await request.json();
     const generic = NextResponse.json({
@@ -18,7 +22,7 @@ export async function POST(request: NextRequest) {
       return generic;
     }
 
-    if (!isAdminEmail(email)) {
+    if (!(await canRequestLogin(email))) {
       return generic;
     }
 
