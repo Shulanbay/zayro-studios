@@ -316,7 +316,7 @@ export function BookingSyncButton({ bookingId, label = 'Retry sync' }: { booking
       <button
         onClick={run}
         disabled={state === 'running'}
-        className="text-xs text-zayro-primary font-semibold hover:underline disabled:opacity-50"
+        className="p-0 text-xs text-zayro-primary font-semibold hover:underline disabled:opacity-50"
       >
         {state === 'running' ? 'Syncing…' : label}
       </button>
@@ -394,7 +394,7 @@ export function CancelBookingButton({
       <button
         onClick={run}
         disabled={state === 'running' || state === 'done'}
-        className="text-xs text-red-700 font-semibold hover:underline disabled:opacity-50"
+        className="p-0 text-xs text-red-700 font-semibold hover:underline disabled:opacity-50"
       >
         {state === 'running' ? 'Cancelling…' : 'Cancel booking'}
       </button>

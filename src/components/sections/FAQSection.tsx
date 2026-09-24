@@ -59,7 +59,7 @@ export default function FAQSection() {
                   <button
                     id={buttonId}
                     type="button"
-                    className="w-full flex items-start justify-between gap-6 text-left whitespace-normal"
+                    className="w-full flex items-start justify-between gap-6 p-0 rounded-md text-left whitespace-normal"
                     aria-expanded={isOpen}
                     aria-controls={panelId}
                     onClick={() => setOpenIndex(isOpen ? null : idx)}
@@ -78,6 +78,7 @@ export default function FAQSection() {
                   id={panelId}
                   role="region"
                   aria-labelledby={buttonId}
+                  aria-hidden={!isOpen}
                   className={`grid transition-all duration-300 ease-out ${isOpen ? 'grid-rows-[1fr] mt-4' : 'grid-rows-[0fr]'}`}
                 >
                   <p className="overflow-hidden text-zayro-gray leading-relaxed font-light">{faq.answer}</p>
