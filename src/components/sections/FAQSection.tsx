@@ -2,14 +2,14 @@
 
 import { useState } from 'react';
 
-export default function FAQSection() {
+export default function FAQSection({ showHeading = true }: { showHeading?: boolean }) {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   const faqs = [
     {
       question: 'What time can I book the studio?',
       answer:
-        'We are open Monday-Friday from 9:00 AM to 6:00 PM, and Saturday from 10:00 AM to 4:00 PM. Sunday is closed. You can book any available time slot during these hours.',
+        'Sessions can be booked from 8:00 AM to 10:00 PM (New York time), seven days a week. The booking calendar always shows the live availability for your chosen date.',
     },
     {
       question: 'How much in advance do I need to book?',
@@ -41,12 +41,16 @@ export default function FAQSection() {
   return (
     <section className="section-padding bg-zayro-bg">
       <div className="container max-w-4xl">
-        <h2 className="text-5xl md:text-7xl font-black mb-4 text-zayro-dark">
-          QUESTIONS?
-        </h2>
-        <p className="text-xl text-zayro-gray font-light mb-16">
-          Everything you need to know about booking and using ZAYRO Studios.
-        </p>
+        {showHeading && (
+          <>
+            <h2 className="text-5xl md:text-7xl font-black mb-4 text-zayro-dark">
+              QUESTIONS?
+            </h2>
+            <p className="text-xl text-zayro-gray font-light mb-16">
+              Everything you need to know about booking and using ZAYRO Studios.
+            </p>
+          </>
+        )}
 
         <div className="space-y-3">
           {faqs.map((faq, idx) => {

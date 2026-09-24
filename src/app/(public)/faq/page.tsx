@@ -20,7 +20,8 @@ export default function FAQPage() {
         </div>
       </section>
 
-      <FAQSection />
+      {/* The page hero above already carries the heading. */}
+      <FAQSection showHeading={false} />
     </main>
   );
 }
