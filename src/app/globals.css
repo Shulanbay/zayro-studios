@@ -585,3 +585,201 @@ select:disabled {
     padding: 0 1.25rem;
   }
 }
+
+/* ========================================
+   ADMIN CRM
+   Compact, calm variant of the site's design system. Scoped under .crm so
+   nothing here touches the public pages.
+   ======================================== */
+.crm {
+  font-size: 0.925rem;
+}
+
+.crm h1,
+.crm h2,
+.crm h3 {
+  letter-spacing: -0.01em;
+}
+
+.crm input,
+.crm select,
+.crm textarea {
+  font-size: 0.9rem;
+  padding: 0.55rem 0.75rem;
+  border-width: 1px;
+}
+
+.crm input[type='checkbox'],
+.crm input[type='radio'] {
+  width: auto;
+  padding: 0;
+  accent-color: var(--color-primary);
+}
+
+.crm .card {
+  padding: 1.25rem;
+  border-radius: var(--radius-md);
+}
+
+@media (min-width: 768px) {
+  .crm .card {
+    padding: 1.5rem;
+  }
+}
+
+.crm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-bg-alt);
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: none;
+  transition: border-color 0.15s var(--ease-out), background 0.15s var(--ease-out), color 0.15s var(--ease-out);
+  text-decoration: none;
+}
+
+.crm-btn:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  transform: none;
+}
+
+.crm-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.crm-btn-primary {
+  background: var(--gradient-cta);
+  color: #fff;
+  border-color: transparent;
+}
+
+.crm-btn-primary:hover:not(:disabled) {
+  background: var(--gradient-cta-hover);
+  color: #fff;
+  border-color: transparent;
+}
+
+.crm-btn-danger {
+  background: #fff;
+  color: #B42318;
+  border-color: #F3B9B7;
+}
+
+.crm-btn-danger:hover:not(:disabled) {
+  background: #FDECEC;
+  color: #9B241F;
+  border-color: #E8928E;
+}
+
+.crm-btn-sm {
+  font-size: 0.8rem;
+  padding: 0.3rem 0.65rem;
+}
+
+.crm-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-primary);
+  font-weight: 500;
+  cursor: pointer;
+  font-size: inherit;
+  display: inline;
+}
+
+.crm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.crm-table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+  background: #F9FBFE;
+}
+
+.crm-table td {
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+
+.crm-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.crm-table tbody tr:hover td {
+  background: #F9FBFE;
+}
+
+.crm-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.crm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.18rem 0.55rem;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.crm-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.crm-nav-link:hover {
+  background: rgba(61, 125, 255, 0.07);
+  color: var(--color-text);
+}
+
+.crm-nav-link[aria-current='page'] {
+  background: rgba(61, 125, 255, 0.12);
+  color: var(--color-primary-deep);
+  font-weight: 600;
+}
+
+.crm dialog {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0;
+  max-width: min(560px, calc(100vw - 32px));
+  width: 100%;
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+}
+
+.crm dialog::backdrop {
+  background: rgba(11, 18, 32, 0.35);
+}

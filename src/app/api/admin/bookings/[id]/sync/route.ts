@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requirePermission } from '@/lib/crm/auth';
+import { actorOf, requirePermission } from '@/lib/crm/auth';
+import { writeAudit } from '@/lib/crm/audit';
 import { loadBookingWithService, syncGoogleIntegrations } from '@/lib/integrationSync';
 
 export const dynamic = 'force-dynamic';
@@ -33,6 +34,14 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   }
 
   const { calendar, sheets } = await syncGoogleIntegrations(loaded.booking, loaded.service);
+  await writeAudit({
+    actor: actorOf(guard.admin),
+    operation: 'integration.retry_google',
+    entityType: 'booking',
+    entityId: loaded.booking.id,
+    outcome: calendar.status === 'failed' || sheets.status === 'failed' ? 'failed' : 'success',
+    metadata: { calendar: calendar.status, sheets: sheets.status },
+  });
   return NextResponse.json({
     calendar: { status: calendar.status, message: calendar.message },
     sheets: { status: sheets.status, sheet: sheets.sheetName, range: sheets.rowId, message: sheets.message },
