@@ -1,5 +1,6 @@
 import { db } from './db';
 import { services, businessSettings } from './db/schema';
+import type { Executor } from './db/types';
 import { eq } from 'drizzle-orm';
 
 export interface PricingCalculation {
@@ -27,9 +28,9 @@ export function computePricing(basePriceDollars: number, taxRate: number): Prici
   };
 }
 
-async function getTaxRate(): Promise<number> {
+export async function getTaxRate(exec: Executor = db): Promise<number> {
   try {
-    const setting = await db.query.businessSettings.findFirst({
+    const setting = await exec.query.businessSettings.findFirst({
       where: eq(businessSettings.setting_key, 'tax_rate'),
     });
 

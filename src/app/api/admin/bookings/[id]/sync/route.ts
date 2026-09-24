@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminSession } from '@/lib/adminAuth';
+import { requirePermission } from '@/lib/crm/auth';
 import { loadBookingWithService, syncGoogleIntegrations } from '@/lib/integrationSync';
 
 export const dynamic = 'force-dynamic';
@@ -12,10 +12,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * row is updated in place. It never touches Stripe, payment state or the
  * booking's status, and doesn't resend emails.
  */
-export async function POST(_request: NextRequest, { params }: { params: { id: string } }) {
-  if (!getAdminSession()) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+  const guard = await requirePermission(request, 'integrations.retry');
+  if (!guard.ok) return guard.response;
 
   if (!UUID_RE.test(params.id)) {
     return NextResponse.json({ error: 'Invalid booking id' }, { status: 400 });

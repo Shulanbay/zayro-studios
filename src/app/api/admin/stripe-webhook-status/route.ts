@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { getAdminSession } from '@/lib/adminAuth';
+import { requirePermission } from '@/lib/crm/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,10 +10,9 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
 // enabled status, subscribed events) so an admin can confirm the webhook
 // that confirms paid bookings is actually set up, without ever exposing
 // any signing secret (Stripe's list API doesn't return it after creation).
-export async function GET() {
-  if (!getAdminSession()) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export async function GET(request: NextRequest) {
+  const guard = await requirePermission(request, 'integrations.read');
+  if (!guard.ok) return guard.response;
 
   try {
     const endpoints = await stripe.webhookEndpoints.list({ limit: 20 });

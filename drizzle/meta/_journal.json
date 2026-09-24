@@ -36,6 +36,34 @@
       "when": 1790269783895,
       "tag": "0004_admin_audit_log",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1790356183895,
+      "tag": "0005_crm_enum_values",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1790356184895,
+      "tag": "0006_crm_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1790356185895,
+      "tag": "0007_crm_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1790356186895,
+      "tag": "0008_booking_overlap_guard",
+      "breakpoints": true
     }
   ]
 }

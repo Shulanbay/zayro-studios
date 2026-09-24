@@ -16,21 +16,21 @@ describe('isAdminEmail', () => {
 });
 
 describe('login token', () => {
-  it('accepts a freshly created token for an admin email', () => {
+  it('accepts a freshly created token', () => {
     const token = createLoginToken('owner@zayro.studio');
     const result = verifyLoginToken(token);
     expect(result?.email).toBe('owner@zayro.studio');
   });
 
-  it('rejects a token for a non-admin email even if well-formed', () => {
-    // Simulate forging a token payload for a non-admin — verify still
-    // rejects it because isAdminEmail is re-checked at verification time,
-    // not just baked into the signed payload's trustworthiness.
-    process.env.ADMIN_EMAILS = 'owner@zayro.studio';
-    const token = createLoginToken('owner@zayro.studio');
-    process.env.ADMIN_EMAILS = 'someone-else@zayro.studio'; // admin list changed
-    expect(verifyLoginToken(token)).toBeNull();
-    process.env.ADMIN_EMAILS = 'owner@zayro.studio, Admin@Example.com';
+  it('carries a one-time id and expires after 15 minutes', () => {
+    const now = Date.now();
+    const token = createLoginToken('Owner@Zayro.Studio ', now);
+    const ok = verifyLoginToken(token, now + 14 * 60 * 1000);
+    expect(ok?.email).toBe('owner@zayro.studio');
+    expect(ok?.jti).toMatch(/^[0-9a-f]{32}$/);
+    expect(verifyLoginToken(token, now + 16 * 60 * 1000)).toBeNull();
+    // Two links for the same address are distinct (each can be consumed once).
+    expect(verifyLoginToken(createLoginToken('owner@zayro.studio', now), now)?.jti).not.toBe(ok?.jti);
   });
 
   it('rejects a tampered token', () => {

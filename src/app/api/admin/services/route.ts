@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { services } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { getAdminSession } from '@/lib/adminAuth';
+import { actorOf, requirePermission } from '@/lib/crm/auth';
+import { diffFields, writeAudit } from '@/lib/crm/audit';
 import { parseServiceInput, type ServiceValues } from '@/lib/serviceInput';
 
 export const dynamic = 'force-dynamic';
@@ -26,18 +27,16 @@ async function validateBaseService(values: ServiceValues, selfId?: number): Prom
   return null;
 }
 
-export async function GET() {
-  if (!getAdminSession()) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export async function GET(request: NextRequest) {
+  const guard = await requirePermission(request, 'bookings.read');
+  if (!guard.ok) return guard.response;
   const rows = await db.query.services.findMany({ orderBy: (s, { asc }) => [asc(s.display_order), asc(s.id)] });
   return NextResponse.json(rows);
 }
 
 export async function POST(request: NextRequest) {
-  if (!getAdminSession()) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const guard = await requirePermission(request, 'services.manage');
+  if (!guard.ok) return guard.response;
 
   const body = await readJson(request);
   if (!body) return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
@@ -69,13 +68,19 @@ export async function POST(request: NextRequest) {
     })
     .returning();
 
+  await writeAudit({
+    actor: actorOf(guard.admin),
+    operation: 'service.create',
+    entityType: 'service',
+    entityId: inserted[0].id,
+    after: { name: inserted[0].name, price: inserted[0].base_price, category: inserted[0].category, active: inserted[0].is_active },
+  });
   return NextResponse.json(inserted[0]);
 }
 
 export async function PATCH(request: NextRequest) {
-  if (!getAdminSession()) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const guard = await requirePermission(request, 'services.manage');
+  if (!guard.ok) return guard.response;
 
   const body = await readJson(request);
   if (!body) return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
@@ -101,5 +106,18 @@ export async function PATCH(request: NextRequest) {
     .where(eq(services.id, id))
     .returning();
 
+  // Price edits never touch purchases: every purchase keeps its own line-item snapshot.
+  const changes = diffFields(existing as Record<string, unknown>, parsed.values as Record<string, unknown>);
+  const operation =
+    'base_price' in changes.after ? 'service.price_change' : 'is_active' in changes.after ? 'service.set_active' : 'service.update';
+  await writeAudit({
+    actor: actorOf(guard.admin),
+    operation,
+    entityType: 'service',
+    entityId: id,
+    before: changes.before,
+    after: changes.after,
+    metadata: { name: existing.name },
+  });
   return NextResponse.json(updated[0]);
 }

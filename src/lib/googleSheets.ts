@@ -70,18 +70,24 @@ export type SheetTargetDecision = { target: SheetTarget } | { target: null; reas
 
 /**
  * Which tab (if any) a booking belongs in:
- * - only confirmed bookings whose payment succeeded (free confirmations are
- *   recorded as succeeded too);
+ * - only confirmed (or completed / no-show) bookings whose payment succeeded
+ *   (free confirmations are recorded as succeeded too) — refunds keep the
+ *   row so its Payment Status column can be updated;
  * - category 'tour' → Studio Tours;
  * - any other service with total > 0 (podcast, photography, …) → Paid Bookings;
  * - monthly packages → nowhere (a package purchase isn't a studio session);
  * - any other $0 service → nowhere. Being free does not make it a tour.
  */
+// Completed / no-show sessions and (partially) refunded payments keep their
+// row up to date; they never lose it.
+const SHEET_BOOKING_STATUSES = ['confirmed', 'completed', 'no_show'];
+const SHEET_PAYMENT_STATUSES = ['succeeded', 'partially_refunded', 'refunded'];
+
 export function getSheetTarget(booking: Booking, service: Service): SheetTargetDecision {
-  if (booking.status !== 'confirmed') {
+  if (!SHEET_BOOKING_STATUSES.includes(booking.status)) {
     return { target: null, reason: `Booking is ${booking.status}, not confirmed` };
   }
-  if (booking.payment_status !== 'succeeded') {
+  if (!SHEET_PAYMENT_STATUSES.includes(booking.payment_status)) {
     return { target: null, reason: `Payment status is ${booking.payment_status}` };
   }
   if (service.category === 'package') {

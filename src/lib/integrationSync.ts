@@ -2,7 +2,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db } from './db';
 import { bookings, integrationLogs, services } from './db/schema';
 import type { Booking, Service } from './db/schema';
-import { syncCalendarEvent, type CalendarSyncResult } from './googleCalendar';
+import { syncCalendarEvent, updateCalendarEvent, type CalendarSyncResult, type CalendarUpdateResult } from './googleCalendar';
 import { syncBookingToSheet, type SheetsSyncResult } from './googleSheets';
 
 /**
@@ -135,6 +135,37 @@ export async function syncSheetsForBooking(booking: Booking, service: Service): 
  */
 export async function syncGoogleIntegrations(booking: Booking, service: Service) {
   const calendar = await syncCalendarForBooking(booking, service);
+  const sheets = await syncSheetsForBooking(booking, service);
+  return { calendar, sheets };
+}
+
+/**
+ * After a reschedule / service change: patch the booking's event in place
+ * (or create it if it never got one), then update the sheet row in place.
+ */
+export async function resyncGoogleAfterChange(booking: Booking, service: Service) {
+  let calendar: CalendarUpdateResult;
+  try {
+    calendar =
+      (await withBookingLock('google_calendar', booking.id, async (tx, fresh) => {
+        const r = await updateCalendarEvent(fresh, service);
+        if (r.eventId && r.eventId !== fresh.google_calendar_event_id) {
+          await tx
+            .update(bookings)
+            .set({ google_calendar_event_id: r.eventId })
+            .where(and(eq(bookings.id, fresh.id), isNull(bookings.google_calendar_event_id)));
+        }
+        return r;
+      })) ?? { status: 'skipped', eventId: null, message: 'Booking not found' };
+  } catch (err) {
+    calendar = { status: 'failed', eventId: null, message: `Calendar update error: ${(err as Error)?.message || err}` };
+  }
+  if (calendar.status !== 'skipped') {
+    await logIntegration('google_calendar', booking.id, calendar.eventId ? 'success' : 'failed', calendar.message, {
+      operation: `update_${calendar.status}`,
+      eventId: calendar.eventId,
+    });
+  }
   const sheets = await syncSheetsForBooking(booking, service);
   return { calendar, sheets };
 }

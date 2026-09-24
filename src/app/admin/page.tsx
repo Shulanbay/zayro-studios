@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { getAdminSession } from '@/lib/adminAuth';
+import { getAdminContext } from '@/lib/crm/auth';
 import { db } from '@/lib/db';
 import { bookings, integrationLogs } from '@/lib/db/schema';
 import { and, eq, or, ilike, inArray } from 'drizzle-orm';
@@ -29,7 +29,7 @@ interface AdminPageProps {
 }
 
 export default async function AdminPage({ searchParams }: AdminPageProps) {
-  const session = getAdminSession();
+  const session = await getAdminContext();
   if (!session) {
     redirect('/admin/login');
   }

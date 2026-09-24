@@ -32,7 +32,26 @@ vi.mock('@/lib/email', () => ({
   sendOwnerNotificationEmail: vi.fn(async () => ({ sent: true })),
 }));
 
-vi.mock('@/lib/adminAuth', () => ({ getAdminSession: () => admin.session }));
+vi.mock('@/lib/crm/auth', async () => {
+  const actual = await vi.importActual<Record<string, unknown>>('@/lib/crm/auth');
+  const { NextResponse } = await import('next/server');
+  const ctx = () =>
+    admin.session && {
+      id: '00000000-0000-4000-8000-000000000001',
+      email: admin.session.email,
+      fullName: null,
+      roleId: 1,
+      roleName: 'Owner',
+      permissions: ['*'],
+      can: () => true,
+    };
+  return {
+    ...actual,
+    getAdminContext: async () => ctx(),
+    requirePermission: async () =>
+      ctx() ? { ok: true, admin: ctx() } : { ok: false, response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) },
+  };
+});
 
 const { db } = (await import('@/lib/db')) as unknown as { db: FakeDb };
 const { runPostConfirmationSideEffects } = await import('./postConfirmation');

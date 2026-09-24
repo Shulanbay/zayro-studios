@@ -217,3 +217,120 @@ export async function checkCalendarConnection(): Promise<{ ok: boolean; message:
     return { ok: false, message: safeGoogleErrorMessage(error) };
   }
 }
+
+export type CalendarUpdateResult =
+  | { status: 'updated' | 'created' | 'already_exists'; eventId: string; message: string }
+  | { status: 'skipped' | 'not_configured' | 'failed'; eventId: null; message: string };
+
+/**
+ * Brings an existing booking event in line with the booking after a
+ * reschedule or service change (time, title, description). Patches the
+ * event in place — never creates a second one. A booking without an event
+ * gets one via syncCalendarEvent. Never throws.
+ */
+export async function updateCalendarEvent(
+  booking: Booking,
+  service: Service,
+  options: { calendar?: calendar_v3.Calendar } = {}
+): Promise<CalendarUpdateResult> {
+  if (booking.status !== 'confirmed') {
+    return { status: 'skipped', eventId: null, message: `Booking is ${booking.status}, not confirmed` };
+  }
+  if (!booking.google_calendar_event_id) {
+    const created = await syncCalendarEvent(booking, service, options);
+    return created.eventId
+      ? { status: created.status === 'created' ? 'created' : 'already_exists', eventId: created.eventId, message: created.message }
+      : { status: created.status as 'skipped' | 'not_configured' | 'failed', eventId: null, message: created.message };
+  }
+
+  const missing = options.calendar ? null : describeMissingConfig('calendar');
+  if (missing) return { status: 'not_configured', eventId: null, message: missing };
+
+  try {
+    const calendar = options.calendar ?? getCalendarClient();
+    const { id: _id, ...body } = buildCalendarEvent(booking, service);
+    await calendar.events.patch({
+      calendarId: getCalendarId(),
+      eventId: booking.google_calendar_event_id,
+      sendUpdates: 'none',
+      requestBody: { ...body, status: 'confirmed', transparency: 'opaque' },
+    });
+    return { status: 'updated', eventId: booking.google_calendar_event_id, message: 'Calendar event updated to the new time' };
+  } catch (error) {
+    const status = googleErrorStatus(error);
+    const message =
+      status === 404 || status === 410
+        ? 'Calendar event no longer exists in Google Calendar; not recreated'
+        : safeGoogleErrorMessage(error);
+    console.error(`Google Calendar update failed for booking ${booking.booking_id}: ${message}`);
+    return { status: 'failed', eventId: null, message };
+  }
+}
+
+// ----------------------------------------------------------------------
+// Blocked time
+// ----------------------------------------------------------------------
+
+export function calendarEventIdForBlock(blockId: string): string {
+  return `bt${createHash('sha256').update(`zayro-block:${blockId}`).digest('hex').slice(0, 40)}`;
+}
+
+export interface BlockEventInput {
+  id: string;
+  start_datetime: Date;
+  end_datetime: Date;
+  reason: string | null;
+  kind: string;
+}
+
+/** Mirrors a blocked-time range into the studio calendar (idempotent). Never throws. */
+export async function syncBlockedTimeEvent(
+  block: BlockEventInput,
+  options: { calendar?: calendar_v3.Calendar } = {}
+): Promise<{ status: 'created' | 'updated' | 'not_configured' | 'failed'; eventId: string | null; message: string }> {
+  const missing = options.calendar ? null : describeMissingConfig('calendar');
+  if (missing) return { status: 'not_configured', eventId: null, message: missing };
+  const eventId = calendarEventIdForBlock(block.id);
+  const requestBody: calendar_v3.Schema$Event = {
+    id: eventId,
+    summary: `Blocked: ${block.reason || block.kind}`,
+    description: `Studio time blocked in the ZAYRO admin (${block.kind}). Public booking is closed for this range.`,
+    start: { dateTime: block.start_datetime.toISOString(), timeZone: STUDIO_TIMEZONE },
+    end: { dateTime: block.end_datetime.toISOString(), timeZone: STUDIO_TIMEZONE },
+    transparency: 'opaque',
+    extendedProperties: { private: { blockedTimeId: block.id } },
+  };
+  try {
+    const calendar = options.calendar ?? getCalendarClient();
+    const calendarId = getCalendarId();
+    try {
+      await calendar.events.insert({ calendarId, requestBody, sendUpdates: 'none' });
+      return { status: 'created', eventId, message: 'Blocked time added to Google Calendar' };
+    } catch (insertError) {
+      if (googleErrorStatus(insertError) !== 409) throw insertError;
+      const { id: _id, ...body } = requestBody;
+      await calendar.events.patch({ calendarId, eventId, sendUpdates: 'none', requestBody: { ...body, status: 'confirmed' } });
+      return { status: 'updated', eventId, message: 'Blocked time event updated' };
+    }
+  } catch (error) {
+    return { status: 'failed', eventId: null, message: safeGoogleErrorMessage(error) };
+  }
+}
+
+/** Removes a deleted block's event (blocks carry no customer data). Never throws. */
+export async function removeBlockedTimeEvent(
+  eventId: string,
+  options: { calendar?: calendar_v3.Calendar } = {}
+): Promise<{ status: 'removed' | 'skipped' | 'not_configured' | 'failed'; message: string }> {
+  const missing = options.calendar ? null : describeMissingConfig('calendar');
+  if (missing) return { status: 'not_configured', message: missing };
+  try {
+    const calendar = options.calendar ?? getCalendarClient();
+    await calendar.events.delete({ calendarId: getCalendarId(), eventId, sendUpdates: 'none' });
+    return { status: 'removed', message: 'Blocked time removed from Google Calendar' };
+  } catch (error) {
+    const status = googleErrorStatus(error);
+    if (status === 404 || status === 410) return { status: 'skipped', message: 'Event was already gone' };
+    return { status: 'failed', message: safeGoogleErrorMessage(error) };
+  }
+}
