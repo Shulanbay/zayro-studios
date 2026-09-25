@@ -11,6 +11,25 @@ import { useEffect, useState } from 'react';
 export function StripeWebhookStatus() {
   const [status, setStatus] = useState<'loading' | 'ok' | 'missing' | 'error'>('loading');
   const [detail, setDetail] = useState<string>('');
+  const [missing, setMissing] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [reload, setReload] = useState(0);
+
+  const addEvents = async () => {
+    setBusy(true);
+    setMessage('');
+    try {
+      const res = await fetch('/api/admin/stripe-webhook-status', { method: 'POST' });
+      const data = await res.json();
+      setMessage(res.ok ? data.message : data.error || 'Could not update the webhook');
+      if (res.ok) setReload((n) => n + 1);
+    } catch {
+      setMessage('Could not reach the server.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     fetch('/api/admin/stripe-webhook-status')
@@ -24,7 +43,8 @@ export function StripeWebhookStatus() {
         const live = (data.endpoints || []).find((e: { url: string }) => e.url.endsWith('/api/payment/webhook'));
         if (live) {
           setStatus('ok');
-          setDetail(`${live.status} · events: ${live.enabled_events.join(', ')}`);
+          setMissing(live.missing_events || []);
+          setDetail(`${live.status} · ${data.livemode ? 'LIVE' : 'Test'} mode · events: ${live.enabled_events.join(', ')}`);
         } else {
           setStatus('missing');
           setDetail('No webhook endpoint found for /api/payment/webhook in this Stripe account.');
@@ -34,7 +54,7 @@ export function StripeWebhookStatus() {
         setStatus('error');
         setDetail('Could not reach Stripe.');
       });
-  }, []);
+  }, [reload]);
 
   const color = status === 'ok' ? 'text-emerald-700' : status === 'loading' ? 'text-zayro-gray' : 'text-red-700';
 
@@ -48,6 +68,15 @@ export function StripeWebhookStatus() {
         {status === 'error' && '✗ Could not check'}
       </p>
       {detail && <p className="text-xs text-zayro-gray mt-2 break-words">{detail}</p>}
+      {missing.length > 0 && (
+        <div className="mt-3">
+          <p className="text-xs text-amber-800">Missing CRM events: {missing.join(', ')}</p>
+          <button type="button" className="crm-btn crm-btn-sm mt-2" onClick={addEvents} disabled={busy}>
+            {busy ? 'Updating…' : 'Add missing events to this webhook'}
+          </button>
+        </div>
+      )}
+      {message && <p className="text-xs mt-2" role="status">{message}</p>}
       <p className="text-xs text-zayro-gray mt-3">
         Recommended events: checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, checkout.session.expired, payment_intent.payment_failed, charge.refunded,
         refund.updated. The signing secret is never shown here.
