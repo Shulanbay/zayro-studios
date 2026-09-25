@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { services } from '@/lib/db/schema';
+import { packagePlanItems, packagePlans, services } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { actorOf, requirePermission } from '@/lib/crm/auth';
 import { diffFields, writeAudit } from '@/lib/crm/audit';
@@ -68,6 +68,30 @@ export async function POST(request: NextRequest) {
     })
     .returning();
 
+  // A new monthly package gets its CRM plan straight away.
+  const created = inserted[0];
+  if (created.category === 'package' && created.session_count) {
+    const [plan] = await db
+      .insert(packagePlans)
+      .values({
+        service_id: created.id,
+        name: created.name,
+        slug: `package-${created.id}`,
+        package_type: created.package_type,
+        description: created.description,
+        total_credits: created.session_count,
+        validity_days: created.validity_days ?? 30,
+        price_cents: Math.round(parseFloat(created.base_price) * 100),
+        active: created.is_active,
+        sort_order: created.display_order,
+      })
+      .onConflictDoNothing()
+      .returning();
+    if (plan && created.package_base_service_id) {
+      await db.insert(packagePlanItems).values({ plan_id: plan.id, service_id: created.package_base_service_id, credits: created.session_count }).onConflictDoNothing();
+    }
+  }
+
   await writeAudit({
     actor: actorOf(guard.admin),
     operation: 'service.create',
@@ -105,6 +129,22 @@ export async function PATCH(request: NextRequest) {
     .set({ ...parsed.values, updated_at: new Date() })
     .where(eq(services.id, id))
     .returning();
+
+  // Keep the CRM package plan in step with the package service shown on the
+  // pricing page. Assigned packages keep their own snapshot.
+  if (updated[0].category === 'package' && updated[0].session_count) {
+    await db
+      .update(packagePlans)
+      .set({
+        name: updated[0].name,
+        price_cents: Math.round(parseFloat(updated[0].base_price) * 100),
+        total_credits: updated[0].session_count,
+        validity_days: updated[0].validity_days ?? 30,
+        active: updated[0].is_active,
+        updated_at: new Date(),
+      })
+      .where(eq(packagePlans.service_id, id));
+  }
 
   // Price edits never touch purchases: every purchase keeps its own line-item snapshot.
   const changes = diffFields(existing as Record<string, unknown>, parsed.values as Record<string, unknown>);

@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   sessionToken: null as string | null,
   refundCreate: null as any,
   sessionCounter: 0,
+  resendSend: null as any,
 }));
 
 vi.mock('@/lib/db', async () => {
@@ -45,6 +46,12 @@ vi.mock('stripe', () => ({
   },
 }));
 
+vi.mock('resend', () => ({
+  Resend: class {
+    emails = { send: (...args: any[]) => h.resendSend(...args) };
+  },
+}));
+
 process.env.NEXTAUTH_SECRET = 'test-secret';
 process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
 process.env.ADMIN_EMAILS = 'owner@zayro.test';
@@ -68,6 +75,10 @@ const { createLoginToken, createSessionToken } = await import('@/lib/adminAuth')
 const holdRoute = await import('@/app/api/booking/create-hold/route');
 const checkoutRoute = await import('@/app/api/payment/create-checkout-session/route');
 const freeRoute = await import('@/app/api/booking/confirm-free/route');
+const exportRoute = await import('@/app/api/admin/export/[kind]/route');
+const syncRoute = await import('@/app/api/admin/bookings/[id]/sync/route');
+const { sendBookingConfirmationEmail, retryEmail } = await import('@/lib/email');
+const { readMigrationFiles } = await import('drizzle-orm/migrator');
 
 const actor = { id: null, email: 'staff@zayro.test' };
 let ids: Record<string, number>;
@@ -666,3 +677,94 @@ describe('money and history', () => {
   });
 });
 
+
+// ---------------------------------------------------------------------------
+
+describe('email log and retry separation', () => {
+  it('sends each email once; a retry only re-sends failed/skipped ones and never touches Google', async () => {
+    const { booking } = await createManualBooking(
+      { serviceId: ids['Podcast Pro'], date: '2030-04-02', startTime: '10:00', customer: { email: 'mail@example.com', firstName: 'Mail' }, payment: { mode: 'comp' } },
+      actor
+    );
+    const service = await db.query.services.findFirst({ where: eq(schema.services.id, booking.service_id) });
+
+    // Not configured → recorded as skipped, retryable.
+    const skipped = await sendBookingConfirmationEmail({ booking, service });
+    expect(skipped).toMatchObject({ sent: false, status: 'skipped' });
+
+    process.env.RESEND_API_KEY = 're_test_fake';
+    process.env.EMAIL_FROM = 'hello@zayro.test';
+    h.resendSend = vi.fn(async () => ({ data: { id: 'msg_1' }, error: null }));
+    try {
+      const googleLogsBefore = await count('integration_logs', `booking_id = '${booking.id}' AND integration_type IN ('google_calendar', 'google_sheets')`);
+      const retried = await retryEmail(skipped.logId!);
+      expect(retried).toMatchObject({ sent: true, status: 'sent' });
+      // Sending again (duplicate webhook, repeated retry) never re-sends.
+      expect(await sendBookingConfirmationEmail({ booking, service })).toMatchObject({ sent: true, status: 'duplicate' });
+      expect(await retryEmail(skipped.logId!)).toMatchObject({ status: 'duplicate' });
+      expect(h.resendSend).toHaveBeenCalledTimes(1);
+      expect(await count('integration_logs', `booking_id = '${booking.id}' AND integration_type IN ('google_calendar', 'google_sheets')`)).toBe(googleLogsBefore);
+
+      // A Calendar/Sheets retry sends no email.
+      h.sessionToken = createSessionToken('owner@zayro.test');
+      const res = await syncRoute.POST(new NextRequest(`http://localhost/api/admin/bookings/${booking.id}/sync`, { method: 'POST', headers: { host: 'localhost' } }), { params: { id: booking.id } });
+      expect(res.status).toBe(200);
+      expect(h.resendSend).toHaveBeenCalledTimes(1);
+    } finally {
+      delete process.env.RESEND_API_KEY;
+      delete process.env.EMAIL_FROM;
+      h.sessionToken = null;
+    }
+  });
+});
+
+describe('CSV export route', () => {
+  it('requires reports.export, escapes formulas and audits the export', async () => {
+    await upsertCustomer(db, { email: 'csv@example.com', firstName: '=HYPERLINK("http://evil","x")', company: '+cmd' });
+    const get = (kind: string) => exportRoute.GET(new NextRequest(`http://localhost/api/admin/export/${kind}?q=csv@example.com`), { params: { kind } });
+
+    const operator = await db.query.roles.findFirst({ where: eq(schema.roles.name, 'Operator') });
+    await db.insert(schema.adminProfiles).values({ email: 'op@zayro.test', normalized_email: 'op@zayro.test', role_id: operator.id }).onConflictDoNothing();
+    h.sessionToken = createSessionToken('op@zayro.test');
+    expect((await get('customers')).status).toBe(403);
+
+    h.sessionToken = createSessionToken('owner@zayro.test');
+    const res = await get('customers');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/csv');
+    const bytes = new Uint8Array(await res.clone().arrayBuffer());
+    expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]); // UTF-8 BOM
+    const body = await res.text();
+    expect(body).toContain(`"'=HYPERLINK(""http://evil"",""x"")"`);
+    expect(body).toContain("'+cmd");
+    expect(body).not.toMatch(/sk_|whsec_|password/i);
+    expect(await count('audit_logs', `operation = 'report.export' AND entity_id = 'customers'`)).toBe(1);
+    h.sessionToken = null;
+  });
+});
+
+describe('migrations on a populated database', () => {
+  it('re-running the CRM migrations heals rows written by old code, then changes nothing', async () => {
+    const snapshot = async () =>
+      (
+        await pg.query<Record<string, number>>(`SELECT
+          (SELECT count(*)::int FROM purchases) p, (SELECT count(*)::int FROM purchase_items) i,
+          (SELECT count(*)::int FROM customers) c, (SELECT count(*)::int FROM roles) r,
+          (SELECT count(*)::int FROM package_plans) pp, (SELECT count(*)::int FROM bookings WHERE purchase_id IS NULL) orphan,
+          (SELECT coalesce(sum(extract(epoch FROM start_datetime)), 0)::bigint::text FROM blocked_times) blocks`)
+      ).rows[0];
+    const migrations = readMigrationFiles({ migrationsFolder: './drizzle' }).slice(5);
+    expect(migrations).toHaveLength(4);
+    const run = async () => {
+      for (const m of migrations) for (const stmt of m.sql) if (stmt.trim()) await pg.exec(stmt);
+    };
+    // Bookings inserted with raw SQL earlier in this file stand in for rows
+    // written by pre-CRM code during a deploy: the backfill gives them a purchase.
+    expect((await snapshot()).orphan).toBeGreaterThan(0);
+    await run();
+    const healed = await snapshot();
+    expect(healed.orphan).toBe(0);
+    await run();
+    expect(await snapshot()).toEqual(healed);
+  });
+});
