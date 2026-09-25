@@ -35,10 +35,16 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ### Database
 
-Schema changes are versioned SQL migrations in `drizzle/` (generate with
-`npm run db:generate`). They are applied automatically at the start of every
-Vercel **production** build (`scripts/migrate.mjs`); local and preview builds
-skip that step. Every migration must be idempotent.
+Schema changes are versioned SQL migrations in `drizzle/`. They are applied
+automatically at the start of every Vercel **production** build
+(`scripts/migrate.mjs`, which logs a counts-only before/after report); local
+and preview builds skip that step. Every migration must be idempotent and
+additive — see [docs/crm-migration-and-rollback.md](docs/crm-migration-and-rollback.md).
+The CRM migrations (0005–0008) are hand-written; `drizzle/meta` snapshots stop
+at 0004, so don't rely on `db:generate` to diff them — write new migrations by
+hand in the same style.
+
+Read-only production check (counts only): `DATABASE_URL=… node scripts/crm-dry-run.mjs`.
 
 ### Building for Production
 
@@ -59,12 +65,33 @@ npm start
 
 This project uses PostgreSQL with Drizzle ORM for type-safe database operations.
 
-## API Routes
+## Admin CRM (`/admin`)
 
-- `POST /api/booking/create` - Create a new booking
-- `GET /api/booking/check-availability` - Check available dates
-- `GET /api/booking/get-availability` - Get available times for a date
-- `POST /api/stripe/webhook` - Stripe webhook handler
+Dashboard, Calendar, Sessions, Customers, Purchases, Packages, Services,
+Availability, Blocked Time, Integrations, Reports (CSV), Team & Roles, Audit
+Log and Settings, on the same database as the website. Sign in with an email
+magic link; roles and permissions are enforced on the server.
+
+- Architecture: [docs/crm-architecture.md](docs/crm-architecture.md)
+- Data model: [docs/database-schema.md](docs/database-schema.md)
+- Security & permission matrix: [docs/crm-security.md](docs/crm-security.md)
+- How to run the studio with it: [docs/crm-operations.md](docs/crm-operations.md)
+- Roadmap & risks: [docs/crm-roadmap.md](docs/crm-roadmap.md)
+
+## Main API routes
+
+- `GET /api/booking/available-dates`, `GET /api/booking/available-times` - public availability (ET)
+- `POST /api/booking/create-hold` - hold a slot (rate limited, studio-wide lock)
+- `POST /api/booking/confirm-free` - confirm a $0 booking (studio tour)
+- `POST /api/payment/create-checkout-session` - Stripe Checkout for a held slot
+- `POST /api/payment/webhook` - Stripe webhook (signature-verified, idempotent)
+- `/api/admin/*` - CRM (session + permission checked)
+
+## Tests
+
+`npm test` runs unit tests plus integration tests against a real in-process
+Postgres (PGlite) with every migration applied — double booking, DST,
+webhook idempotency, refunds, package credits, permissions, CSV safety.
 
 ## Environment Variables
 

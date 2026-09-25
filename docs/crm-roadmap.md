@@ -9,7 +9,7 @@
 | 2 | Admin shell, dashboard, sessions, customers, calendar, availability, blocked time | done |
 | 3 | Purchases, webhook events, refunds, payment status, integration states | done |
 | 4 | Packages + credits, reports/CSV, team & roles, settings | done |
-| 5 | Browser verification, production deploy, migration verification | local verification done; **production deploy waits for owner approval** |
+| 5 | Browser verification, production deploy, migration verification | local browser + migration rehearsal done; **production deploy waits for owner approval** |
 
 ## MVP (all required)
 
