@@ -49,7 +49,11 @@ async function report(label) {
     };
     if (await exists('purchases')) {
       out.purchases = await count('SELECT count(*) AS n FROM purchases');
-      out.bookings_without_purchase = await count('SELECT count(*) AS n FROM bookings WHERE purchase_id IS NULL');
+      // Package-credit bookings have no purchase of their own (the package purchase paid for them).
+      out.bookings_without_purchase = await count(
+        `SELECT count(*) AS n FROM bookings WHERE purchase_id IS NULL AND NOT (source = 'package' AND customer_package_id IS NOT NULL)`
+      );
+      out.package_credit_bookings = await count(`SELECT count(*) AS n FROM bookings WHERE source = 'package'`);
       out.purchase_total_mismatches = await count(
         `SELECT count(*) AS n FROM purchases p JOIN bookings b ON b.purchase_id = p.id WHERE p.total_cents <> round(b.total_amount * 100)::int`
       );

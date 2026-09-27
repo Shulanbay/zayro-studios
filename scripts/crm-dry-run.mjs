@@ -118,7 +118,11 @@ try {
     // Reconciliation once the CRM migrations have run.
     if (await columnExists(tx, 'bookings', 'purchase_id')) {
       report.reconciliation = {
-        bookingsWithoutPurchase: await scalar(tx, `SELECT count(*) FROM bookings WHERE purchase_id IS NULL`),
+        bookingsWithoutPurchase: await scalar(
+          tx,
+          `SELECT count(*) FROM bookings WHERE purchase_id IS NULL AND NOT (source = 'package' AND customer_package_id IS NOT NULL)`
+        ),
+        packageCreditBookings: await scalar(tx, `SELECT count(*) FROM bookings WHERE source = 'package'`),
         bookingsWithoutStartsAt: await scalar(tx, `SELECT count(*) FROM bookings WHERE starts_at IS NULL OR ends_at IS NULL`),
         purchasesWithoutItems: await scalar(
           tx,
