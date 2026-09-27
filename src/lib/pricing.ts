@@ -28,21 +28,21 @@ export function computePricing(basePriceDollars: number, taxRate: number): Prici
   };
 }
 
+/**
+ * The configured sales-tax rate (0.08875 = 8.875%); 0 when not set. Fails
+ * closed: a database error or a nonsensical stored value throws, so a
+ * checkout is refused rather than charged with the wrong tax.
+ */
 export async function getTaxRate(exec: Executor = db): Promise<number> {
-  try {
-    const setting = await exec.query.businessSettings.findFirst({
-      where: eq(businessSettings.setting_key, 'tax_rate'),
-    });
-
-    if (!setting || !setting.setting_value) {
-      return 0; // Default to 0 tax if not configured
-    }
-
-    return parseFloat(setting.setting_value);
-  } catch (error) {
-    console.error('Error getting tax rate:', error);
-    return 0;
+  const setting = await exec.query.businessSettings.findFirst({
+    where: eq(businessSettings.setting_key, 'tax_rate'),
+  });
+  if (!setting || !setting.setting_value || !setting.setting_value.trim()) return 0;
+  const rate = Number(setting.setting_value);
+  if (!Number.isFinite(rate) || rate < 0 || rate >= 1) {
+    throw new Error('tax_rate setting is not a valid rate between 0 and 1');
   }
+  return rate;
 }
 
 async function getServiceBasePrice(serviceId: number): Promise<number | null> {

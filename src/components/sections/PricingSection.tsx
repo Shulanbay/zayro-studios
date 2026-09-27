@@ -32,7 +32,7 @@ export default function PricingSection() {
     <section className="section-padding bg-zayro-bg" id="pricing">
       <div className="container max-w-5xl">
         <Reveal>
-          <h2 className="text-5xl md:text-7xl font-black mb-4 text-zayro-dark">PRICING</h2>
+          <h2 className="text-[clamp(2.25rem,10.5vw,3rem)] md:text-7xl font-black mb-4 text-zayro-dark">PRICING</h2>
           <p className="text-xl text-zayro-gray font-light mb-16 max-w-xl">
             Simple and transparent podcast sessions. Photography and monthly packages are on the full pricing page.
           </p>

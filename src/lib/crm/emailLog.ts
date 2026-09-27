@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { emailLogs } from '@/lib/db/schema';
 import type { EmailLog } from '@/lib/db/schema';
 import type { RenderedEmail } from './emailTemplates';
+import { BUSINESS_EMAIL } from '@/lib/constants';
 
 /**
  * Every transactional email goes through here. One email_logs row per
@@ -140,6 +141,9 @@ export async function sendLoggedEmail(args: SendArgs): Promise<EmailOutcome> {
       return { sent: false, status: 'failed', error: message, logId };
     }
 
+    // Customers reply to the studio inbox, never to the sending address.
+    const replyTo = args.replyTo ?? (args.recipientType === 'customer' ? BUSINESS_EMAIL : undefined);
+
     try {
       const { data, error } = await resend.emails.send({
         from: `ZAYRO Studios <${from}>`,
@@ -147,7 +151,7 @@ export async function sendLoggedEmail(args: SendArgs): Promise<EmailOutcome> {
         subject: rendered.subject,
         html: rendered.html,
         text: rendered.text,
-        ...(args.replyTo ? { reply_to: args.replyTo } : {}),
+        ...(replyTo ? { reply_to: replyTo } : {}),
       });
       if (error) {
         const message = shortError(error);

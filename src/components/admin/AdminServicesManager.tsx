@@ -43,6 +43,8 @@ interface FormState {
   display_order: string;
   is_featured: boolean;
   is_active: boolean;
+  visible_in_booking: boolean;
+  quote_only: boolean;
   session_count: string;
   validity_days: string;
   package_type: string;
@@ -61,6 +63,8 @@ function toForm(row?: AdminServiceRow, defaultCategory = 'podcast'): FormState {
     display_order: String(row?.display_order ?? 0),
     is_featured: row?.is_featured ?? false,
     is_active: row?.is_active ?? true,
+    visible_in_booking: row?.visible_in_booking ?? true,
+    quote_only: row?.quote_only ?? false,
     session_count: row?.session_count ? String(row.session_count) : '',
     validity_days: row?.validity_days ? String(row.validity_days) : '30',
     package_type: row?.package_type ?? '',
@@ -80,6 +84,8 @@ function toPayload(form: FormState) {
     display_order: form.display_order || '0',
     is_featured: form.is_featured,
     is_active: form.is_active,
+    visible_in_booking: form.visible_in_booking,
+    quote_only: form.quote_only,
   };
   if (form.category === 'package') {
     payload.session_count = form.session_count;
@@ -158,16 +164,29 @@ function ServiceForm({
         <label htmlFor={`${id}-badge`} className="field-label">Badge (optional)</label>
         <input id={`${id}-badge`} maxLength={40} placeholder="Most Popular" value={form.badge} onChange={(e) => set('badge', e.target.value)} />
       </div>
-      <div className="flex items-end gap-6 pb-2">
+      <fieldset className="md:col-span-2 flex flex-wrap items-center gap-x-6 gap-y-3 pb-2">
+        <legend className="field-label">Visibility</legend>
         <label className="flex items-center gap-2 text-sm text-zayro-dark">
           <input type="checkbox" style={{ width: 'auto' }} checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} />
-          Active (bookable / visible)
+          Active (shown on the website)
         </label>
+        {!isPackage && (
+          <label className="flex items-center gap-2 text-sm text-zayro-dark">
+            <input type="checkbox" style={{ width: 'auto' }} checked={form.visible_in_booking} onChange={(e) => set('visible_in_booking', e.target.checked)} />
+            Bookable online
+          </label>
+        )}
+        {!isPackage && (
+          <label className="flex items-center gap-2 text-sm text-zayro-dark">
+            <input type="checkbox" style={{ width: 'auto' }} checked={form.quote_only} onChange={(e) => set('quote_only', e.target.checked)} />
+            Quote only (&ldquo;Request a Quote&rdquo; instead of booking)
+          </label>
+        )}
         <label className="flex items-center gap-2 text-sm text-zayro-dark">
           <input type="checkbox" style={{ width: 'auto' }} checked={form.is_featured} onChange={(e) => set('is_featured', e.target.checked)} />
           Featured
         </label>
-      </div>
+      </fieldset>
       <div className="md:col-span-2">
         <label htmlFor={`${id}-features`} className="field-label">Features (one per line)</label>
         <textarea id={`${id}-features`} className="h-32" value={form.features} onChange={(e) => set('features', e.target.value)} />
@@ -333,6 +352,9 @@ export default function AdminServicesManager({ initialRows }: { initialRows: Adm
                     <span className="text-zayro-dark font-medium">{row.name}</span>
                     {row.badge && <span className="chip ml-2">{row.badge}</span>}
                     {row.is_featured && <span className="text-xs text-zayro-primary ml-2">featured</span>}
+                    {row.category !== 'package' && (row.quote_only || row.visible_in_booking === false) && (
+                      <span className="text-xs text-zayro-gray ml-2">{row.quote_only ? 'quote only' : 'not bookable online'}</span>
+                    )}
                   </td>
                   <td className="py-2.5 text-zayro-gray">{CATEGORY_LABELS[row.category as keyof typeof CATEGORY_LABELS] ?? row.category}</td>
                   <td className="py-2.5 text-zayro-dark">

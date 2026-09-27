@@ -1,59 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { eq } from 'drizzle-orm';
+import { z } from 'zod';
 import { db } from '@/lib/db';
 import { bookings, services } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { enforceRateLimit } from '@/lib/crm/rateLimit';
+import { publicBookingSummary, publicStatus } from '@/lib/publicBooking';
 
 export const dynamic = 'force-dynamic';
 
+const bodySchema = z.object({ bookingId: z.string().trim().regex(/^ZAY-[A-Z0-9]{6,16}$/) });
+
 /**
  * Server-side verification for the free-booking path (no Stripe session to
- * check). Looks up the booking by its public booking_id and only returns
- * details if it is actually confirmed in the database — never trusts
- * anything the client claims about payment/confirmation state.
+ * check). Only a confirmed booking returns details, and only the minimal,
+ * non-sensitive summary (see lib/publicBooking.ts).
  */
 export async function POST(request: NextRequest) {
+  const limited = await enforceRateLimit(request, 'verify-booking', 30, 600);
+  if (limited) return limited;
+
+  let bookingId: string;
   try {
-    const body = await request.json();
-    const { bookingId } = body;
+    const parsed = bodySchema.safeParse(await request.json());
+    if (!parsed.success) return NextResponse.json({ status: 'not_found' });
+    bookingId = parsed.data.bookingId;
+  } catch {
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+  }
 
-    if (!bookingId) {
-      return NextResponse.json({ error: 'Missing bookingId' }, { status: 400 });
-    }
+  try {
+    const booking = await db.query.bookings.findFirst({ where: eq(bookings.booking_id, bookingId) });
+    // Free confirmations are immediate; anything else is not for this page.
+    if (!booking || booking.stripe_session_id) return NextResponse.json({ status: 'not_found' });
 
-    const booking = await db.query.bookings.findFirst({
-      where: eq(bookings.booking_id, bookingId),
-    });
+    const status = publicStatus(booking);
+    if (status !== 'confirmed') return NextResponse.json({ status });
 
-    if (!booking || booking.status !== 'confirmed') {
-      return NextResponse.json({ status: 'pending', message: 'Booking not found or not confirmed' });
-    }
+    const service = await db.query.services.findFirst({ where: eq(services.id, booking.service_id) });
+    if (!service) return NextResponse.json({ status: 'not_found' });
 
-    const service = await db.query.services.findFirst({
-      where: eq(services.id, booking.service_id),
-    });
-
-    if (!service) {
-      return NextResponse.json({ error: 'Service not found' }, { status: 404 });
-    }
-
-    return NextResponse.json({
-      status: 'confirmed',
-      booking: {
-        bookingId: booking.booking_id,
-        status: booking.status,
-        service: { name: service.name },
-        bookingDate: booking.booking_date,
-        startTime: booking.start_time,
-        endTime: booking.end_time,
-        durationMinutes: booking.duration_minutes,
-        totalAmount: booking.total_amount,
-        customerName: `${booking.customer_first_name} ${booking.customer_last_name}`,
-        customerEmail: booking.customer_email,
-        customerPhone: booking.customer_phone,
-      },
-    });
-  } catch (error: any) {
-    console.error('Error verifying booking:', error);
-    return NextResponse.json({ error: 'Failed to verify booking' }, { status: 500 });
+    return NextResponse.json({ status: 'confirmed', booking: publicBookingSummary(booking, service) });
+  } catch (error) {
+    console.error('Error verifying booking:', (error as Error)?.message || error);
+    return NextResponse.json({ error: 'Please try again in a moment.' }, { status: 503 });
   }
 }

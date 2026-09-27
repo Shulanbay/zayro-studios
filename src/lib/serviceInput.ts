@@ -17,6 +17,8 @@ export interface ServiceValues {
   badge?: string | null;
   is_active?: boolean;
   is_featured?: boolean;
+  visible_in_booking?: boolean;
+  quote_only?: boolean;
   display_order?: number;
   session_count?: number | null;
   validity_days?: number | null;
@@ -111,7 +113,7 @@ export function parseServiceInput(
     values.badge = badge as string | null;
   }
 
-  for (const key of ['is_active', 'is_featured'] as const) {
+  for (const key of ['is_active', 'is_featured', 'visible_in_booking', 'quote_only'] as const) {
     if (has(body, key)) {
       if (typeof body[key] !== 'boolean') return { ok: false, error: `${key} must be true or false` };
       values[key] = body[key] as boolean;

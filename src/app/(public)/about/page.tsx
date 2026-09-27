@@ -1,16 +1,19 @@
 import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/seo';
 
-export const metadata: Metadata = {
-  title: 'About ZAYRO Studios',
-  description: 'Learn about ZAYRO Studios, a premium podcast and video studio in Midtown Manhattan.',
-};
+export const metadata: Metadata = pageMetadata({
+  title: 'About | ZAYRO Studios',
+  description:
+    'About ZAYRO Studios, a podcast, video and photography studio in Midtown Manhattan.',
+  path: '/about',
+});
 
 export default function AboutPage() {
   return (
-    <main>
+    <div>
       <section className="section-padding surface-soft">
         <div className="container max-w-3xl">
-          <h1 className="text-5xl md:text-6xl font-bold mb-6 text-zayro-dark">
+          <h1 className="text-[clamp(2.25rem,10vw,3rem)] md:text-6xl font-bold mb-6 text-zayro-dark">
             About ZAYRO Studios
           </h1>
           <p className="text-xl text-zayro-gray leading-relaxed">
@@ -69,6 +72,6 @@ export default function AboutPage() {
           </div>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

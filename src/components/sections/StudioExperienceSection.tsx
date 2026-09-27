@@ -6,7 +6,7 @@ export default function StudioExperienceSection() {
     { title: 'Professional Audio', description: 'Broadcast-quality microphones and mixing equipment' },
     { title: 'Studio Lighting', description: 'Professional lighting rigs for cinematic production value' },
     { title: 'Green Screen', description: 'Full green screen setup for virtual backgrounds' },
-    { title: 'Live Streaming', description: 'Equipment and support for live multi-platform streaming' },
+    { title: 'Live Streaming', description: 'Available on request — tell us your platform and setup before you book' },
     { title: 'Editing Available', description: 'Included in the Full Podcast Package, or add it to any session' },
   ];
 
@@ -14,7 +14,7 @@ export default function StudioExperienceSection() {
     <section className="section-padding bg-white">
       <div className="container max-w-5xl">
         <Reveal>
-          <h2 className="text-5xl md:text-7xl font-black mb-16 text-zayro-dark">
+          <h2 className="text-[clamp(2.25rem,10.5vw,3rem)] md:text-7xl font-black mb-16 text-zayro-dark">
             EVERYTHING
             <br />
             YOU NEED

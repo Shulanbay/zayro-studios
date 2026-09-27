@@ -133,9 +133,9 @@ export default function CrmShell({
             <Nav items={items} pathname={pathname} />
             <div className="mt-auto px-3">{account}</div>
           </aside>
-          <main id="crm-main" className="flex-1 min-w-0 px-4 py-6 md:px-8 md:py-8 max-w-[1400px]">
+          <div id="crm-main" className="flex-1 min-w-0 px-4 py-6 md:px-8 md:py-8 max-w-[1400px]">
             {children}
-          </main>
+          </div>
         </div>
       </div>
     </ToastProvider>

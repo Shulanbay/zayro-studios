@@ -1,20 +1,27 @@
 'use client';
 
 import { useState } from 'react';
+import type { BookingFacts } from '@/lib/bookingFacts';
 
-export default function FAQSection({ showHeading = true }: { showHeading?: boolean }) {
+function hours(n: number) {
+  return `${n} hour${n === 1 ? '' : 's'}`;
+}
+
+export default function FAQSection({ showHeading = true, facts }: { showHeading?: boolean; facts: BookingFacts }) {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   const faqs = [
     {
       question: 'What time can I book the studio?',
-      answer:
-        'Sessions can be booked from 8:00 AM to 10:00 PM (New York time), seven days a week. The booking calendar always shows the live availability for your chosen date.',
+      answer: facts.hoursSentence
+        ? `Sessions can be booked from ${facts.hoursSentence}. The booking calendar always shows the live availability for your chosen date.`
+        : 'Opening hours vary by day. The booking calendar always shows the live availability for your chosen date (New York time).',
     },
     {
-      question: 'How much in advance do I need to book?',
-      answer:
-        'You can book the studio as soon as today (subject to availability), or up to 90 days in advance. We recommend booking at least 1 hour in advance to ensure your preferred time is available.',
+      question: 'How far in advance can I book?',
+      answer: `You can book up to ${facts.horizonDays} days ahead. Same-day sessions are possible when a time is free — online booking closes ${hours(
+        facts.minNoticeHours
+      )} before the start time.`,
     },
     {
       question: 'Do you offer editing services?',
@@ -22,9 +29,9 @@ export default function FAQSection({ showHeading = true }: { showHeading?: boole
         'Yes. Professional editing is included in the Full Podcast Package. Single Podcaster and Podcast Pro are recording-only sessions: you get the raw files, and editing can be added separately — just ask us for a quote.',
     },
     {
-      question: 'Can you handle live streaming?',
+      question: 'Can I live stream from the studio?',
       answer:
-        'Absolutely. We have full live streaming setup available, with equipment to stream to multiple platforms simultaneously. Let us know your streaming requirements during booking.',
+        'Live streaming can be arranged on request. Email us what and where you want to stream before you book, and we will confirm what is possible for your session.',
     },
     {
       question: 'What is your cancellation policy?',
@@ -32,9 +39,9 @@ export default function FAQSection({ showHeading = true }: { showHeading?: boole
         'You can cancel or reschedule up to 24 hours before your booking for a full refund. Cancellations within 24 hours are subject to a 50% fee. No-shows forfeit the full booking amount.',
     },
     {
-      question: 'Do you provide parking?',
+      question: 'How do I get to the studio?',
       answer:
-        'Yes, we have parking available at our location in Midtown Manhattan. We can also provide directions to nearby parking garages if needed.',
+        'We are at 40 W 37th St, Suite 603, New York, NY 10018 — a short walk from Herald Square and Bryant Park. If you plan to drive, there are public parking garages in the area; email us and we will help with directions.',
     },
   ];
 
@@ -43,7 +50,7 @@ export default function FAQSection({ showHeading = true }: { showHeading?: boole
       <div className="container max-w-4xl">
         {showHeading && (
           <>
-            <h2 className="text-5xl md:text-7xl font-black mb-4 text-zayro-dark">
+            <h2 className="text-[clamp(2.25rem,10.5vw,3rem)] md:text-7xl font-black mb-4 text-zayro-dark">
               QUESTIONS?
             </h2>
             <p className="text-xl text-zayro-gray font-light mb-16">
@@ -69,12 +76,16 @@ export default function FAQSection({ showHeading = true }: { showHeading?: boole
                     onClick={() => setOpenIndex(isOpen ? null : idx)}
                   >
                     <span className="text-lg font-semibold text-zayro-dark">{faq.question}</span>
-                    <span
-                      className={`text-xl text-zayro-primary flex-shrink-0 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
+                    <svg
+                      className={`mt-1 h-5 w-5 flex-shrink-0 text-zayro-primary transition-transform duration-300 motion-reduce:transition-none ${isOpen ? 'rotate-180' : ''}`}
+                      viewBox="0 0 20 20"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
                       aria-hidden="true"
                     >
-                      ▾
-                    </span>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 7.5l5 5 5-5" />
+                    </svg>
                   </button>
                 </h3>
 
@@ -83,7 +94,9 @@ export default function FAQSection({ showHeading = true }: { showHeading?: boole
                   role="region"
                   aria-labelledby={buttonId}
                   aria-hidden={!isOpen}
-                  className={`grid transition-all duration-300 ease-out ${isOpen ? 'grid-rows-[1fr] mt-4' : 'grid-rows-[0fr]'}`}
+                  className={`grid transition-all duration-300 ease-out motion-reduce:transition-none ${
+                    isOpen ? 'grid-rows-[1fr] mt-4 visible' : 'grid-rows-[0fr] invisible'
+                  }`}
                 >
                   <p className="overflow-hidden text-zayro-gray leading-relaxed font-light">{faq.answer}</p>
                 </div>

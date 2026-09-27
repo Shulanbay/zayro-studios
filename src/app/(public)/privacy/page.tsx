@@ -1,16 +1,19 @@
 import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/seo';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: 'Privacy Policy | ZAYRO Studios',
-  description: 'Privacy policy for ZAYRO Studios.',
-};
+  description:
+    'How ZAYRO Studios collects, uses and protects your information.',
+  path: '/privacy',
+});
 
 export default function PrivacyPage() {
   return (
-    <main>
+    <div>
       <section className="section-padding surface-soft">
         <div className="container">
-          <h1 className="text-5xl md:text-6xl font-bold mb-4 text-zayro-dark">
+          <h1 className="text-[clamp(2.25rem,10vw,3rem)] md:text-6xl font-bold mb-4 text-zayro-dark">
             Privacy Policy
           </h1>
         </div>
@@ -19,7 +22,7 @@ export default function PrivacyPage() {
       <section className="section-padding bg-white">
         <div className="container max-w-3xl card">
           <p className="text-zayro-gray leading-relaxed mb-6">
-            Last updated: {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+            Last updated: September 26, 2026
           </p>
 
           <h2 className="text-2xl font-bold mb-4">Introduction</h2>
@@ -42,6 +45,18 @@ export default function PrivacyPage() {
             <li>• Device information: browser type, IP address, operating system</li>
           </ul>
 
+          <h2 className="text-2xl font-bold mb-4">How We Use Your Information</h2>
+          <ul className="space-y-2 text-zayro-gray mb-6">
+            <li>• To confirm, manage and support your booking, and to contact you about it</li>
+            <li>
+              • Payments are processed by Stripe on its secure checkout page. We never see or store your full card
+              number.
+            </li>
+            <li>• Booking confirmations are sent through our email delivery provider</li>
+            <li>• Booking details are kept in our booking system and the studio&apos;s internal calendar and records</li>
+            <li>• We do not sell your personal information</li>
+          </ul>
+
           <h2 className="text-2xl font-bold mb-4">Security of Data</h2>
           <p className="text-zayro-gray leading-relaxed mb-6">
             The security of your data is important to us but remember that no method of transmission over
@@ -55,6 +70,6 @@ export default function PrivacyPage() {
           </p>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

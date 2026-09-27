@@ -1,17 +1,20 @@
 import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/seo';
 
-export const metadata: Metadata = {
-  title: 'Studio Tour | ZAYRO Studios',
-  description: 'Explore ZAYRO Studios equipment, layout, and facilities in Midtown Manhattan.',
-};
+export const metadata: Metadata = pageMetadata({
+  title: 'The Studio | ZAYRO Studios',
+  description:
+    'The ZAYRO Studios space and equipment: 4K cameras, broadcast microphones and studio lighting in Midtown Manhattan.',
+  path: '/studio',
+});
 
 export default function StudioPage() {
   return (
-    <main>
+    <div>
       {/* Hero */}
       <section className="section-padding surface-soft">
         <div className="container">
-          <h1 className="text-5xl md:text-6xl font-bold mb-4 text-zayro-dark">
+          <h1 className="text-[clamp(2.25rem,10vw,3rem)] md:text-6xl font-bold mb-4 text-zayro-dark">
             The Studio
           </h1>
           <p className="text-xl text-zayro-gray">
@@ -70,6 +73,6 @@ export default function StudioPage() {
           </div>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

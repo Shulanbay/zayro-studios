@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/seo';
 import PriceCard from '@/components/pricing/PriceCard';
 import { getActiveServices, getServicesById } from '@/lib/catalogData';
 import {
@@ -10,16 +11,18 @@ import {
   contactHref,
   formatDuration,
   formatPrice,
+  isBookable,
   packageRequestTopic,
   servicesInCategory,
 } from '@/lib/catalog';
 import type { Service } from '@/lib/db/schema';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: 'Pricing | ZAYRO Studios',
   description:
     'Podcast sessions, studio photography and prepaid monthly podcast packages at ZAYRO Studios in Midtown Manhattan.',
-};
+  path: '/pricing',
+});
 
 // Prices come straight from the database so admin changes show up
 // immediately and the page can never disagree with checkout.
@@ -45,6 +48,10 @@ function SectionHeading({ id, title, intro }: { id: string; title: string; intro
 }
 
 function singleSessionCard(service: Service, ctaLabel: string) {
+  // Quote-only / hidden-from-booking services are requested, not booked.
+  const cta = isBookable(service)
+    ? { href: bookingHref(service), label: ctaLabel, ariaLabel: `${ctaLabel}: ${service.name}` }
+    : { href: contactHref(service.name), label: 'Request a Quote', ariaLabel: `Request a Quote: ${service.name}` };
   return (
     <PriceCard
       key={service.id}
@@ -55,7 +62,7 @@ function singleSessionCard(service: Service, ctaLabel: string) {
       price={formatPrice(service.base_price)}
       priceSuffix={`/ ${formatDuration(service.duration_minutes)}`}
       features={service.features}
-      cta={{ href: bookingHref(service), label: ctaLabel, ariaLabel: `${ctaLabel}: ${service.name}` }}
+      cta={cta}
     />
   );
 }
@@ -77,7 +84,7 @@ export default async function PricingPage() {
     ...servicesInCategory(active, 'editing'),
   ];
   const photography = servicesInCategory(active, 'photography');
-  const tour = servicesInCategory(active, 'tour')[0] ?? null;
+  const tour = servicesInCategory(active, 'tour').filter(isBookable)[0] ?? null;
   const packages = servicesInCategory(active, 'package');
   const baseServices = await getServicesById(
     packages.map((p) => p.package_base_service_id).filter((id): id is number => id !== null)
@@ -92,10 +99,10 @@ export default async function PricingPage() {
   const validityValues = Array.from(new Set(packages.map((p) => computePackagePricing(p, null).validityDays)));
 
   return (
-    <main>
+    <div>
       <section className="py-16 md:py-24 bg-zayro-bg">
         <div className="container">
-          <h1 className="text-5xl md:text-6xl font-black mb-4 text-zayro-dark">Pricing</h1>
+          <h1 className="text-[clamp(2.25rem,10vw,3rem)] md:text-6xl font-black mb-4 text-zayro-dark">Pricing</h1>
           <p className="text-xl text-zayro-gray max-w-2xl">
             Podcast sessions, studio photography and prepaid monthly podcast packages. Taxes, if applicable, are
             calculated at checkout.
@@ -291,6 +298,6 @@ export default async function PricingPage() {
           </div>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

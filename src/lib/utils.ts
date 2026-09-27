@@ -131,11 +131,24 @@ export function isValidPhone(phone: string): boolean {
 }
 
 // Booking ID generation
+/**
+ * Public booking reference, e.g. ZAY-7K2M9Q4XW1BD. Cryptographically random
+ * (≈62 bits): the success page accepts it as proof of the booking.
+ */
 export function generateBookingId(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const bytes = new Uint8Array(12);
+  globalThis.crypto.getRandomValues(bytes);
   let result = 'ZAY-';
+  // 252 = 7 × 36: rejection sampling keeps every character equally likely.
   for (let i = 0; i < 12; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+    let b = bytes[i];
+    while (b >= 252) {
+      const retry = new Uint8Array(1);
+      globalThis.crypto.getRandomValues(retry);
+      b = retry[0];
+    }
+    result += chars.charAt(b % 36);
   }
   return result;
 }

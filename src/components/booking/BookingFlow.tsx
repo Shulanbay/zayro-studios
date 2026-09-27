@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { CATEGORY_LABELS, bookingCategories, formatDuration, formatPrice, isBookable, servicesInCategory, type CatalogService } from '@/lib/catalog';
+import { addDays, formatTimeLabel, todayInTz } from '@/lib/crm/time';
 
 interface TimeSlot {
   start: string;
@@ -23,6 +24,12 @@ interface Service {
   display_order?: number;
 }
 
+interface Pricing {
+  subtotal: string;
+  taxAmount: string;
+  total: string;
+}
+
 function asCatalog(list: Service[]): CatalogService[] {
   return list.map((s) => ({
     features: null,
@@ -37,14 +44,12 @@ function asCatalog(list: Service[]): CatalogService[] {
   })) as CatalogService[];
 }
 
-// Steps:
-// 1 Service  2 Date  3 Customer info  4 Time (creates hold)  5 Summary / payment
+// Steps: 1 Service  2 Date  3 Time  4 Details (reserves the slot)  5 Confirm / pay
 interface BookingState {
   step: number;
   selectedService: Service | null;
   selectedDate: string | null;
-  selectedTime: string | null;
-  duration: number;
+  selectedSlot: { start: string; end: string } | null;
   customerInfo: {
     firstName: string;
     lastName: string;
@@ -55,47 +60,66 @@ interface BookingState {
   };
   holdId: string | null;
   holdExpiresAt: string | null;
-  availableTimeSlots: TimeSlot[];
-  totalAmount: number;
-  taxAmount: number;
+  pricing: Pricing | null;
   loading: boolean;
   error: string | null;
 }
 
-const STORAGE_KEY = 'zayro-booking-state-v1';
-const STEP_LABELS = ['Service', 'Date', 'Details', 'Time', 'Confirm'];
+const STORAGE_KEY = 'zayro-booking-state-v2';
+const STEP_LABELS = ['Service', 'Date', 'Time', 'Details', 'Confirm'];
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function isValidEmail(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
 function isValidPhone(phone: string): boolean {
   return /^[\d\s\-().+]+$/.test(phone) && phone.replace(/\D/g, '').length >= 10;
 }
 
-function todayISO(): string {
-  return new Date().toISOString().split('T')[0];
+/** "Wednesday, October 14, 2026" for a YYYY-MM-DD studio date. */
+function longDate(date: string): string {
+  return new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
-function maxDateISO(horizonDays: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + horizonDays);
-  return d.toISOString().split('T')[0];
+function monthStart(date: string): string {
+  return `${date.slice(0, 7)}-01`;
+}
+
+function monthEnd(month: string): string {
+  const d = new Date(`${month}T12:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + 1, 0);
+  return d.toISOString().slice(0, 10);
+}
+
+function shiftMonth(month: string, delta: number): string {
+  const d = new Date(`${month}T12:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + delta, 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function money(value: string | number): string {
+  const n = typeof value === 'number' ? value : parseFloat(value);
+  return `$${n.toFixed(2)}`;
 }
 
 function loadPersistedState(): Partial<BookingState> | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
+    return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 }
 
 function persistState(state: BookingState) {
-  if (typeof window === 'undefined') return;
   try {
     const { loading, error, ...toStore } = state;
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(toStore));
@@ -105,7 +129,6 @@ function persistState(state: BookingState) {
 }
 
 function clearPersistedState() {
-  if (typeof window === 'undefined') return;
   try {
     sessionStorage.removeItem(STORAGE_KEY);
   } catch {
@@ -113,47 +136,79 @@ function clearPersistedState() {
   }
 }
 
+/** Gives a hold back in the background (the customer changed their mind). */
+function releaseHoldQuietly(holdId: string | null) {
+  if (!holdId) return;
+  fetch('/api/booking/release-hold', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hold_id: holdId }),
+    keepalive: true,
+  }).catch(() => undefined);
+}
+
 const initialState: BookingState = {
   step: 1,
   selectedService: null,
   selectedDate: null,
-  selectedTime: null,
-  duration: 60,
+  selectedSlot: null,
   customerInfo: { firstName: '', lastName: '', email: '', phone: '', company: '', notes: '' },
   holdId: null,
   holdExpiresAt: null,
-  availableTimeSlots: [],
-  totalAmount: 0,
-  taxAmount: 0,
+  pricing: null,
   loading: false,
   error: null,
 };
 
 function ProgressBar({ step }: { step: number }) {
   return (
-    <ol className="flex items-center gap-2 mb-10 md:mb-14" aria-label="Booking progress">
+    <ol className="flex items-center gap-2 mb-8 md:mb-12" aria-label="Booking progress">
       {STEP_LABELS.map((label, idx) => {
         const stepNum = idx + 1;
         const isDone = stepNum < step;
         const isCurrent = stepNum === step;
         return (
-          <li key={label} className="flex items-center gap-2 flex-1 last:flex-none">
+          <li key={label} className="flex items-center gap-2 flex-1 last:flex-none min-w-0">
             <span
               className={`flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold flex-shrink-0 transition-colors ${
                 isDone || isCurrent ? 'bg-gradient-cta text-white' : 'bg-white border border-zayro-border text-zayro-gray'
               }`}
               aria-current={isCurrent ? 'step' : undefined}
             >
-              {isDone ? '✓' : stepNum}
+              {isDone ? <span aria-hidden="true">✓</span> : stepNum}
+              <span className="sr-only">
+                {isDone ? `${label}, done` : isCurrent ? `${label}, current step` : label}
+              </span>
             </span>
-            <span className={`text-xs font-medium hidden sm:inline ${isCurrent ? 'text-zayro-dark' : 'text-zayro-gray'}`}>
+            <span className={`text-xs font-medium hidden sm:inline ${isCurrent ? 'text-zayro-dark' : 'text-zayro-gray'}`} aria-hidden="true">
               {label}
             </span>
-            {stepNum < STEP_LABELS.length && <span className="flex-1 h-px bg-zayro-border" aria-hidden="true" />}
+            {stepNum < STEP_LABELS.length && <span className="flex-1 h-px bg-zayro-border min-w-[0.5rem]" aria-hidden="true" />}
           </li>
         );
       })}
     </ol>
+  );
+}
+
+function StepHeader({ step, title, subtitle, onBack }: { step: number; title: string; subtitle?: string; onBack?: () => void }) {
+  return (
+    <>
+      <ProgressBar step={step} />
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="mb-6 -ml-1 px-1 py-2 rounded-md text-zayro-primary hover:text-zayro-dark transition-colors text-sm font-semibold"
+        >
+          <span aria-hidden="true">←</span> Back
+        </button>
+      )}
+      <h1 tabIndex={-1} className="text-4xl md:text-6xl font-black leading-tight tracking-tight mb-3 text-zayro-dark focus:outline-none">
+        {title}
+      </h1>
+      {subtitle && <p className="text-lg text-zayro-gray mb-10">{subtitle}</p>}
+    </>
   );
 }
 
@@ -164,11 +219,20 @@ export default function BookingFlow() {
   const [allServices, setAllServices] = useState<Service[]>([]);
   const [servicesError, setServicesError] = useState<string | null>(null);
   const [servicesLoading, setServicesLoading] = useState(true);
-  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
-  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
+  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+
+  const [month, setMonth] = useState<string>(() => monthStart(todayInTz()));
+  const [dates, setDates] = useState<{ month: string; available: Set<string>; min: string; max: string } | null>(null);
+  const [datesLoading, setDatesLoading] = useState(false);
+  const [datesError, setDatesError] = useState<string | null>(null);
+
+  const [slots, setSlots] = useState<TimeSlot[] | null>(null);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
+
   const deepLinkHandled = useRef(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const headingRef = useRef<HTMLDivElement>(null);
 
   // Hydrate from sessionStorage once, then re-validate anything time-sensitive.
   useEffect(() => {
@@ -177,10 +241,8 @@ export default function BookingFlow() {
       setHydrated(true);
       return;
     }
-
     (async () => {
-      // A persisted hold might have expired while the tab was reloaded —
-      // confirm with the server before trusting it.
+      let next: Partial<BookingState> = { ...persisted };
       if (persisted.holdId) {
         try {
           const res = await fetch('/api/booking/validate-hold', {
@@ -190,52 +252,83 @@ export default function BookingFlow() {
           });
           const data = await res.json();
           if (!data.valid) {
-            // Drop back to time selection with everything else intact.
-            setState((s) => ({
-              ...s,
-              ...persisted,
-              step: persisted.selectedDate ? 4 : 2,
+            next = {
+              ...next,
+              step: persisted.selectedDate ? 3 : 2,
+              selectedSlot: null,
               holdId: null,
               holdExpiresAt: null,
-              error: 'Your previous hold expired while you were away. Please pick a new time.',
-            }));
-            setHydrated(true);
-            return;
+              pricing: null,
+              error: 'Your reserved time ran out while you were away. Please pick a time again.',
+            };
+          } else if (data.hold_expires_at) {
+            next.holdExpiresAt = data.hold_expires_at;
           }
         } catch {
-          // If we can't verify, don't trust the stale hold.
-          setState((s) => ({ ...s, ...persisted, holdId: null, holdExpiresAt: null }));
-          setHydrated(true);
-          return;
+          next = { ...next, step: persisted.selectedDate ? 3 : 2, selectedSlot: null, holdId: null, holdExpiresAt: null, pricing: null };
         }
       }
-      setState((s) => ({ ...s, ...persisted }));
+      if (next.selectedDate) setMonth(monthStart(next.selectedDate));
+      setState((s) => ({ ...s, ...next, loading: false }));
       setHydrated(true);
     })();
   }, []);
 
   // Persist on every change, once hydration has settled.
   useEffect(() => {
-    if (!hydrated) return;
-    persistState(state);
+    if (hydrated) persistState(state);
   }, [state, hydrated]);
 
+  // Returning with the browser's back button from Stripe restores this page
+  // from the back/forward cache with the spinner still on.
   useEffect(() => {
-    const loadServices = async () => {
+    const onShow = (e: PageTransitionEvent) => {
+      if (e.persisted) setState((s) => ({ ...s, loading: false }));
+    };
+    window.addEventListener('pageshow', onShow);
+    return () => window.removeEventListener('pageshow', onShow);
+  }, []);
+
+  useEffect(() => {
+    (async () => {
       try {
         const response = await fetch('/api/services');
         if (!response.ok) throw new Error('Failed to load services');
         const data = await response.json();
         setAllServices(Array.isArray(data) ? data : []);
         setServicesError(null);
-      } catch (error) {
-        console.error('Error loading services:', error);
+      } catch {
         setServicesError('Unable to load services right now. Please refresh the page or try again shortly.');
       } finally {
         setServicesLoading(false);
       }
-    };
-    loadServices();
+    })();
+  }, []);
+
+  // Move keyboard/screen-reader focus to the new step's heading (not on the
+  // first render, so opening the page doesn't jump).
+  const shownStep = useRef<number | null>(null);
+  useEffect(() => {
+    if (!hydrated) return;
+    if (shownStep.current !== null && shownStep.current !== state.step) {
+      headingRef.current?.querySelector('h1')?.focus({ preventScroll: true });
+      window.scrollTo({ top: 0 });
+    }
+    shownStep.current = state.step;
+  }, [state.step, hydrated]);
+
+  const selectService = useCallback((service: Service) => {
+    setState((s) => {
+      releaseHoldQuietly(s.holdId);
+      return {
+        ...initialState,
+        customerInfo: s.customerInfo,
+        selectedService: service,
+        step: 2,
+      };
+    });
+    setSlots(null);
+    setDates(null);
   }, []);
 
   // Deep links from the pricing page: /booking?service=ID preselects that
@@ -257,16 +350,7 @@ export default function BookingFlow() {
     const target = serviceParam ? allServices.find((s) => String(s.id) === serviceParam) : undefined;
     if (target && isBookable(target)) {
       setCategory(target.category);
-      if (state.selectedService?.id !== target.id || state.step === 1) {
-        setState((s) => ({
-          ...initialState,
-          customerInfo: s.customerInfo,
-          selectedService: target,
-          duration: target.duration_minutes,
-          totalAmount: parseFloat(target.base_price),
-          step: 2,
-        }));
-      }
+      if (state.selectedService?.id !== target.id || state.step === 1) selectService(target);
     } else if (categoryParam) {
       setCategory(categoryParam);
     }
@@ -275,7 +359,54 @@ export default function BookingFlow() {
     } catch {
       // ignore
     }
-  }, [hydrated, servicesLoading, allServices, state.selectedService, state.step]);
+  }, [hydrated, servicesLoading, allServices, state.selectedService, state.step, selectService]);
+
+  // Dates with free time in the visible month (studio time, ET).
+  const serviceId = state.selectedService?.id;
+  useEffect(() => {
+    if (state.step !== 2 || !serviceId) return;
+    let cancelled = false;
+    const today = todayInTz();
+    const from = month < monthStart(today) ? today : month > today ? month : today;
+    const to = monthEnd(month);
+    setDatesLoading(true);
+    setDatesError(null);
+    fetch(`/api/booking/available-dates?service_id=${serviceId}&from_date=${from}&to_date=${to}`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Could not load dates');
+        if (!cancelled) setDates({ month, available: new Set(data.available_dates), min: data.min_date, max: data.max_date });
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setDatesError(err.message || 'Could not load available dates. Please try again.');
+      })
+      .finally(() => {
+        if (!cancelled) setDatesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [state.step, serviceId, month]);
+
+  const loadSlots = useCallback(async (service: Service, date: string) => {
+    setSlotsLoading(true);
+    setSlotsError(null);
+    try {
+      const res = await fetch(`/api/booking/available-times?service_id=${service.id}&date=${date}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not load times');
+      setSlots((data.time_slots as TimeSlot[]).filter((s) => s.available));
+    } catch (err) {
+      setSlots(null);
+      setSlotsError((err as Error).message || 'Could not load available times. Please try again.');
+    } finally {
+      setSlotsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (state.step === 3 && state.selectedService && state.selectedDate) loadSlots(state.selectedService, state.selectedDate);
+  }, [state.step, state.selectedService, state.selectedDate, loadSlots]);
 
   // Hold countdown — ticks every second while a hold is active.
   useEffect(() => {
@@ -284,35 +415,22 @@ export default function BookingFlow() {
       return;
     }
     const expiresAt = new Date(state.holdExpiresAt).getTime();
-    const tick = () => {
-      const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
-      setSecondsRemaining(remaining);
-      if (remaining <= 0 && pollRef.current) {
-        clearInterval(pollRef.current);
-      }
-    };
+    const tick = () => setSecondsRemaining(Math.max(0, Math.floor((expiresAt - Date.now()) / 1000)));
     tick();
-    pollRef.current = setInterval(tick, 1000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
   }, [state.holdExpiresAt]);
 
   const holdExpired = secondsRemaining !== null && secondsRemaining <= 0;
 
-  const selectService = (service: Service) => {
-    setState((s) => ({
-      ...s,
-      selectedService: service,
-      duration: service.duration_minutes,
-      totalAmount: parseFloat(service.base_price),
-      step: 2,
-      error: null,
-    }));
-  };
+  const goTo = (step: number, extra: Partial<BookingState> = {}) => setState((s) => ({ ...s, step, error: null, ...extra }));
 
-  const selectDate = (date: string) => {
-    setState((s) => ({ ...s, selectedDate: date, step: 3, error: null }));
+  const selectDate = (date: string) => goTo(3, { selectedDate: date, selectedSlot: null });
+
+  const selectSlot = (slot: TimeSlot) => goTo(4, { selectedSlot: { start: slot.start, end: slot.end } });
+
+  const updateCustomerInfo = (field: keyof BookingState['customerInfo'], value: string) => {
+    setState((s) => ({ ...s, customerInfo: { ...s.customerInfo, [field]: value } }));
   };
 
   const validateCustomerInfo = (): string | null => {
@@ -323,208 +441,123 @@ export default function BookingFlow() {
     return null;
   };
 
-  const proceedToTimeSelection = async () => {
+  /** Details submitted: reserve the slot for this customer, then show the summary. */
+  const reserveSlot = async () => {
     const validationError = validateCustomerInfo();
     if (validationError) {
       setState((s) => ({ ...s, error: validationError }));
       return;
     }
-    setState((s) => ({ ...s, loading: true, error: null }));
-    try {
-      const response = await fetch(
-        `/api/booking/available-times?service_id=${state.selectedService!.id}&date=${state.selectedDate}&duration_minutes=${state.duration}`
-      );
-      if (!response.ok) throw new Error('Failed to load available times');
-      const data = await response.json();
-
-      setState((s) => ({
-        ...s,
-        availableTimeSlots: data.time_slots || [],
-        loading: false,
-        step: 4,
-      }));
-    } catch (error) {
-      setState((s) => ({
-        ...s,
-        loading: false,
-        error: 'Failed to load available times. Please try again.',
-      }));
-    }
-  };
-
-  const refreshAvailableTimes = async () => {
-    if (!state.selectedService || !state.selectedDate) return;
-    try {
-      const response = await fetch(
-        `/api/booking/available-times?service_id=${state.selectedService.id}&date=${state.selectedDate}&duration_minutes=${state.duration}`
-      );
-      const data = await response.json();
-      setState((s) => ({ ...s, availableTimeSlots: data.time_slots || [] }));
-    } catch {
-      // Non-fatal — the user can still retry manually.
-    }
-  };
-
-  const selectTime = async (slot: TimeSlot) => {
+    const service = state.selectedService!;
+    const slot = state.selectedSlot!;
     setState((s) => ({ ...s, loading: true, error: null }));
     try {
       const response = await fetch('/api/booking/create-hold', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customer_email: state.customerInfo.email,
-          service_id: state.selectedService!.id,
+          customer_email: state.customerInfo.email.trim(),
+          service_id: service.id,
           booking_date: state.selectedDate,
           start_time: slot.start,
           end_time: slot.end,
-          duration_minutes: state.duration,
+          duration_minutes: service.duration_minutes,
+          previous_hold_id: state.holdId,
+          website: (document.getElementById('website') as HTMLInputElement | null)?.value || undefined,
         }),
       });
-
-      if (!response.ok) {
-        const error = await response.json();
-        if (response.status === 409) {
-          await refreshAvailableTimes();
-          throw new Error('Sorry, that time slot was just taken. Please choose another time below.');
-        }
-        throw new Error(error.error || 'Failed to reserve time slot');
-      }
-
-      const holdData = await response.json();
-
-      setState((s) => ({
-        ...s,
-        selectedTime: slot.start,
-        holdId: holdData.hold_id,
-        holdExpiresAt: holdData.hold_expires_at,
-        loading: false,
-        step: 5,
-      }));
-      setCheckoutUrl(null);
-    } catch (error: any) {
-      setState((s) => ({
-        ...s,
-        loading: false,
-        error: error.message || 'Failed to reserve time slot',
-      }));
-    }
-  };
-
-  const updateCustomerInfo = (field: string, value: string) => {
-    setState((s) => ({
-      ...s,
-      customerInfo: { ...s.customerInfo, [field]: value },
-    }));
-  };
-
-  const startOver = () => {
-    setState((s) => ({
-      ...s,
-      step: 4,
-      holdId: null,
-      holdExpiresAt: null,
-      error: 'Your hold expired. Please choose a new time.',
-    }));
-    refreshAvailableTimes();
-  };
-
-  const proceedToPayment = async () => {
-    if (holdExpired) {
-      startOver();
-      return;
-    }
-
-    setState((s) => ({ ...s, loading: true, error: null }));
-
-    try {
-      const validateResponse = await fetch('/api/booking/validate-hold', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hold_id: state.holdId }),
-      });
-      const validation = await validateResponse.json();
-      if (!validation.valid) {
-        startOver();
+      const data = await response.json();
+      if (response.status === 409) {
+        setState((s) => ({
+          ...s,
+          loading: false,
+          step: 3,
+          selectedSlot: null,
+          holdId: null,
+          holdExpiresAt: null,
+          error: 'Sorry, that time was just taken. Please choose another time.',
+        }));
         return;
       }
+      if (!response.ok) throw new Error(data.error || 'We could not reserve that time. Please try again.');
+      setState((s) => ({
+        ...s,
+        loading: false,
+        step: 5,
+        holdId: data.hold_id,
+        holdExpiresAt: data.hold_expires_at,
+        pricing: data.pricing,
+      }));
+    } catch (err) {
+      setState((s) => ({ ...s, loading: false, error: (err as Error).message }));
+    }
+  };
 
-      const payload = {
-        holdId: state.holdId,
-        firstName: state.customerInfo.firstName,
-        lastName: state.customerInfo.lastName,
-        email: state.customerInfo.email,
-        phone: state.customerInfo.phone,
-        company: state.customerInfo.company,
-        notes: state.customerInfo.notes,
-      };
+  /** From the summary back to details: the reserved slot is given back. */
+  const backFromSummary = () => {
+    releaseHoldQuietly(state.holdId);
+    goTo(4, { holdId: null, holdExpiresAt: null, pricing: null });
+  };
 
-      // Try the free-confirmation path first only if our own displayed
-      // total is zero; the server independently re-validates this either
-      // way, so a tampered client total can't skip payment for a paid
-      // service.
-      if (state.totalAmount + state.taxAmount <= 0) {
-        const freeResponse = await fetch('/api/booking/confirm-free', {
+  const holdRanOut = () => {
+    releaseHoldQuietly(state.holdId);
+    goTo(3, { selectedSlot: null, holdId: null, holdExpiresAt: null, pricing: null, error: 'Your reserved time ran out. Please pick a time again.' });
+  };
+
+  const confirmOrPay = async () => {
+    if (holdExpired) return holdRanOut();
+    setState((s) => ({ ...s, loading: true, error: null }));
+    const payload = {
+      holdId: state.holdId,
+      firstName: state.customerInfo.firstName.trim(),
+      lastName: state.customerInfo.lastName.trim(),
+      email: state.customerInfo.email.trim(),
+      phone: state.customerInfo.phone.trim(),
+      company: state.customerInfo.company.trim(),
+      notes: state.customerInfo.notes.trim(),
+    };
+    try {
+      // The server decides whether this is free (its own price, never ours).
+      if (state.pricing && parseFloat(state.pricing.total) <= 0) {
+        const res = await fetch('/api/booking/confirm-free', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
-        const freeData = await freeResponse.json();
-
-        if (freeResponse.ok) {
+        const data = await res.json();
+        if (res.ok && data.bookingId) {
           clearPersistedState();
-          window.location.href = `/booking/success?booking_id=${encodeURIComponent(freeData.bookingId)}`;
+          window.location.assign(`/booking/success?booking_id=${encodeURIComponent(data.bookingId)}`);
           return;
         }
-
-        if (!freeData.requiresPayment) {
-          throw new Error(freeData.error || 'Failed to confirm booking');
-        }
-        // Server says this isn't actually free after all — fall through to paid checkout.
+        if (res.status === 410 || res.status === 409) return holdRanOut();
+        if (!data.requiresPayment) throw new Error(data.error || 'We could not confirm your booking. Please try again.');
       }
 
-      const checkoutResponse = await fetch('/api/payment/create-checkout-session', {
+      const res = await fetch('/api/payment/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-
-      if (!checkoutResponse.ok) {
-        const error = await checkoutResponse.json();
-        throw new Error(error.error || 'Failed to create payment session');
+      const data = await res.json();
+      if (res.status === 410) return holdRanOut();
+      if (data.alreadyPaid && data.sessionId) {
+        clearPersistedState();
+        window.location.assign(`/booking/success?session_id=${encodeURIComponent(data.sessionId)}`);
+        return;
       }
-
-      const checkoutData = await checkoutResponse.json();
-
-      setState((s) => ({
-        ...s,
-        totalAmount: parseFloat(checkoutData.pricing.subtotal),
-        taxAmount: parseFloat(checkoutData.pricing.taxAmount),
-        loading: false,
-      }));
-      setCheckoutUrl(checkoutData.checkoutUrl);
-    } catch (error: any) {
-      setState((s) => ({
-        ...s,
-        loading: false,
-        error: error.message || 'Failed to proceed to payment',
-      }));
-    }
-  };
-
-  const proceedToStripe = () => {
-    if (checkoutUrl) {
-      // The Stripe session already carries everything needed to confirm the
-      // booking server-side, so there's nothing left to recover locally.
-      clearPersistedState();
-      window.location.href = checkoutUrl;
-    } else {
-      setState((s) => ({ ...s, error: 'Payment session lost. Please try again.' }));
+      if (!res.ok || !data.checkoutUrl) throw new Error(data.error || 'We could not start the payment. Please try again.');
+      // Stripe Checkout carries everything the webhook needs to confirm the
+      // booking on the server; keep the local state so "back" still works.
+      window.location.assign(data.checkoutUrl);
+    } catch (err) {
+      setState((s) => ({ ...s, loading: false, error: (err as Error).message }));
     }
   };
 
   if (!hydrated) {
     return (
-      <div className="container py-16 md:py-32">
+      <div className="container py-16 md:py-24" aria-busy="true">
         <div className="skeleton h-12 w-2/3 mb-4" />
         <div className="skeleton h-6 w-1/3 mb-16" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -535,9 +568,16 @@ export default function BookingFlow() {
     );
   }
 
-  // ========================================
-  // Step 1: Service Selection
-  // ========================================
+  const service = state.selectedService;
+  const summaryLine = service
+    ? [service.name, formatDuration(service.duration_minutes), state.selectedDate && longDate(state.selectedDate), state.selectedSlot && `${formatTimeLabel(state.selectedSlot.start)} ET`]
+        .filter(Boolean)
+        .join(' · ')
+    : '';
+
+  let content: React.ReactNode = null;
+
+  // ------------------------------------------------------------------ 1
   if (state.step === 1) {
     const catalog = asCatalog(allServices);
     const categories = bookingCategories(catalog);
@@ -548,13 +588,9 @@ export default function BookingFlow() {
       null;
     const visible = activeCategory ? servicesInCategory(catalog, activeCategory).filter(isBookable) : [];
 
-    return (
-      <div className="container py-12 md:py-20">
-        <ProgressBar step={1} />
-        <h1 className="text-5xl md:text-7xl font-black leading-tight mb-4 text-zayro-dark">
-          SELECT A<br />SERVICE
-        </h1>
-        <p className="text-lg text-zayro-gray mb-10">Choose what you&apos;re booking, then pick the session that fits.</p>
+    content = (
+      <>
+        <StepHeader step={1} title="Book the studio" subtitle="Choose what you're booking, then pick the session that fits." />
 
         {servicesLoading && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6" aria-busy="true" aria-label="Loading services">
@@ -562,13 +598,17 @@ export default function BookingFlow() {
             <div className="skeleton h-56" />
           </div>
         )}
-        {servicesError && <div className="form-error-banner mb-8">{servicesError}</div>}
+        {servicesError && (
+          <div className="form-error-banner mb-8" role="alert">
+            {servicesError}
+          </div>
+        )}
         {!servicesLoading && !servicesError && categories.length === 0 && (
           <p className="text-zayro-gray">No services are available for booking right now. Please contact us directly.</p>
         )}
 
-        {categories.length > 0 && (
-          <div role="group" aria-label="Service category" className="flex flex-wrap gap-3 mb-10">
+        {categories.length > 1 && (
+          <div role="group" aria-label="Service category" className="flex flex-wrap gap-3 mb-8">
             {categories.map((c) => (
               <button
                 key={c}
@@ -584,24 +624,34 @@ export default function BookingFlow() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {visible.map((service) => (
+          {visible.map((s) => (
             <button
-              key={service.id}
+              key={s.id}
               type="button"
-              onClick={() => selectService(allServices.find((s) => s.id === service.id)!)}
+              onClick={() => selectService(allServices.find((x) => x.id === s.id)!)}
               className="card card-interactive text-left h-full flex flex-col items-stretch justify-start min-w-0"
             >
-              {service.badge && (
-                <span className="self-start mb-3 rounded-full bg-gradient-cta px-3 py-1 text-sm font-semibold text-white">
-                  {service.badge}
+              {s.badge && (
+                <span className="self-start mb-3 rounded-full bg-gradient-cta px-3 py-1 text-sm font-semibold text-white">{s.badge}</span>
+              )}
+              <span className="block text-2xl font-black mb-2 text-zayro-dark break-words">{s.name}</span>
+              {s.description && <span className="block text-base text-zayro-gray mb-4">{s.description}</span>}
+              {s.features && s.features.length > 0 && (
+                <span className="block mb-6">
+                  {s.features.slice(0, 4).map((f) => (
+                    <span key={f} className="flex gap-2 text-sm text-zayro-gray min-w-0">
+                      <span className="text-zayro-primary flex-shrink-0" aria-hidden="true">
+                        ✓
+                      </span>
+                      <span className="min-w-0 break-words">{f}</span>
+                    </span>
+                  ))}
                 </span>
               )}
-              <h3 className="text-2xl font-black mb-2 text-zayro-dark break-words">{service.name}</h3>
-              {service.description && <p className="text-base text-zayro-gray mb-6">{service.description}</p>}
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mt-auto">
-                <span className="text-4xl font-black text-zayro-dark">{formatPrice(service.base_price)}</span>
-                <span className="text-base text-zayro-gray">{formatDuration(service.duration_minutes)}</span>
-              </div>
+              <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mt-auto">
+                <span className="text-4xl font-black text-zayro-dark">{formatPrice(s.base_price)}</span>
+                <span className="text-base text-zayro-gray">{formatDuration(s.duration_minutes)}</span>
+              </span>
             </button>
           ))}
         </div>
@@ -613,72 +663,175 @@ export default function BookingFlow() {
           </Link>
           .
         </p>
-      </div>
+      </>
     );
   }
 
-  // ========================================
-  // Step 2: Date Selection
-  // ========================================
-  if (state.step === 2) {
-    return (
-      <div className="container py-12 md:py-20">
-        <ProgressBar step={2} />
-        <button
-          onClick={() => setState((s) => ({ ...s, step: 1 }))}
-          className="mb-6 text-zayro-primary hover:text-zayro-dark transition-colors text-sm font-medium"
-        >
-          ← Back
-        </button>
-        <h1 className="text-5xl md:text-7xl font-black leading-tight mb-4 text-zayro-dark">
-          SELECT A<br />DATE
-        </h1>
-        <p className="text-lg text-zayro-gray mb-12">
-          {state.selectedService?.name} · {formatDuration(state.duration)}
-        </p>
-        <div className="card max-w-md">
-          <label htmlFor="booking-date" className="field-label">
-            Session date
-          </label>
-          <input
-            id="booking-date"
-            type="date"
-            min={todayISO()}
-            max={maxDateISO(90)}
-            defaultValue={state.selectedDate || ''}
-            onChange={(e) => e.target.value && selectDate(e.target.value)}
-            className="text-lg"
-          />
-          <p className="text-xs text-zayro-gray mt-3">Studio timezone: America/New_York (ET)</p>
+  // ------------------------------------------------------------------ 2
+  if (state.step === 2 && service) {
+    const today = todayInTz();
+    const first = new Date(`${month}T12:00:00Z`);
+    const leading = first.getUTCDay();
+    const last = monthEnd(month);
+    const days: string[] = [];
+    for (let d = month; d <= last; d = addDays(d, 1)) days.push(d);
+    const loaded = dates?.month === month ? dates : null;
+    const maxDate = loaded?.max ?? addDays(today, 90);
+    const canPrev = month > monthStart(today);
+    const canNext = monthEnd(month) < maxDate;
+    const monthLabel = first.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    const noneThisMonth = loaded && !datesLoading && loaded.available.size === 0;
+
+    content = (
+      <>
+        <StepHeader step={2} title="Pick a date" subtitle={`${service.name} · ${formatDuration(service.duration_minutes)}`} onBack={() => goTo(1)} />
+        <div className="card max-w-xl !p-5 md:!p-8">
+          <div className="flex items-center justify-between gap-3 mb-5">
+            <button
+              type="button"
+              onClick={() => setMonth(shiftMonth(month, -1))}
+              disabled={!canPrev}
+              className="button button-secondary !px-4 !py-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="Previous month"
+            >
+              <span aria-hidden="true">←</span>
+            </button>
+            <h2 className="text-lg font-bold text-zayro-dark" aria-live="polite">
+              {monthLabel}
+            </h2>
+            <button
+              type="button"
+              onClick={() => setMonth(shiftMonth(month, 1))}
+              disabled={!canNext}
+              className="button button-secondary !px-4 !py-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="Next month"
+            >
+              <span aria-hidden="true">→</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-zayro-gray mb-2" aria-hidden="true">
+            {WEEKDAYS.map((d) => (
+              <span key={d}>{d}</span>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-1" aria-busy={datesLoading} aria-label={`Available dates in ${monthLabel}`} role="group">
+            {Array.from({ length: leading }).map((_, i) => (
+              <span key={`pad-${i}`} aria-hidden="true" />
+            ))}
+            {days.map((d) => {
+              const open = !!loaded?.available.has(d);
+              const selected = d === state.selectedDate;
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => selectDate(d)}
+                  disabled={!open}
+                  aria-pressed={selected}
+                  aria-label={`${longDate(d)}${open ? '' : ', unavailable'}`}
+                  className={`aspect-square min-h-[2.5rem] p-0 rounded-xl text-sm md:text-base font-semibold transition-colors ${
+                    selected
+                      ? 'bg-gradient-cta text-white shadow-glow'
+                      : open
+                        ? 'bg-zayro-bg text-zayro-dark hover:bg-white hover:ring-2 hover:ring-zayro-primary'
+                        : 'text-zayro-gray/40 cursor-not-allowed'
+                  } ${d === today && !selected ? 'ring-1 ring-zayro-border' : ''}`}
+                >
+                  {Number(d.slice(8))}
+                </button>
+              );
+            })}
+          </div>
+
+          {datesLoading && (
+            <p className="text-sm text-zayro-gray mt-4" role="status">
+              Checking availability…
+            </p>
+          )}
+          {datesError && (
+            <p className="field-error mt-4" role="alert">
+              {datesError}
+            </p>
+          )}
+          {noneThisMonth && (
+            <p className="text-sm text-zayro-gray mt-4" role="status">
+              No open dates left this month{canNext ? ' — try the next month.' : '.'}
+            </p>
+          )}
+          <p className="text-xs text-zayro-gray mt-5">All times are New York time (ET).</p>
         </div>
-      </div>
+      </>
     );
   }
 
-  // ========================================
-  // Step 3: Customer Information (collected before the hold is created)
-  // ========================================
-  if (state.step === 3) {
-    return (
-      <div className="container py-12 md:py-20">
-        <ProgressBar step={3} />
-        <button
-          onClick={() => setState((s) => ({ ...s, step: 2, error: null }))}
-          className="mb-6 text-zayro-primary hover:text-zayro-dark transition-colors text-sm font-medium"
-        >
-          ← Back
-        </button>
-        <h1 className="text-5xl md:text-7xl font-black leading-tight mb-4 text-zayro-dark">
-          YOUR
-          <br />
-          INFORMATION
-        </h1>
-        <p className="text-lg text-zayro-gray mb-12">We need your details before reserving a time slot.</p>
+  // ------------------------------------------------------------------ 3
+  if (state.step === 3 && service && state.selectedDate) {
+    content = (
+      <>
+        <StepHeader step={3} title="Pick a time" subtitle={`${service.name} · ${longDate(state.selectedDate)}`} onBack={() => goTo(2)} />
+        {state.error && (
+          <p className="form-error-banner mb-8" role="alert">
+            {state.error}
+          </p>
+        )}
+        {slotsLoading && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3" aria-busy="true" aria-label="Loading available times">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="skeleton h-16" />
+            ))}
+          </div>
+        )}
+        {slotsError && (
+          <div className="form-error-banner mb-6" role="alert">
+            {slotsError}{' '}
+            <button type="button" className="p-0 underline font-semibold" onClick={() => loadSlots(service, state.selectedDate!)}>
+              Try again
+            </button>
+          </div>
+        )}
+        {!slotsLoading && slots && slots.length === 0 && (
+          <p className="text-zayro-gray mb-8">
+            Every time on this date has just been taken.{' '}
+            <button type="button" className="p-0 text-zayro-primary font-semibold underline" onClick={() => goTo(2)}>
+              Choose another date
+            </button>
+          </p>
+        )}
+        {!slotsLoading && slots && slots.length > 0 && (
+          <ul className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3" aria-label="Available start times">
+            {slots.map((slot) => (
+              <li key={slot.start}>
+                <button
+                  type="button"
+                  onClick={() => selectSlot(slot)}
+                  aria-label={`${formatTimeLabel(slot.start)} to ${formatTimeLabel(slot.end)} Eastern Time`}
+                  className={`w-full p-3 rounded-md-plus border-2 transition-all text-center bg-white hover:border-zayro-primary hover:shadow-soft ${
+                    state.selectedSlot?.start === slot.start ? 'border-zayro-primary' : 'border-zayro-border'
+                  }`}
+                >
+                  <span className="block font-bold text-base text-zayro-dark">{formatTimeLabel(slot.start)}</span>
+                  <span className="block text-xs text-zayro-gray">until {formatTimeLabel(slot.end)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-xs text-zayro-gray mt-6">Times are New York time (ET).</p>
+      </>
+    );
+  }
+
+  // ------------------------------------------------------------------ 4
+  if (state.step === 4 && service && state.selectedSlot) {
+    content = (
+      <>
+        <StepHeader step={4} title="Your details" subtitle={summaryLine} onBack={() => goTo(3)} />
         <form
           className="card max-w-2xl space-y-6"
           onSubmit={(e) => {
             e.preventDefault();
-            proceedToTimeSelection();
+            reserveSlot();
           }}
           noValidate
         >
@@ -691,6 +844,7 @@ export default function BookingFlow() {
                 id="firstName"
                 type="text"
                 autoComplete="given-name"
+                maxLength={100}
                 value={state.customerInfo.firstName}
                 onChange={(e) => updateCustomerInfo('firstName', e.target.value)}
                 required
@@ -704,6 +858,7 @@ export default function BookingFlow() {
                 id="lastName"
                 type="text"
                 autoComplete="family-name"
+                maxLength={100}
                 value={state.customerInfo.lastName}
                 onChange={(e) => updateCustomerInfo('lastName', e.target.value)}
                 required
@@ -718,6 +873,8 @@ export default function BookingFlow() {
               id="email"
               type="email"
               autoComplete="email"
+              inputMode="email"
+              maxLength={255}
               value={state.customerInfo.email}
               onChange={(e) => updateCustomerInfo('email', e.target.value)}
               required
@@ -731,6 +888,8 @@ export default function BookingFlow() {
               id="phone"
               type="tel"
               autoComplete="tel"
+              inputMode="tel"
+              maxLength={20}
               value={state.customerInfo.phone}
               onChange={(e) => updateCustomerInfo('phone', e.target.value)}
               required
@@ -738,227 +897,180 @@ export default function BookingFlow() {
           </div>
           <div>
             <label htmlFor="company" className="field-label">
-              Company / Show name (optional)
+              Company / show name (optional)
             </label>
             <input
               id="company"
               type="text"
+              autoComplete="organization"
+              maxLength={255}
               value={state.customerInfo.company}
               onChange={(e) => updateCustomerInfo('company', e.target.value)}
             />
           </div>
           <div>
             <label htmlFor="notes" className="field-label">
-              Notes (optional)
+              Notes for the studio (optional)
             </label>
             <textarea
               id="notes"
+              maxLength={2000}
               value={state.customerInfo.notes}
               onChange={(e) => updateCustomerInfo('notes', e.target.value)}
               className="h-28"
             />
+          </div>
+          {/* Honeypot: hidden from people, filled in by bots. */}
+          <div className="hidden" aria-hidden="true">
+            <label htmlFor="website">Website</label>
+            <input id="website" name="website" type="text" tabIndex={-1} autoComplete="off" />
           </div>
           {state.error && (
             <p className="field-error" role="alert">
               {state.error}
             </p>
           )}
-          <button type="submit" disabled={state.loading} className={`button button-primary w-full text-base py-4 ${state.loading ? 'is-loading' : ''}`}>
+          <button
+            type="submit"
+            disabled={state.loading}
+            className={`button button-primary w-full text-base py-4 ${state.loading ? 'is-loading' : ''}`}
+          >
             Continue
           </button>
+          <p className="text-xs text-zayro-gray">Your time is reserved for you once you continue.</p>
         </form>
-      </div>
+      </>
     );
   }
 
-  // ========================================
-  // Step 4: Time Selection (creates the hold)
-  // ========================================
-  if (state.step === 4) {
-    const hasAnySlot = state.availableTimeSlots.length > 0;
-    const hasAvailableSlot = state.availableTimeSlots.some((s) => s.available);
+  // ------------------------------------------------------------------ 5
+  if (state.step === 5 && service && state.selectedSlot && state.selectedDate) {
+    const pricing = state.pricing;
+    const isFree = !!pricing && parseFloat(pricing.total) <= 0;
+    const hasTax = !!pricing && parseFloat(pricing.taxAmount) > 0;
 
-    return (
-      <div className="container py-12 md:py-20">
-        <ProgressBar step={4} />
-        <button
-          onClick={() => setState((s) => ({ ...s, step: 3, error: null }))}
-          className="mb-6 text-zayro-primary hover:text-zayro-dark transition-colors text-sm font-medium"
-        >
-          ← Back
-        </button>
-        <h1 className="text-5xl md:text-7xl font-black leading-tight mb-4 text-zayro-dark">
-          SELECT A<br />TIME
-        </h1>
-        <p className="text-lg text-zayro-gray mb-10">{state.selectedDate}</p>
-        {state.error && (
-          <p className="field-error mb-8" role="alert">
-            {state.error}
-          </p>
-        )}
-        {state.loading && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3" aria-busy="true" aria-label="Loading available times">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="skeleton h-16" />
-            ))}
-          </div>
-        )}
-        {!state.loading && hasAnySlot && !hasAvailableSlot && (
-          <p className="text-zayro-gray mb-8">No available times on this date. Please go back and choose another date.</p>
-        )}
-        {!state.loading && !hasAnySlot && (
-          <p className="text-zayro-gray mb-8">The studio is closed on this date. Please choose another date.</p>
-        )}
-        {!state.loading && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {state.availableTimeSlots.map((slot) => (
-              <button
-                key={`${slot.start}-${slot.end}`}
-                onClick={() => selectTime(slot)}
-                disabled={!slot.available || state.loading}
-                aria-label={`${slot.start} to ${slot.end}${slot.available ? '' : ', unavailable'}`}
-                className={`p-3 rounded-md-plus border-2 transition-all text-center ${
-                  slot.available
-                    ? 'border-zayro-border bg-white hover:border-zayro-primary hover:shadow-soft cursor-pointer'
-                    : 'border-zayro-border bg-zayro-bg text-zayro-gray/50 cursor-not-allowed'
-                }`}
-              >
-                <div className="font-bold text-sm md:text-base">{slot.start}</div>
-                <div className="text-xs text-zayro-gray">to {slot.end}</div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
+    content = (
+      <>
+        <StepHeader step={5} title={isFree ? 'Confirm your booking' : 'Review and pay'} onBack={backFromSummary} />
 
-  // ========================================
-  // Step 5: Summary / Payment
-  // ========================================
-  if (state.step === 5) {
-    const total = state.totalAmount + state.taxAmount;
-    const isFree = total <= 0;
-
-    return (
-      <div className="container py-12 md:py-20">
-        <ProgressBar step={5} />
-        <button
-          onClick={() => setState((s) => ({ ...s, step: 4, error: null }))}
-          className="mb-6 text-zayro-primary hover:text-zayro-dark transition-colors text-sm font-medium"
-        >
-          ← Back
-        </button>
-        <h1 className="text-5xl md:text-7xl font-black leading-tight mb-4 text-zayro-dark">
-          BOOKING
-          <br />
-          SUMMARY
-        </h1>
-
-        {secondsRemaining !== null && !holdExpired && !checkoutUrl && (
-          <p className="chip mb-10" role="status">
+        {secondsRemaining !== null && !holdExpired && (
+          <p className="chip mb-8" role="status" aria-live="off">
             <span className="chip-dot" aria-hidden="true" />
-            Time slot held for {Math.floor(secondsRemaining / 60)}:{String(secondsRemaining % 60).padStart(2, '0')}
+            Time reserved for {Math.floor(secondsRemaining / 60)}:{String(secondsRemaining % 60).padStart(2, '0')}
           </p>
         )}
         {holdExpired && (
-          <div className="form-error-banner mb-10">
-            Your hold expired.{' '}
-            <button className="underline font-bold" onClick={startOver}>
-              Choose a new time
+          <div className="form-error-banner mb-8" role="alert">
+            Your reserved time ran out.{' '}
+            <button type="button" className="p-0 underline font-bold" onClick={holdRanOut}>
+              Choose a time again
             </button>
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
-          <div className="md:col-span-2 space-y-8">
-            <div className="card">
-              <h3 className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-2">Service</h3>
-              <p className="text-2xl font-black text-zayro-dark">{state.selectedService?.name}</p>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 mb-12">
+          <dl className="card lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="sm:col-span-2">
+              <dt className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-1">Service</dt>
+              <dd className="text-2xl font-black text-zayro-dark">{service.name}</dd>
             </div>
-
-            <div className="card">
-              <h3 className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-2">Date & time</h3>
-              <p className="text-xl font-black text-zayro-dark">
-                {new Date(state.selectedDate + 'T00:00:00').toLocaleDateString('en-US', {
-                  weekday: 'long',
-                  month: 'long',
-                  day: 'numeric',
-                  year: 'numeric',
-                })}
-              </p>
-              <p className="text-lg font-bold mt-1 text-zayro-primary">
-                {state.selectedTime} ET · {formatDuration(state.duration)}
-              </p>
+            <div>
+              <dt className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-1">Date</dt>
+              <dd className="text-lg font-bold text-zayro-dark">{longDate(state.selectedDate)}</dd>
             </div>
-
-            <div className="card">
-              <h3 className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-2">Customer information</h3>
-              <p className="text-lg font-bold text-zayro-dark">
-                {state.customerInfo.firstName} {state.customerInfo.lastName}
-              </p>
-              <p className="text-zayro-gray">{state.customerInfo.email}</p>
-              <p className="text-zayro-gray">{state.customerInfo.phone}</p>
-              {state.customerInfo.company && <p className="text-zayro-gray">{state.customerInfo.company}</p>}
+            <div>
+              <dt className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-1">Time (ET)</dt>
+              <dd className="text-lg font-bold text-zayro-dark">
+                {formatTimeLabel(state.selectedSlot.start)} – {formatTimeLabel(state.selectedSlot.end)}
+                <span className="block text-sm font-normal text-zayro-gray">{formatDuration(service.duration_minutes)}</span>
+              </dd>
             </div>
-          </div>
+            <div className="sm:col-span-2">
+              <dt className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-1">Contact</dt>
+              <dd className="text-zayro-dark break-words">
+                <span className="block font-bold">
+                  {state.customerInfo.firstName} {state.customerInfo.lastName}
+                </span>
+                <span className="block text-zayro-gray">{state.customerInfo.email}</span>
+                <span className="block text-zayro-gray">{state.customerInfo.phone}</span>
+                {state.customerInfo.company && <span className="block text-zayro-gray">{state.customerInfo.company}</span>}
+              </dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-1">Location</dt>
+              <dd className="text-zayro-dark">40 W 37th St, Suite 603, New York, NY 10018</dd>
+            </div>
+          </dl>
 
           <div className="card h-fit">
-            <h3 className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-6">Pricing</h3>
-            <div className="space-y-3 border-b border-zayro-border pb-6 mb-6">
-              <div className="flex justify-between text-sm">
-                <span className="text-zayro-gray">Subtotal</span>
-                <span className="font-semibold text-zayro-dark">${state.totalAmount.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-zayro-gray">Tax</span>
-                <span className="font-semibold text-zayro-dark">${state.taxAmount.toFixed(2)}</span>
-              </div>
-            </div>
-            <div className="flex justify-between text-2xl font-black mb-6">
+            <h2 className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-5">{isFree ? 'Price' : 'Payment'}</h2>
+            {pricing && !isFree && (
+              <dl className="space-y-3 border-b border-zayro-border pb-5 mb-5 text-sm">
+                <div className="flex justify-between">
+                  <dt className="text-zayro-gray">Subtotal</dt>
+                  <dd className="font-semibold text-zayro-dark">{money(pricing.subtotal)}</dd>
+                </div>
+                {hasTax && (
+                  <div className="flex justify-between">
+                    <dt className="text-zayro-gray">Sales tax</dt>
+                    <dd className="font-semibold text-zayro-dark">{money(pricing.taxAmount)}</dd>
+                  </div>
+                )}
+              </dl>
+            )}
+            <div className="flex justify-between items-baseline text-2xl font-black mb-6">
               <span className="text-zayro-dark">Total</span>
-              <span className="text-zayro-primary">${total.toFixed(2)}</span>
+              <span className="text-zayro-primary">{isFree ? 'Free' : pricing ? money(pricing.total) : '—'}</span>
             </div>
 
-            {!checkoutUrl ? (
-              <button
-                onClick={proceedToPayment}
-                disabled={state.loading || holdExpired}
-                className={`button button-primary w-full py-4 text-base ${state.loading ? 'is-loading' : ''}`}
-              >
-                {isFree ? 'Confirm Booking' : 'Continue to Payment'}
-              </button>
-            ) : (
-              <button
-                onClick={proceedToStripe}
-                disabled={state.loading}
-                className={`button button-primary w-full py-4 text-base ${state.loading ? 'is-loading' : ''}`}
-              >
-                Secure Checkout
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={confirmOrPay}
+              disabled={state.loading || holdExpired || !pricing}
+              className={`button button-primary w-full py-4 text-base ${state.loading ? 'is-loading' : ''}`}
+            >
+              {isFree ? 'Confirm booking' : `Pay ${pricing ? money(pricing.total) : ''} securely`}
+            </button>
 
             {state.error && (
               <p className="field-error mt-4" role="alert">
                 {state.error}
               </p>
             )}
+            <p className="text-xs text-zayro-gray mt-4">
+              {isFree
+                ? 'No payment needed. You’ll get a confirmation email right away.'
+                : 'You’ll pay on Stripe’s secure checkout page. Your booking is confirmed as soon as the payment goes through.'}
+            </p>
           </div>
         </div>
+      </>
+    );
+  }
 
-        {!isFree && (
-          <div className="max-w-3xl mb-16">
-            <div className="card bg-zayro-bg text-sm">
-              <p className="font-bold mb-1 text-zayro-dark">Secure payment</p>
-              <p className="text-zayro-gray">Payment is processed securely by Stripe. Your booking total is confirmed before you're charged.</p>
-            </div>
-          </div>
-        )}
-
-        <p className="text-sm text-zayro-gray">Studio address: 40 W 37th St, Suite 603, New York, NY 10018</p>
+  if (!content) {
+    // A step whose inputs are missing (e.g. after a partial restore): start over.
+    content = (
+      <div className="card max-w-xl">
+        <p className="text-zayro-gray mb-6">Something in this booking is missing. Let&apos;s start again.</p>
+        <button
+          type="button"
+          className="button button-primary"
+          onClick={() => {
+            releaseHoldQuietly(state.holdId);
+            clearPersistedState();
+            setState(initialState);
+          }}
+        >
+          Start over
+        </button>
       </div>
     );
   }
 
-  return null;
+  return (
+    <div className="container py-10 md:py-16" ref={headingRef}>
+      {content}
+    </div>
+  );
 }

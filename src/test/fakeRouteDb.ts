@@ -20,6 +20,8 @@ export interface RouteDbScript {
   findMany?: Record<string, Resolver>;
   /** Rows returned by update(...).returning() per table (default: one row echoing the values). */
   updateReturning?: Record<string, Resolver>;
+  /** Rows returned by select().from(table).where(...) per table (default: none). */
+  select?: Record<string, Resolver>;
 }
 
 export function render(where: SQL | undefined): RenderedWhere {
@@ -77,6 +79,15 @@ export function createRouteDb() {
         },
       }),
     }),
+    select: (_fields?: unknown) => ({
+      from: (table: any) => ({
+        where: (cond: SQL) => {
+          const name = getTableName(table);
+          const rows = script.select?.[name]?.(render(cond)) ?? [];
+          return Object.assign(Promise.resolve(rows), { limit: async (n: number) => rows.slice(0, n) });
+        },
+      }),
+    }),
     execute: async (q: SQL) => {
       log.executed.push(render(q).sql);
       return [];
@@ -95,6 +106,7 @@ export function createRouteDb() {
       script.findFirst = {};
       script.findMany = {};
       script.updateReturning = {};
+      script.select = {};
       log.reads.length = 0;
       log.inserts.length = 0;
       log.updates.length = 0;

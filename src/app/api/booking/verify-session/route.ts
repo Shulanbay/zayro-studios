@@ -1,108 +1,54 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { eq } from 'drizzle-orm';
+import { z } from 'zod';
 import { db } from '@/lib/db';
 import { bookings, services } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
-import Stripe from 'stripe';
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
+import { enforceRateLimit } from '@/lib/crm/rateLimit';
+import { getStripe } from '@/lib/crm/refunds';
+import { publicBookingSummary, publicStatus } from '@/lib/publicBooking';
 
 export const dynamic = 'force-dynamic';
 
+const bodySchema = z.object({ sessionId: z.string().trim().regex(/^cs_(test|live)_[A-Za-z0-9]+$/) });
+
+/**
+ * The success page after Stripe Checkout. The booking is confirmed only by
+ * the signature-verified webhook; this route reports what the database says
+ * (plus Stripe's own payment status while the webhook is still on its way),
+ * with a minimal summary and no contact details.
+ */
 export async function POST(request: NextRequest) {
+  const limited = await enforceRateLimit(request, 'verify-session', 60, 600);
+  if (limited) return limited;
+
+  let sessionId: string;
   try {
-    const body = await request.json();
-    const { sessionId } = body;
+    const parsed = bodySchema.safeParse(await request.json());
+    if (!parsed.success) return NextResponse.json({ status: 'not_found' });
+    sessionId = parsed.data.sessionId;
+  } catch {
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+  }
 
-    if (!sessionId) {
-      return NextResponse.json(
-        { error: 'Missing sessionId' },
-        { status: 400 }
-      );
+  try {
+    const booking = await db.query.bookings.findFirst({ where: eq(bookings.stripe_session_id, sessionId) });
+    if (!booking) return NextResponse.json({ status: 'not_found' });
+
+    const status = publicStatus(booking);
+    if (status === 'pending') {
+      // The webhook usually lands within seconds; tell the page whether the
+      // money is already in so it keeps waiting instead of giving up.
+      const stripe = getStripe();
+      const session = stripe ? await stripe.checkout.sessions.retrieve(sessionId).catch(() => null) : null;
+      return NextResponse.json({ status: session?.payment_status === 'paid' ? 'processing' : 'pending' });
     }
+    if (status !== 'confirmed') return NextResponse.json({ status, bookingId: booking.booking_id });
 
-    // ========================================
-    // RETRIEVE STRIPE SESSION
-    // ========================================
-    let stripeSession: Stripe.Checkout.Session;
-
-    try {
-      stripeSession = await stripe.checkout.sessions.retrieve(sessionId);
-    } catch (err: any) {
-      return NextResponse.json(
-        { error: 'Session not found' },
-        { status: 404 }
-      );
-    }
-
-    // ========================================
-    // CHECK FOR CONFIRMED BOOKING
-    // ========================================
-    const booking = await db.query.bookings.findFirst({
-      where: eq(bookings.stripe_session_id, sessionId),
-    });
-
-    if (!booking) {
-      // Session exists but booking not created yet
-      if (stripeSession.payment_status === 'paid') {
-        return NextResponse.json({
-          status: 'pending',
-          message: 'Payment received but booking not yet confirmed',
-        });
-      }
-
-      return NextResponse.json({
-        status: 'unpaid',
-        message: 'Payment not completed',
-      });
-    }
-
-    if (booking.status !== 'confirmed') {
-      return NextResponse.json({
-        status: 'pending',
-        message: 'Booking not yet confirmed',
-      });
-    }
-
-    // ========================================
-    // RETRIEVE SERVICE DETAILS
-    // ========================================
-    const service = await db.query.services.findFirst({
-      where: eq(services.id, booking.service_id),
-    });
-
-    if (!service) {
-      return NextResponse.json(
-        { error: 'Service not found' },
-        { status: 404 }
-      );
-    }
-
-    // ========================================
-    // RETURN CONFIRMED BOOKING
-    // ========================================
-    return NextResponse.json({
-      status: 'confirmed',
-      booking: {
-        bookingId: booking.booking_id,
-        status: booking.status,
-        service: {
-          name: service.name,
-        },
-        bookingDate: booking.booking_date,
-        startTime: booking.start_time,
-        endTime: booking.end_time,
-        durationMinutes: booking.duration_minutes,
-        totalAmount: booking.total_amount,
-        customerName: `${booking.customer_first_name} ${booking.customer_last_name}`,
-        customerEmail: booking.customer_email,
-        customerPhone: booking.customer_phone,
-      },
-    });
-  } catch (error: any) {
-    console.error('Error verifying session:', error);
-    return NextResponse.json(
-      { error: 'Failed to verify session' },
-      { status: 500 }
-    );
+    const service = await db.query.services.findFirst({ where: eq(services.id, booking.service_id) });
+    if (!service) return NextResponse.json({ status: 'not_found' });
+    return NextResponse.json({ status: 'confirmed', booking: publicBookingSummary(booking, service) });
+  } catch (error) {
+    console.error('Error verifying session:', (error as Error)?.message || error);
+    return NextResponse.json({ error: 'Please try again in a moment.' }, { status: 503 });
   }
 }

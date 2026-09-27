@@ -351,7 +351,7 @@ async function flagForReview(booking: Booking, session: Stripe.Checkout.Session,
 }
 
 /** Async payment failed / Checkout expired: release the unpaid booking. */
-async function releaseUnpaidSession(session: Stripe.Checkout.Session, purchaseStatus: 'failed' | 'cancelled', reason: string): Promise<Result> {
+export async function releaseUnpaidSession(session: Stripe.Checkout.Session, purchaseStatus: 'failed' | 'cancelled', reason: string): Promise<Result> {
   const booking = await findSessionBooking(db, session);
   if (!booking) return { status: 'no_booking' };
   const released = await db.transaction(async (tx) => {

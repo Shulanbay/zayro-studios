@@ -11,7 +11,7 @@ export default function HowBookingWorksSection() {
     <section className="section-padding bg-white">
       <div className="container max-w-5xl">
         <Reveal>
-          <h2 className="text-5xl md:text-7xl font-black mb-16 text-zayro-dark">
+          <h2 className="text-[clamp(2.25rem,10.5vw,3rem)] md:text-7xl font-black mb-16 text-zayro-dark">
             HOW BOOKING
             <br />
             WORKS

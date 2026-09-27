@@ -4,14 +4,17 @@ import type { RouteDb } from '@/test/fakeRouteDb';
 import { makeService } from '@/test/fakeGoogle';
 import type { Service } from '@/lib/db/schema';
 
-const h = vi.hoisted(() => ({
+const h = vi.hoisted(() => {
+  process.env.STRIPE_SECRET_KEY ||= 'sk_test_fake';
+  return {
   stripeCreate: null as any,
   stripeEvent: null as any,
   stripeRetrieve: null as any,
   stripeExpire: null as any,
   sideEffects: null as any,
   session: null as { email: string } | null,
-}));
+  };
+});
 
 vi.mock('@/lib/db', async () => {
   const { createRouteDb } = await import('@/test/fakeRouteDb');
@@ -77,13 +80,14 @@ const catalog: Service[] = [
 const byId = new Map(catalog.map((s) => [s.id, s]));
 const DATE = '2030-01-07'; // a Monday, far enough ahead to clear advance-notice rules
 const EMAIL = 'client@example.com';
+const HOLD_ID = '5f0c1a52-2f7e-4d0e-9a4b-0c7b3a1d9e21';
 
 function hold(serviceId: number, overrides: Record<string, unknown> = {}) {
   const service = byId.get(serviceId)!;
   const start = '12:00';
   const endMinutes = 12 * 60 + service.duration_minutes;
   return {
-    id: 'hold-1',
+    id: HOLD_ID,
     customer_email: EMAIL,
     service_id: serviceId,
     booking_date: DATE,
@@ -147,12 +151,12 @@ describe('GET /api/services', () => {
 
 describe('POST /api/booking/confirm-free', () => {
   beforeEach(() => {
-    db.script.updateReturning = { temporary_holds: () => [{ id: 'hold-1', status: 'converted_to_booking' }] };
+    db.script.updateReturning = { temporary_holds: () => [{ id: HOLD_ID, status: 'converted_to_booking' }] };
   });
 
   it('confirms a Free Studio Tour without Stripe and runs the confirmation side effects', async () => {
     db.script.findFirst!.temporaryHolds = () => hold(20);
-    const res = await freeRoute.POST(post('/api/booking/confirm-free', { holdId: 'hold-1', ...customer }));
+    const res = await freeRoute.POST(post('/api/booking/confirm-free', { holdId: HOLD_ID, ...customer }));
     expect(res.status).toBe(200);
     expect((await res.json()).status).toBe('confirmed');
     expect(h.stripeCreate).not.toHaveBeenCalled();
@@ -164,14 +168,14 @@ describe('POST /api/booking/confirm-free', () => {
 
   it('stores the booking date as YYYY-MM-DD even when the driver returns the hold date as a Date', async () => {
     db.script.findFirst!.temporaryHolds = () => hold(20, { booking_date: new Date(`${DATE}T00:00:00.000Z`) });
-    const res = await freeRoute.POST(post('/api/booking/confirm-free', { holdId: 'hold-1', ...customer }));
+    const res = await freeRoute.POST(post('/api/booking/confirm-free', { holdId: HOLD_ID, ...customer }));
     expect(res.status).toBe(200);
     expect(db.log.inserts.find((i) => i.table === 'bookings')!.values.booking_date).toBe(DATE);
   });
 
   it('refuses to confirm a paid photography booking for free (server-side price check)', async () => {
     db.script.findFirst!.temporaryHolds = () => hold(13);
-    const res = await freeRoute.POST(post('/api/booking/confirm-free', { holdId: 'hold-1', ...customer, total: 0 }));
+    const res = await freeRoute.POST(post('/api/booking/confirm-free', { holdId: HOLD_ID, ...customer, total: 0 }));
     expect(res.status).toBe(400);
     expect((await res.json()).requiresPayment).toBe(true);
     expect(db.log.inserts.find((i) => i.table === 'bookings')).toBeUndefined();
@@ -180,7 +184,7 @@ describe('POST /api/booking/confirm-free', () => {
 
   it('refuses a monthly package', async () => {
     db.script.findFirst!.temporaryHolds = () => hold(2, { service_id: 30 });
-    const res = await freeRoute.POST(post('/api/booking/confirm-free', { holdId: 'hold-1', ...customer }));
+    const res = await freeRoute.POST(post('/api/booking/confirm-free', { holdId: HOLD_ID, ...customer }));
     expect(res.status).toBe(400);
     expect(db.log.inserts.find((i) => i.table === 'bookings')).toBeUndefined();
   });
@@ -190,7 +194,7 @@ describe('POST /api/payment/create-checkout-session', () => {
   it('sends a photography booking to Stripe with the price computed on the server', async () => {
     db.script.findFirst!.temporaryHolds = () => hold(11);
     const res = await checkoutRoute.POST(
-      post('/api/payment/create-checkout-session', { holdId: 'hold-1', ...customer, price: 1, amount: 1 })
+      post('/api/payment/create-checkout-session', { holdId: HOLD_ID, ...customer, price: 1, amount: 1 })
     );
     expect(res.status).toBe(200);
     expect(h.stripeCreate).toHaveBeenCalledTimes(1);
@@ -204,13 +208,13 @@ describe('POST /api/payment/create-checkout-session', () => {
 
   it('stores the booking date as YYYY-MM-DD for paid bookings too', async () => {
     db.script.findFirst!.temporaryHolds = () => hold(11, { booking_date: new Date(`${DATE}T00:00:00.000Z`) });
-    await checkoutRoute.POST(post('/api/payment/create-checkout-session', { holdId: 'hold-1', ...customer }));
+    await checkoutRoute.POST(post('/api/payment/create-checkout-session', { holdId: HOLD_ID, ...customer }));
     expect(db.log.inserts.find((i) => i.table === 'bookings')!.values.booking_date).toBe(DATE);
   });
 
   it('does not start Stripe for the Free Studio Tour', async () => {
     db.script.findFirst!.temporaryHolds = () => hold(20);
-    const res = await checkoutRoute.POST(post('/api/payment/create-checkout-session', { holdId: 'hold-1', ...customer }));
+    const res = await checkoutRoute.POST(post('/api/payment/create-checkout-session', { holdId: HOLD_ID, ...customer }));
     expect(res.status).toBe(400);
     expect((await res.json()).freeBooking).toBe(true);
     expect(h.stripeCreate).not.toHaveBeenCalled();
@@ -218,7 +222,7 @@ describe('POST /api/payment/create-checkout-session', () => {
 
   it('does not start Stripe for a monthly package', async () => {
     db.script.findFirst!.temporaryHolds = () => hold(2, { service_id: 30 });
-    const res = await checkoutRoute.POST(post('/api/payment/create-checkout-session', { holdId: 'hold-1', ...customer }));
+    const res = await checkoutRoute.POST(post('/api/payment/create-checkout-session', { holdId: HOLD_ID, ...customer }));
     expect(res.status).toBe(400);
     expect(h.stripeCreate).not.toHaveBeenCalled();
   });

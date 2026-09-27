@@ -1,18 +1,21 @@
 import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/seo';
 import { BUSINESS_ADDRESS, BUSINESS_PHONE, BUSINESS_EMAIL } from '@/lib/constants';
 import ContactForm from '@/components/sections/ContactForm';
 
-export const metadata: Metadata = {
-  title: 'Contact ZAYRO Studios',
-  description: 'Get in touch with ZAYRO Studios. Located in Midtown Manhattan.',
-};
+export const metadata: Metadata = pageMetadata({
+  title: 'Contact | ZAYRO Studios',
+  description:
+    'Get in touch with ZAYRO Studios, a podcast and photo studio at 40 W 37th St in Midtown Manhattan.',
+  path: '/contact',
+});
 
 export default function ContactPage() {
   return (
-    <main>
+    <div>
       <section className="section-padding surface-soft">
         <div className="container">
-          <h1 className="text-5xl md:text-6xl font-bold mb-4 text-zayro-dark">
+          <h1 className="text-[clamp(2.25rem,10vw,3rem)] md:text-6xl font-bold mb-4 text-zayro-dark">
             Get in Touch
           </h1>
           <p className="text-xl text-zayro-gray">
@@ -52,6 +55,6 @@ export default function ContactPage() {
           <ContactForm />
         </div>
       </section>
-    </main>
+    </div>
   );
 }

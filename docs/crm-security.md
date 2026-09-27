@@ -70,6 +70,13 @@ admin saw as refundable (stale dialogs are rejected).
 - Rate limits (Postgres, salted-hash keys, fail-open): create-hold 30/10 min,
   checkout 20/10 min, free confirm 20/10 min, admin login 5/15 min.
 - Honeypot field `website` rejected on booking endpoints.
+- Rate limits also on release-hold 30/10 min, validate-hold 60/10 min,
+  verify-booking 30/10 min, verify-session 60/10 min.
+- Public verify/validate endpoints return no phone numbers, no full email
+  addresses and no notes (`lib/publicBooking.ts`). Booking IDs are
+  cryptographically random (`generateBookingId`).
+- Services switched to *quote only* or *not bookable online* are refused by
+  every public booking route, not just hidden in the UI.
 - Stripe webhook: signature verified on the raw body before anything else.
 
 ## Data protection

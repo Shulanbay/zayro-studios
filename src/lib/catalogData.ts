@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { db } from './db';
 import { services } from './db/schema';
 import type { Service } from './db/schema';
@@ -8,7 +8,7 @@ import { sortServices } from './catalog';
 export async function getActiveServices(): Promise<Service[]> {
   const rows = await db.query.services.findMany({ where: eq(services.is_active, true) });
   // Filter again in JS so an inactive row can never leak even if the query changes.
-  return sortServices(rows.filter((s) => s.is_active));
+  return sortServices(rows.filter((s) => s.is_active && !s.archived_at));
 }
 
 /**
@@ -18,12 +18,9 @@ export async function getActiveServices(): Promise<Service[]> {
  */
 export async function getServicesById(ids: number[]): Promise<Map<number, Service>> {
   const unique = Array.from(new Set(ids.filter((id) => Number.isInteger(id))));
-  const map = new Map<number, Service>();
-  for (const id of unique) {
-    const row = await db.query.services.findFirst({ where: eq(services.id, id) });
-    if (row) map.set(id, row);
-  }
-  return map;
+  if (unique.length === 0) return new Map();
+  const rows = await db.query.services.findMany({ where: inArray(services.id, unique) });
+  return new Map(rows.map((row) => [row.id, row]));
 }
 
 export type BookableLookup =
@@ -44,13 +41,16 @@ export async function findBookableService(serviceId: unknown): Promise<BookableL
 }
 
 export function checkBookable(service: Service): BookableLookup {
-  if (!service.is_active) return { ok: false, status: 404, error: 'Service not found' };
+  if (!service.is_active || service.archived_at) return { ok: false, status: 404, error: 'Service not found' };
   if (service.category === 'package') {
     return {
       ok: false,
       status: 400,
       error: 'Monthly packages are requested through the contact form, not booked as a time slot.',
     };
+  }
+  if (service.quote_only || service.visible_in_booking === false) {
+    return { ok: false, status: 400, error: 'This service is arranged by request. Please contact us to book it.' };
   }
   return { ok: true, service };
 }

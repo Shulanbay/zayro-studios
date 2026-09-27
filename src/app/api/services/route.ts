@@ -22,7 +22,8 @@ export async function GET() {
         display_order: s.display_order,
         is_featured: s.is_featured,
         badge: s.badge,
-      }))
+      })),
+      { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch (error: any) {
     console.error('Services API Error:', {

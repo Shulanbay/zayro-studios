@@ -6,7 +6,7 @@ export default function CTASection() {
     <section className="section-padding surface-dark text-center">
       <div className="container max-w-4xl">
         <Reveal>
-          <h2 className="text-6xl md:text-8xl font-black mb-8 leading-none">
+          <h2 className="text-[clamp(2.75rem,14vw,4.5rem)] md:text-8xl font-black mb-8 leading-none">
             READY
             <br />
             TO

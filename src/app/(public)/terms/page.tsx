@@ -1,16 +1,19 @@
 import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/seo';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: 'Terms of Service | ZAYRO Studios',
-  description: 'Terms of service for ZAYRO Studios.',
-};
+  description:
+    'Booking, cancellation and studio terms for ZAYRO Studios.',
+  path: '/terms',
+});
 
 export default function TermsPage() {
   return (
-    <main>
+    <div>
       <section className="section-padding surface-soft">
         <div className="container">
-          <h1 className="text-5xl md:text-6xl font-bold mb-4 text-zayro-dark">
+          <h1 className="text-[clamp(2.25rem,10vw,3rem)] md:text-6xl font-bold mb-4 text-zayro-dark">
             Terms of Service
           </h1>
         </div>
@@ -19,7 +22,7 @@ export default function TermsPage() {
       <section className="section-padding bg-white">
         <div className="container max-w-3xl card">
           <p className="text-zayro-gray leading-relaxed mb-6">
-            Last updated: {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+            Last updated: September 26, 2026
           </p>
 
           <h2 className="text-2xl font-bold mb-4">Agreement to Terms</h2>
@@ -64,6 +67,6 @@ export default function TermsPage() {
           </p>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

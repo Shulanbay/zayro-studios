@@ -1,17 +1,25 @@
 import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/seo';
 import FAQSection from '@/components/sections/FAQSection';
+import { getBookingFacts } from '@/lib/bookingFacts';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: 'FAQ | ZAYRO Studios',
-  description: 'Frequently asked questions about booking and using ZAYRO Studios.',
-};
+  description:
+    'Answers about booking, hours, editing, cancellations and visiting ZAYRO Studios in Midtown Manhattan.',
+  path: '/faq',
+});
 
-export default function FAQPage() {
+// Hours and booking rules come from the database; refreshed every few minutes.
+export const revalidate = 300;
+
+export default async function FAQPage() {
+  const facts = await getBookingFacts();
   return (
-    <main>
+    <div>
       <section className="section-padding surface-soft">
         <div className="container">
-          <h1 className="text-5xl md:text-6xl font-bold mb-4 text-zayro-dark">
+          <h1 className="text-[clamp(2.25rem,10vw,3rem)] md:text-6xl font-bold mb-4 text-zayro-dark">
             Frequently Asked Questions
           </h1>
           <p className="text-xl text-zayro-gray">
@@ -21,7 +29,7 @@ export default function FAQPage() {
       </section>
 
       {/* The page hero above already carries the heading. */}
-      <FAQSection showHeading={false} />
-    </main>
+      <FAQSection showHeading={false} facts={facts} />
+    </div>
   );
 }

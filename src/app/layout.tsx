@@ -12,9 +12,10 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'ZAYRO Studios | Podcast & Video Studio NYC',
     description: 'Premium podcast and video recording studio in Midtown Manhattan',
-    url: 'https://zayro.studio',
+    url: '/',
     siteName: 'ZAYRO Studios',
     type: 'website',
+    locale: 'en_US',
   },
   twitter: {
     card: 'summary_large_image',
@@ -31,9 +32,6 @@ export const metadata: Metadata = {
       'max-image-preview': 'large',
       'max-snippet': -1,
     },
-  },
-  alternates: {
-    canonical: 'https://zayro.studio',
   },
 };
 

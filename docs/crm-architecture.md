@@ -110,6 +110,24 @@ confirmed  <──── webhook checkout.session.completed / async_payment_succ
                   package credit restored, optional refund)
 ```
 
+### Temporary holds (public flow)
+
+The customer picks service → date (only dates with a free slot) → time
+(only free slots) → details; submitting the details creates the hold.
+
+| Event | Effect |
+| --- | --- |
+| `create-hold` | 15-minute hold (`TEMPORARY_HOLD_DURATION_MINUTES`) under the per-date lock. The same email asking again for the same slot gets the same hold back; `previous_hold_id` (same email only) releases the customer's earlier hold. The response carries the server-computed price. |
+| `create-checkout-session` | Per-hold advisory lock: a hold has at most one open Checkout session (asking again returns the same URL). The hold is stretched to the session's `expires_at` (31 min), so the slot stays blocked exactly as long as the customer can pay. |
+| Cancel page / "Back" / new time | `release-hold` expires the open Checkout session in Stripe first, cancels the unpaid booking + purchase, frees the slot. If the session was already paid, nothing is released. |
+| `checkout.session.expired` | Same release (idempotent with the above). |
+| Expiry | Holds past `hold_expires_at` never block a slot (every read filters on it); rows are marked `expired` lazily by every availability read for the dates it covers. |
+
+The public success page gets only a minimal summary (`lib/publicBooking.ts`):
+service, date/time, amount, first name and a masked email — never the phone
+or full email. It polls until the webhook has confirmed the booking and says
+so explicitly when a payment landed on a booking that can no longer go ahead.
+
 A payment that arrives for a cancelled booking, or for a slot that was taken
 in the meantime, is recorded (`purchases.status = paid`) but the booking is
 **not** confirmed; `needs_refund_review` is set and the admin dashboard,

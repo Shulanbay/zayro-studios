@@ -14,6 +14,8 @@ import { runPostConfirmationSideEffects } from '@/lib/postConfirmation';
 
 export const dynamic = 'force-dynamic';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function logIntegration(bookingId: string | null, status: 'success' | 'failed', message: string) {
   try {
     await db.insert(integrationLogs).values({
@@ -53,6 +55,15 @@ export async function POST(request: NextRequest) {
 
     if (!isValidPhone(phone)) {
       return NextResponse.json({ error: 'Invalid phone number' }, { status: 400 });
+    }
+
+    if (typeof holdId !== 'string' || !UUID_RE.test(holdId)) {
+      return NextResponse.json({ error: 'Booking hold not found' }, { status: 404 });
+    }
+    for (const [value, max] of [[firstName, 100], [lastName, 100], [email, 255], [phone, 20], [company, 255], [notes, 2000]] as const) {
+      if (value !== undefined && value !== null && (typeof value !== 'string' || value.length > max)) {
+        return NextResponse.json({ error: 'Invalid input' }, { status: 400 });
+      }
     }
 
     const hold = await db.query.temporaryHolds.findFirst({
@@ -225,7 +236,7 @@ export async function POST(request: NextRequest) {
       bookingId: confirmed.booking_id,
     });
   } catch (error: any) {
-    console.error('Error confirming free booking:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('Error confirming free booking:', error?.message || error);
+    return NextResponse.json({ error: 'We could not confirm your booking right now. Please try again in a moment.' }, { status: 500 });
   }
 }

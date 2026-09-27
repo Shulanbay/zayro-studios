@@ -48,6 +48,10 @@ export interface CatalogService {
   validity_days: number | null;
   package_type: string | null;
   package_base_service_id: number | null;
+  /** CRM switches; absent on old callers means "bookable". */
+  visible_in_booking?: boolean;
+  quote_only?: boolean;
+  archived_at?: Date | string | null;
 }
 
 export function isServiceCategory(value: unknown): value is ServiceCategory {
@@ -64,8 +68,16 @@ export function isPackage(service: Pick<CatalogService, 'category'>): boolean {
 }
 
 /** Can a customer pick this service and a time slot directly? */
-export function isBookable(service: Pick<CatalogService, 'category' | 'is_active'>): boolean {
-  return service.is_active && !isPackage(service);
+export function isBookable(
+  service: Pick<CatalogService, 'category' | 'is_active' | 'visible_in_booking' | 'quote_only' | 'archived_at'>
+): boolean {
+  return (
+    service.is_active &&
+    !isPackage(service) &&
+    service.visible_in_booking !== false &&
+    !service.quote_only &&
+    !service.archived_at
+  );
 }
 
 export function sortServices<T extends Pick<CatalogService, 'display_order' | 'id'>>(list: T[]): T[] {

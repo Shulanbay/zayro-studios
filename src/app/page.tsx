@@ -1,3 +1,5 @@
+import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/seo';
 import Link from 'next/link';
 import { BUSINESS_ADDRESS } from '@/lib/constants';
 import HeroSection from '@/components/sections/HeroSection';
@@ -6,21 +8,35 @@ import HowBookingWorksSection from '@/components/sections/HowBookingWorksSection
 import PricingSection from '@/components/sections/PricingSection';
 import EquipmentSection from '@/components/sections/EquipmentSection';
 import FAQSection from '@/components/sections/FAQSection';
+import { getBookingFacts } from '@/lib/bookingFacts';
 import CTASection from '@/components/sections/CTASection';
 import Reveal from '@/components/ui/Reveal';
 
-export default function Home() {
+export const metadata: Metadata = {
+  ...pageMetadata({
+    title: 'ZAYRO Studios | Podcast & Photo Studio in Midtown Manhattan',
+    description:
+      'Podcast recording, studio photography and free studio tours at 40 W 37th St, Midtown Manhattan. Live availability and secure online booking.',
+    path: '/',
+  }),
+};
+
+// Hours and booking rules in the FAQ come from the database.
+export const revalidate = 300;
+
+export default async function Home() {
+  const facts = await getBookingFacts();
   return (
     <>
       <HeroSection />
       <StudioExperienceSection />
       <HowBookingWorksSection />
 
-      {/* Why Choose ZAYRO */}
+      {/* What a session includes */}
       <section className="section-padding surface-soft">
         <div className="container max-w-4xl">
           <Reveal>
-            <h2 className="text-5xl md:text-7xl font-black mb-8 text-zayro-dark">
+            <h2 className="text-[clamp(2.25rem,10.5vw,3rem)] md:text-7xl font-black mb-8 text-zayro-dark">
               BUILT FOR
               <br />
               CREATORS
@@ -30,24 +46,24 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Reveal>
               <div className="card h-full">
-                <h3 className="text-2xl font-bold text-zayro-dark mb-4">Professional Setup</h3>
+                <h3 className="text-2xl font-bold text-zayro-dark mb-4">Ready when you arrive</h3>
                 <p className="text-zayro-gray leading-relaxed mb-4">
-                  Show up and start recording. Audio, video, and lighting are all handled for you — no technical expertise required.
+                  Cameras, microphones and lighting are set up in the studio, so you can focus on your conversation.
                 </p>
                 <p className="text-zayro-gray leading-relaxed">
-                  4K multi-camera video with broadcast-quality audio that elevates your brand and content.
+                  Podcast Pro includes a producer / technician on site who runs the session for you.
                 </p>
               </div>
             </Reveal>
 
             <Reveal delayMs={80}>
               <div className="card h-full">
-                <h3 className="text-2xl font-bold text-zayro-dark mb-4">Expert Support</h3>
+                <h3 className="text-2xl font-bold text-zayro-dark mb-4">Your files, your way</h3>
                 <p className="text-zayro-gray leading-relaxed mb-4">
-                  Work directly with people who care about your results and your success.
+                  Recording sessions include your raw files. Professional editing is included in the Full Podcast Package.
                 </p>
                 <p className="text-zayro-gray leading-relaxed">
-                  Your files are delivered quickly — fast turnaround, premium quality, for creators on tight schedules.
+                  Recording only? Ask us for an editing quote for any session.
                 </p>
               </div>
             </Reveal>
@@ -64,7 +80,7 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
             <Reveal>
               <div>
-                <h2 className="text-6xl md:text-8xl font-black leading-none mb-8 text-zayro-dark">
+                <h2 className="text-[clamp(2.75rem,14vw,4.5rem)] md:text-8xl font-black leading-none mb-8 text-zayro-dark">
                   NEW
                   <br />
                   YORK
@@ -87,8 +103,8 @@ export default function Home() {
                   <Link href="/booking" className="button button-primary">
                     BOOK STUDIO
                   </Link>
-                  <Link href="/studio" className="button button-secondary">
-                    STUDIO TOUR
+                  <Link href="/booking?category=tour" className="button button-secondary">
+                    FREE STUDIO TOUR
                   </Link>
                 </div>
               </div>
@@ -109,7 +125,7 @@ export default function Home() {
         </div>
       </section>
 
-      <FAQSection />
+      <FAQSection facts={facts} />
       <CTASection />
     </>
   );

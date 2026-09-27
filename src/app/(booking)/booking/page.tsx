@@ -1,18 +1,18 @@
 import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/seo';
 import BookingFlow from '@/components/booking/BookingFlow';
 
-export const metadata: Metadata = {
-  title: 'Book Studio | ZAYRO Studios',
-  description: 'Book your professional podcast or video studio session at ZAYRO Studios in Manhattan.',
-  robots: {
-    index: false,
-  },
-};
+export const metadata: Metadata = pageMetadata({
+  title: 'Book a Session | ZAYRO Studios',
+  description:
+    'Book a podcast session, photoshoot or free studio tour at ZAYRO Studios in Midtown Manhattan. Live availability, secure online payment.',
+  path: '/booking',
+});
 
 export default function BookingPage() {
   return (
-    <main className="min-h-screen bg-zayro-bg">
+    <div className="min-h-screen bg-zayro-bg">
       <BookingFlow />
-    </main>
+    </div>
   );
 }

@@ -60,6 +60,8 @@ export async function POST(request: NextRequest) {
       badge: v.badge ?? null,
       is_active: v.is_active ?? true,
       is_featured: v.is_featured ?? false,
+      visible_in_booking: v.visible_in_booking ?? true,
+      quote_only: v.quote_only ?? false,
       display_order: v.display_order ?? 0,
       session_count: v.session_count ?? null,
       validity_days: v.validity_days ?? null,
