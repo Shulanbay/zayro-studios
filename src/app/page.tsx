@@ -9,6 +9,7 @@ import PricingSection from '@/components/sections/PricingSection';
 import EquipmentSection from '@/components/sections/EquipmentSection';
 import FAQSection from '@/components/sections/FAQSection';
 import { getBookingFacts } from '@/lib/bookingFacts';
+import { getActiveServices } from '@/lib/catalogData';
 import CTASection from '@/components/sections/CTASection';
 import Reveal from '@/components/ui/Reveal';
 
@@ -25,10 +26,12 @@ export const metadata: Metadata = {
 export const revalidate = 300;
 
 export default async function Home() {
-  const facts = await getBookingFacts();
+  const [facts, services] = await Promise.all([getBookingFacts(), getActiveServices().catch(() => [])]);
+  // The tour length shown in the hero comes from the service itself.
+  const tourMinutes = services.find((s) => s.category === 'tour')?.duration_minutes ?? null;
   return (
     <>
-      <HeroSection />
+      <HeroSection tourMinutes={tourMinutes} />
       <StudioExperienceSection />
       <HowBookingWorksSection />
 

@@ -80,6 +80,13 @@ function when(d: Pick<BookingEmailData, 'date' | 'startTime' | 'endTime'>): [str
   ];
 }
 
+/** Length of the booked slot in minutes (from the booking's own times). */
+function tourMinutes(d: Pick<BookingEmailData, 'startTime' | 'endTime'>): number {
+  const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  const diff = toMin(d.endTime) - toMin(d.startTime);
+  return diff > 0 ? diff : diff + 1440;
+}
+
 export function bookingConfirmation(d: BookingEmailData): RenderedEmail {
   if (d.isTour) {
     return build(
@@ -87,7 +94,7 @@ export function bookingConfirmation(d: BookingEmailData): RenderedEmail {
       `Hi ${d.firstName}, we look forward to showing you around ZAYRO Studios.`,
       [['Booking ID', d.bookingId], ['Visit', d.serviceName], ...when(d), ['Address', d.address]],
       [
-        'The tour takes about 30 minutes and is free — no payment needed.',
+        `The tour takes about ${tourMinutes(d)} minutes and is free — no payment needed.`,
         `Need to change the time? Reply to this email or write to ${d.contactEmail}.`,
       ],
       'Your ZAYRO Studios tour is booked'

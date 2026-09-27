@@ -70,6 +70,9 @@ describe('email templates', () => {
     expect(tour.text).toContain('10:00 AM – 11:00 AM ET');
     const paid = bookingConfirmation({ ...base, firstName: 'Ann' });
     expect(paid.text).toContain('$217.75');
+    // The tour length comes from the booked slot, not a fixed text.
+    const short = bookingConfirmation({ ...base, firstName: 'Ann', isTour: true, totalCents: 0, startTime: '11:00', endTime: '11:15' });
+    expect(short.text).toContain('about 15 minutes');
   });
 });
 

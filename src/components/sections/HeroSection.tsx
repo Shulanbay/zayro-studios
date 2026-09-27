@@ -1,16 +1,22 @@
 import Link from 'next/link';
 
-const OFFERINGS = [
-  { label: 'Podcast recording', detail: 'Sessions by the hour, 1–3 cameras', href: '/booking?category=podcast' },
-  { label: 'Studio photography', detail: 'Headshots, portraits and brand content', href: '/booking?category=photography' },
-  { label: 'Free studio tour', detail: '30 minutes, no payment needed', href: '/booking?category=tour' },
-];
+function offerings(tourMinutes: number | null) {
+  return [
+    { label: 'Podcast recording', detail: 'Sessions by the hour, 1–3 cameras', href: '/booking?category=podcast' },
+    { label: 'Studio photography', detail: 'Headshots, portraits and brand content', href: '/booking?category=photography' },
+    {
+      label: 'Free studio tour',
+      detail: tourMinutes ? `${tourMinutes} minutes, no payment needed` : 'No payment needed',
+      href: '/booking?category=tour',
+    },
+  ];
+}
 
 /**
  * Above the fold: rendered immediately (no scroll-reveal), so the largest
  * text paints without waiting for JavaScript.
  */
-export default function HeroSection() {
+export default function HeroSection({ tourMinutes = null }: { tourMinutes?: number | null }) {
   return (
     <section className="surface-soft relative overflow-hidden pt-16 pb-20 md:pt-28 md:pb-28">
       <div className="container max-w-5xl">
@@ -46,7 +52,7 @@ export default function HeroSection() {
         </div>
 
         <ul className="grid grid-cols-1 md:grid-cols-3 gap-4" aria-label="What you can book">
-          {OFFERINGS.map((item) => (
+          {offerings(tourMinutes).map((item) => (
             <li key={item.href}>
               <Link
                 href={item.href}
