@@ -92,6 +92,13 @@
       "when": 1791270000000,
       "tag": "0012_studio_photoshoot_60_minutes",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1791280000000,
+      "tag": "0013_additional_camera_price",
+      "breakpoints": true
     }
   ]
 }

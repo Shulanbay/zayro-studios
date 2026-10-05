@@ -764,7 +764,7 @@ describe('migrations on a populated database', () => {
       ).rows[0];
     const migrations = readMigrationFiles({ migrationsFolder: './drizzle' }).slice(5);
     // 0005-0008 (CRM), 0009 (intake + add-ons) and 0010 (setups): all safe to re-run.
-    expect(migrations).toHaveLength(8);
+    expect(migrations).toHaveLength(9);
     const run = async () => {
       for (const m of migrations) for (const stmt of m.sql) if (stmt.trim()) await pg.exec(stmt);
     };
