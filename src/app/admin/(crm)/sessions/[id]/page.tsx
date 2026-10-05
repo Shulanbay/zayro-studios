@@ -12,7 +12,7 @@ import { formatDateLabel, formatInstantEt, formatTimeLabel } from '@/lib/crm/tim
 import { getSheetTarget } from '@/lib/googleSheets';
 import { CATEGORY_LABELS } from '@/lib/catalog';
 import { toDateOnly } from '@/lib/utils';
-import { intakeSummary, type Intake } from '@/lib/bookingOptions';
+import { guestList, intakeSummary } from '@/lib/bookingOptions';
 import { Badge, Card, DefinitionList, Forbidden, Money, Notice, PageHeader, StatusBadge, humanize } from '@/components/crm/ui';
 import { ActionButton } from '@/components/crm/client';
 import { CancelBookingDialog, NotesEditor, RefundDialog } from '@/components/crm/actions';
@@ -42,7 +42,7 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
     bookableServiceOptions(),
   ]);
   const prepRows = intakeSummary(booking.intake).filter(([label]) => label !== 'Guests invited');
-  const guestEmails = Array.isArray((booking.intake as Intake)?.guests) ? ((booking.intake as Intake).guests as string[]) : [];
+  const guestEmails = guestList(booking.intake).map((g) => (g.name ? `${g.name} <${g.email}>` : g.email));
   const extras = booking.purchase_id
     ? (await db.query.purchaseItems.findMany({ where: eq(purchaseItems.purchase_id, booking.purchase_id) }))
         .filter((i) => i.item_type === 'addon')
@@ -134,7 +134,7 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
                 items={[
                   ...(extras.length > 0 ? ([['Extras', extras.join(', ')]] as [string, string][]) : []),
                   ...prepRows,
-                  ...(guestEmails.length > 0 ? ([['Guest emails', guestEmails.join(', ')]] as [string, string][]) : []),
+                  ...(guestEmails.length > 0 ? ([['Guests', guestEmails.join(', ')]] as [string, string][]) : []),
                 ]}
               />
             </Card>

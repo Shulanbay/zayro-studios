@@ -8,7 +8,10 @@ import { sendLoggedEmail, type EmailOutcome } from './crm/emailLog';
 import * as T from './crm/emailTemplates';
 import { decimalToCents } from './crm/money';
 import { utcToWall } from './crm/time';
-import { intakeSummary, type Intake } from './bookingOptions';
+import { EDITING_LABELS, guestList, type Intake } from './bookingOptions';
+import { setups } from './db/schema';
+import { formatDuration } from './catalog';
+import { SITE_URL } from './seo';
 import { buildSessionIcs } from './ics';
 import { purchaseItems } from './db/schema';
 
@@ -65,30 +68,64 @@ interface BookingEmailData {
 /** Customer confirmation (the tour variant for studio tours). */
 export async function sendBookingConfirmationEmail({ booking, service }: BookingEmailData): Promise<EmailOutcome> {
   const template = service.category === 'tour' ? 'tour_confirmation' : 'booking_confirmation';
+  const summary = await summaryData(booking, 'customer');
   return sendLoggedEmail({
     template,
     recipientType: 'customer',
     to: booking.customer_email,
     dedupeKey: `${template}:${booking.id}`,
     refs: { bookingId: booking.id, purchaseId: booking.purchase_id },
-    render: () => T.bookingConfirmation(bookingData(booking, service)),
+    render: () => T.bookingConfirmation({ ...bookingData(booking, service), summary }),
   });
 }
 
-/** Extras bought with a booking, for staff: "Additional Camera × 2". */
-async function addonSummary(booking: Booking): Promise<[string, string][]> {
-  if (!booking.purchase_id) return [];
-  const items = await db.query.purchaseItems.findMany({ where: eq(purchaseItems.purchase_id, booking.purchase_id) });
-  const extras = items.filter((i) => i.item_type === 'addon').map((i) => `${i.description_snapshot.replace(/^Add-on: /, '')} × ${i.quantity}`);
-  return extras.length ? [['Extras', extras.join(', ')]] : [];
+/**
+ * Everything the booking summary emails show beyond the basics: order
+ * number, setup (and its photo), extras, answers and guests. Never throws —
+ * an email with fewer details is better than no email.
+ */
+async function summaryData(booking: Booking, audience: 'customer' | 'owner'): Promise<T.BookingSummaryData> {
+  const intake = (booking.intake ?? {}) as Intake;
+  const data: T.BookingSummaryData = {
+    durationLabel: formatDuration(booking.duration_minutes),
+    people: typeof intake.peopleRecording === 'number' ? intake.peopleRecording : null,
+    guests: guestList(intake),
+    extras: [],
+    answers: [],
+    headerImage: `${SITE_URL}/email/sofa-lounge.jpg`,
+    setupName: intake.setupName ?? null,
+  };
+  if (typeof intake.peopleOnCamera === 'number') data.answers!.push(['How many people will be on camera?', String(intake.peopleOnCamera)]);
+  if (intake.recordingType) data.answers!.push(['What are you recording?', intake.recordingType]);
+  if (intake.editing) data.answers!.push(['Do you need editing services?', EDITING_LABELS[intake.editing] ?? intake.editing]);
+  if (intake.project) data.answers!.push(['Tell us about your project', intake.project]);
+  data.cta =
+    audience === 'owner'
+      ? { label: 'Open in CRM', url: `${SITE_URL}/admin/sessions/${booking.id}` }
+      : { label: 'Get directions', url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(BUSINESS_ADDRESS)}` };
+  try {
+    const [purchase, items, setup] = await Promise.all([
+      booking.purchase_id ? db.query.purchases.findFirst({ where: eq(purchases.id, booking.purchase_id) }) : null,
+      booking.purchase_id ? db.query.purchaseItems.findMany({ where: eq(purchaseItems.purchase_id, booking.purchase_id) }) : [],
+      booking.setup_id ? db.query.setups.findFirst({ where: eq(setups.id, booking.setup_id) }) : null,
+    ]);
+    data.orderNumber = purchase?.order_number ?? null;
+    data.extras = items.filter((i) => i.item_type === 'addon').map((i) => `${i.description_snapshot.replace(/^Add-on: /, '')}${i.quantity > 1 ? ` × ${i.quantity}` : ''}`);
+    if (setup) {
+      data.setupName = setup.name;
+      // Email clients need JPEG; public/email/<slug>.jpg mirrors public/setups/<slug>.webp.
+      if (EMAIL_HEADER_SLUGS.includes(setup.slug)) data.headerImage = `${SITE_URL}/email/${setup.slug}.jpg`;
+    }
+  } catch (error) {
+    console.error('[email] booking summary details unavailable:', (error as Error)?.message || error);
+  }
+  return data;
 }
 
+const EMAIL_HEADER_SLUGS = ['sofa-lounge', 'cream-lounge', 'garden-lounge', 'library-table'];
+
 export async function sendOwnerNotificationEmail({ booking, service }: BookingEmailData): Promise<EmailOutcome> {
-  const details: [string, string][] = [
-    ['Length', `${booking.duration_minutes} min`],
-    ...(await addonSummary(booking).catch(() => [] as [string, string][])),
-    ...intakeSummary(booking.intake),
-  ];
+  const summary = await summaryData(booking, 'owner');
   return sendLoggedEmail({
     template: 'owner_new_booking',
     recipientType: 'owner',
@@ -96,7 +133,7 @@ export async function sendOwnerNotificationEmail({ booking, service }: BookingEm
     dedupeKey: `owner_new_booking:${booking.id}`,
     refs: { bookingId: booking.id, purchaseId: booking.purchase_id },
     replyTo: booking.customer_email,
-    render: () => T.ownerNewBooking({ ...bookingData(booking, service), source: booking.source, details }),
+    render: () => T.ownerNewBooking({ ...bookingData(booking, service), source: booking.source, summary }),
   });
 }
 

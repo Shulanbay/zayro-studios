@@ -66,6 +66,8 @@ export interface Intake {
   editing?: (typeof EDITING_CHOICES)[number];
   project?: string;
   guests?: string[];
+  /** Guest names, in the same order as `guests` ('' when not given). */
+  guestNames?: string[];
   /** Name of the chosen studio setup at booking time (set by the server). */
   setupName?: string;
 }
@@ -143,16 +145,28 @@ export function parseIntake(raw: unknown, category: string, customerEmail?: stri
 
   if (ask.includes('guests') && input.guests !== undefined && input.guests !== null) {
     if (!Array.isArray(input.guests) || input.guests.length > MAX_GUESTS) return { ok: false, error: `You can add up to ${MAX_GUESTS} guests.` };
-    const seen = new Set<string>();
+    // Each guest is an email, or { email, name }.
+    const seen = new Map<string, string>();
     const own = customerEmail?.trim().toLowerCase();
     for (const g of input.guests) {
-      if (typeof g !== 'string') return { ok: false, error: 'Guest emails must be email addresses.' };
-      const email = g.trim().toLowerCase();
-      if (!email) continue;
-      if (email.length > 255 || !EMAIL_RE.test(email)) return { ok: false, error: `"${g.trim().slice(0, 60)}" is not a valid guest email.` };
-      if (email !== own) seen.add(email);
+      const rawEmail = typeof g === 'string' ? g : (g as { email?: unknown } | null)?.email;
+      const rawName = typeof g === 'string' ? '' : (g as { name?: unknown } | null)?.name;
+      if (typeof rawEmail !== 'string' || (rawName !== undefined && rawName !== null && typeof rawName !== 'string')) {
+        return { ok: false, error: 'Guest emails must be email addresses.' };
+      }
+      const email = rawEmail.trim().toLowerCase();
+      const name = typeof rawName === 'string' ? rawName.trim().slice(0, 100) : '';
+      if (!email) {
+        if (name) return { ok: false, error: `Please add an email for guest "${name.slice(0, 60)}".` };
+        continue;
+      }
+      if (email.length > 255 || !EMAIL_RE.test(email)) return { ok: false, error: `"${rawEmail.trim().slice(0, 60)}" is not a valid guest email.` };
+      if (email !== own && !seen.has(email)) seen.set(email, name);
     }
-    if (seen.size) intake.guests = Array.from(seen);
+    if (seen.size) {
+      intake.guests = Array.from(seen.keys());
+      if (Array.from(seen.values()).some(Boolean)) intake.guestNames = Array.from(seen.values());
+    }
   }
 
   return { ok: true, intake };
@@ -236,4 +250,11 @@ export function computeQuote(args: {
   const subtotal = lines.reduce((sum, l) => sum + l.totalCents, 0);
   const taxAmount = Math.round(subtotal * args.taxRate);
   return { lines, units: args.units, durationMinutes, subtotal, taxAmount, total: subtotal + taxAmount, taxRate: args.taxRate, currency: 'USD' };
+}
+
+/** Guests as { email, name } pairs (name may be empty). */
+export function guestList(intake: unknown): { email: string; name: string }[] {
+  const i = (intake && typeof intake === 'object' ? intake : {}) as Intake;
+  if (!Array.isArray(i.guests)) return [];
+  return i.guests.filter((e) => typeof e === 'string').map((email, idx) => ({ email, name: (Array.isArray(i.guestNames) && typeof i.guestNames[idx] === 'string' ? i.guestNames[idx] : '') || '' }));
 }

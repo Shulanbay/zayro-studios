@@ -99,12 +99,12 @@ interface IntakeState {
   recordingType: string;
   editing: string;
   project: string;
-  guests: string[];
+  guests: { name: string; email: string }[];
 }
 
 const emptyIntake: IntakeState = { peopleRecording: '', peopleOnCamera: '', recordingType: '', editing: '', project: '', guests: [] };
 
-const STORAGE_KEY = 'zayro-booking-state-v4';
+const STORAGE_KEY = 'zayro-booking-state-v5';
 /** The setup step sits between Service (1) and Date (2). */
 const SETUP_STEP = 1.5;
 const STEP_LABELS = ['Service', 'Date', 'Time', 'Extras', 'Details', 'Confirm'];
@@ -569,7 +569,7 @@ export default function BookingFlow() {
     recordingType: state.intake.recordingType,
     editing: state.intake.editing,
     project: state.intake.project,
-    guests: state.intake.guests.map((g) => g.trim()).filter(Boolean),
+    guests: state.intake.guests.map((g) => ({ name: g.name.trim(), email: g.email.trim() })).filter((g) => g.email || g.name),
   });
 
   const updateIntake = <K extends keyof IntakeState>(field: K, value: IntakeState[K]) => {
@@ -1349,25 +1349,36 @@ export default function BookingFlow() {
               </p>
               <div className="space-y-2">
                 {state.intake.guests.map((g, i) => (
-                  <div key={i} className="flex gap-2">
+                  <div key={i} className="flex flex-col sm:flex-row gap-2">
                     <input
-                      type="email"
-                      inputMode="email"
+                      type="text"
                       autoComplete="off"
-                      maxLength={255}
-                      aria-label={`Guest ${i + 1} email`}
-                      placeholder="guest@example.com"
-                      value={g}
-                      onChange={(e) => updateIntake('guests', state.intake.guests.map((x, j) => (j === i ? e.target.value : x)))}
+                      maxLength={100}
+                      aria-label={`Guest ${i + 1} name`}
+                      placeholder="Guest name"
+                      value={g.name}
+                      onChange={(e) => updateIntake('guests', state.intake.guests.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
                     />
-                    <button
-                      type="button"
-                      className="flex-shrink-0 w-11 h-11 p-0 rounded-full border border-solid border-zayro-border bg-white text-zayro-dark"
-                      aria-label={`Remove guest ${i + 1}`}
-                      onClick={() => updateIntake('guests', state.intake.guests.filter((_, j) => j !== i))}
-                    >
-                      ×
-                    </button>
+                    <div className="flex gap-2 sm:flex-1">
+                      <input
+                        type="email"
+                        inputMode="email"
+                        autoComplete="off"
+                        maxLength={255}
+                        aria-label={`Guest ${i + 1} email`}
+                        placeholder="guest@example.com"
+                        value={g.email}
+                        onChange={(e) => updateIntake('guests', state.intake.guests.map((x, j) => (j === i ? { ...x, email: e.target.value } : x)))}
+                      />
+                      <button
+                        type="button"
+                        className="flex-shrink-0 w-11 h-11 p-0 rounded-full border border-solid border-zayro-border bg-white text-zayro-dark"
+                        aria-label={`Remove guest ${i + 1}`}
+                        onClick={() => updateIntake('guests', state.intake.guests.filter((_, j) => j !== i))}
+                      >
+                        ×
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1375,7 +1386,7 @@ export default function BookingFlow() {
                 <button
                   type="button"
                   className="mt-3 rounded-full border-2 border-solid border-zayro-border bg-white px-4 py-2 text-sm font-semibold text-zayro-dark hover:border-zayro-primary"
-                  onClick={() => updateIntake('guests', [...state.intake.guests, ''])}
+                  onClick={() => updateIntake('guests', [...state.intake.guests, { name: '', email: '' }])}
                 >
                   + Add guest
                 </button>

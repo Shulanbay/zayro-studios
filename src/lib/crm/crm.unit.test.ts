@@ -69,7 +69,7 @@ describe('email templates', () => {
     expect(tour.subject).toMatch(/tour/i);
     expect(tour.text).toContain('10:00 AM – 11:00 AM ET');
     const paid = bookingConfirmation({ ...base, firstName: 'Ann' });
-    expect(paid.text).toContain('$217.75');
+    expect(paid.text).toContain('USD 217.75');
     // The tour length comes from the booked slot, not a fixed text.
     const short = bookingConfirmation({ ...base, firstName: 'Ann', isTour: true, totalCents: 0, startTime: '11:00', endTime: '11:15' });
     expect(short.text).toContain('about 15 minutes');
@@ -240,5 +240,56 @@ describe('booking options', () => {
     const rows = intakeSummary({ peopleRecording: 2, guests: ['a@example.com'], recordingType: 'Podcast' });
     expect(JSON.stringify(rows)).not.toContain('a@example.com');
     expect(rows).toContainEqual(['Guests invited', '1']);
+  });
+});
+
+describe('booking summary emails', () => {
+  it('guests can carry names; the summary lists answers, extras and guests, all escaped', async () => {
+    const { parseIntake, guestList } = await import('@/lib/bookingOptions');
+    const parsed = parseIntake(
+      { peopleRecording: 2, peopleOnCamera: 2, recordingType: 'Podcast', editing: 'no', guests: [{ name: 'Sam <b>Lee</b>', email: 'Sam@Example.com' }, 'plain@example.com', { name: 'No Email', email: '' }] },
+      'podcast'
+    );
+    expect(parsed).toMatchObject({ ok: false });
+    const ok = parseIntake({ peopleRecording: 2, peopleOnCamera: 2, recordingType: 'Podcast', editing: 'no', guests: [{ name: 'Sam <b>Lee</b>', email: 'Sam@Example.com' }, 'plain@example.com'] }, 'podcast');
+    if (!ok.ok) throw new Error(ok.error);
+    expect(guestList(ok.intake)).toEqual([
+      { email: 'sam@example.com', name: 'Sam <b>Lee</b>' },
+      { email: 'plain@example.com', name: '' },
+    ]);
+
+    const email = ownerNewBooking({
+      bookingId: 'ZAY-ABC',
+      firstName: 'Ann',
+      lastName: 'Lee',
+      email: 'ann@example.com',
+      phone: '+1 212 555 0100',
+      serviceName: 'Podcast Pro',
+      date: '2030-07-15',
+      startTime: '17:30',
+      endTime: '19:30',
+      totalCents: 43552,
+      isTour: false,
+      address: '40 W 37th St, Suite 603, New York, NY 10018',
+      contactEmail: 'hello@zayro.studio',
+      source: 'individual',
+      summary: {
+        orderNumber: 'ZO-ABC',
+        headerImage: 'https://zayro.studio/email/garden-lounge.jpg',
+        setupName: 'Garden Lounge',
+        durationLabel: '2 hours',
+        extras: ['Additional Camera (per hour) × 2'],
+        people: 2,
+        answers: [['What are you recording?', 'Podcast']],
+        guests: guestList(ok.intake),
+        cta: { label: 'Open in CRM', url: 'https://zayro.studio/admin/sessions/x' },
+      },
+    });
+    for (const expected of ['USD 435.52', 'Garden Lounge', 'Additional Camera (per hour) × 2', '5:30 PM – 7:30 PM ET', 'sam@example.com', 'ZO-ABC', 'Open in CRM']) {
+      expect(email.text).toContain(expected);
+    }
+    expect(email.html).toContain('https://zayro.studio/email/garden-lounge.jpg');
+    expect(email.html).toContain('Sam &lt;b&gt;Lee&lt;/b&gt;');
+    expect(email.html).not.toContain('<b>Lee</b>');
   });
 });

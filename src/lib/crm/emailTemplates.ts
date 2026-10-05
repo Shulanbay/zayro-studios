@@ -39,6 +39,25 @@ export interface BookingEmailData {
   contactEmail: string;
   /** Staff-facing answers to the booking questions and extras: [label, value]. */
   details?: [string, string][];
+  /** Full booking details for the summary emails (see bookingSummary). */
+  summary?: BookingSummaryData;
+}
+
+/** Everything the "booking summary" emails show beyond the basics. */
+export interface BookingSummaryData {
+  orderNumber?: string | null;
+  /** Absolute URL of the header photo (the booked setup). */
+  headerImage?: string | null;
+  setupName?: string | null;
+  durationLabel?: string | null;
+  /** Extras bought with the booking, e.g. "Additional Camera × 2". */
+  extras?: string[];
+  people?: number | null;
+  /** Booking questions and answers. */
+  answers?: [string, string][];
+  guests?: { name: string; email: string }[];
+  /** Button under the summary. */
+  cta?: { label: string; url: string } | null;
 }
 
 const BRAND = '#3D7DFF';
@@ -71,6 +90,126 @@ function textVersion(title: string, intro: string, rows: [string, string][], out
   return [title, '', intro, '', ...rows.map(([l, v]) => `${l}: ${v}`), '', ...outro].join('\n');
 }
 
+const PANEL = '#F4F8FC';
+const LINE = '#E3E9F2';
+
+function summaryRow(label: string, value: string): string {
+  return `<tr><td style="padding:11px 0;border-top:1px solid ${LINE};color:${MUTED};font-size:14px;vertical-align:top;">${esc(label)}</td><td style="padding:11px 0;border-top:1px solid ${LINE};text-align:right;color:${INK};font-size:14px;font-weight:600;vertical-align:top;">${esc(value)}</td></tr>`;
+}
+
+function summaryHeading(text: string): string {
+  return `<tr><td colspan="2" style="padding:18px 0 8px;border-top:1px solid ${LINE};color:${INK};font-size:13px;font-weight:700;letter-spacing:0.02em;">${esc(text)}</td></tr>`;
+}
+
+interface SummarySection {
+  heading?: string;
+  rows: [string, string][];
+}
+
+/**
+ * The booking summary email: studio photo on top, a panel with the booking
+ * details in sections, an optional button. Table-based and inline-styled so
+ * it renders the same in Gmail, Apple Mail and Outlook; one column, so it
+ * reads well on phones.
+ */
+function summaryLayout(args: {
+  title: string;
+  intro: string;
+  headerImage?: string | null;
+  sections: SummarySection[];
+  cta?: { label: string; url: string } | null;
+  outro?: string[];
+  address: string;
+}): string {
+  // Every row has a hairline above it except the very first one in the panel.
+  const cells = args.sections
+    .filter((section) => section.rows.length > 0)
+    .flatMap((section) => [...(section.heading ? [summaryHeading(section.heading)] : []), ...section.rows.map(([l, v]) => summaryRow(l, v))]);
+  const panel = cells.map((row, i) => (i === 0 ? row.split(`border-top:1px solid ${LINE};`).join('') : row)).join('');
+  const image = args.headerImage
+    ? `<tr><td style="padding:0;"><img src="${esc(args.headerImage)}" width="600" alt="ZAYRO Studios" style="display:block;width:100%;max-width:600px;height:auto;border:0;border-radius:18px 18px 0 0;"></td></tr>`
+    : '';
+  const button = args.cta
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:24px auto 8px;"><tr><td style="border-radius:999px;background:${BRAND};"><a href="${esc(args.cta.url)}" style="display:inline-block;padding:13px 30px;font-size:15px;font-weight:700;color:#FFFFFF;text-decoration:none;border-radius:999px;">${esc(args.cta.label)}</a></td></tr></table>`
+    : '';
+  const outro = (args.outro ?? []).map((p) => `<p style="margin:0 0 10px;color:${MUTED};font-size:14px;line-height:1.6;">${esc(p)}</p>`).join('');
+  return `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"></head><body style="margin:0;background:${PANEL};font-family:-apple-system,system-ui,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${PANEL};padding:24px 12px;"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#FFFFFF;border:1px solid ${LINE};border-radius:18px;">
+${image}
+<tr><td style="padding:28px 28px 8px;">
+<div style="font-size:12px;letter-spacing:0.14em;font-weight:800;color:${INK};margin-bottom:14px;">ZAYRO <span style="color:${BRAND};">STUDIOS</span></div>
+<h1 style="margin:0 0 10px;font-size:24px;line-height:1.25;color:${INK};">${esc(args.title)}</h1>
+<p style="margin:0 0 20px;color:${MUTED};font-size:15px;line-height:1.6;">${esc(args.intro)}</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${PANEL};border-radius:14px;"><tr><td style="padding:6px 18px 10px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${panel}</table>
+</td></tr></table>
+${button}
+</td></tr>
+<tr><td style="padding:12px 28px 24px;">${outro}</td></tr>
+<tr><td style="padding:18px 28px;border-top:1px solid ${LINE};background:#FAFCFE;border-radius:0 0 18px 18px;text-align:center;">
+<div style="font-size:13px;font-weight:700;color:${INK};margin-bottom:4px;">ZAYRO Studios</div>
+<div style="font-size:13px;color:${MUTED};">${esc(args.address)}</div>
+<div style="font-size:13px;margin-top:6px;"><a href="https://zayro.studio" style="color:${BRAND};text-decoration:none;">zayro.studio</a></div>
+</td></tr>
+</table>
+</td></tr></table></body></html>`;
+}
+
+function summarySections(d: BookingEmailData, forOwner: boolean): SummarySection[] {
+  const s = d.summary ?? {};
+  const name = `${d.firstName} ${d.lastName ?? ''}`.trim();
+  const top: [string, string][] = [['Name', name]];
+  if (forOwner) {
+    if (d.email) top.push(['Email', d.email]);
+    if (d.phone) top.push(['Phone', d.phone]);
+    if (d.company) top.push(['Company', d.company]);
+  }
+  top.push(['Total price', d.totalCents > 0 ? `USD ${formatCents(d.totalCents).replace('$', '')}` : 'Free']);
+  if (s.durationLabel) top.push(['Session length', s.durationLabel]);
+
+  const session: [string, string][] = [
+    ['Date', formatDateLabel(d.date)],
+    ['Time', `${formatTimeLabel(d.startTime)} – ${formatTimeLabel(d.endTime)} ET`],
+    ['Location', d.address],
+  ];
+  if (s.setupName) session.push(['Setup', s.setupName]);
+  session.push([d.isTour ? 'Visit' : 'Service', d.serviceName]);
+  if (!d.isTour) session.push(['Additional services', s.extras && s.extras.length ? s.extras.join(', ') : 'None']);
+  if (typeof s.people === 'number') session.push([d.isTour ? 'Visitors' : 'People', String(s.people)]);
+
+  const sections: SummarySection[] = [{ rows: top }, { heading: 'Session', rows: session }];
+  const answers = [...(s.answers ?? [])];
+  if (d.notes) answers.push(['Notes', d.notes]);
+  if (answers.length) sections.push({ heading: forOwner ? 'Booking answers' : 'Your answers', rows: answers });
+  if (s.guests && s.guests.length) {
+    sections.push({ heading: 'Guests', rows: s.guests.map((g, i) => [g.name || `Guest ${i + 1}`, g.email] as [string, string]) });
+  }
+  const ids: [string, string][] = [['Booking ID', d.bookingId]];
+  if (s.orderNumber) ids.push(['Order ID', s.orderNumber]);
+  sections.push({ heading: 'Reference', rows: ids });
+  return sections;
+}
+
+function summaryEmail(d: BookingEmailData, args: { title: string; intro: string; subject: string; outro: string[]; forOwner: boolean }): RenderedEmail {
+  const sections = summarySections(d, args.forOwner);
+  const text = [
+    args.title,
+    '',
+    args.intro,
+    '',
+    ...sections.flatMap((sec) => [...(sec.heading ? ['', `${sec.heading}:`] : []), ...sec.rows.map(([l, v]) => `${l}: ${v}`)]),
+    '',
+    ...(d.summary?.cta ? [`${d.summary.cta.label}: ${d.summary.cta.url}`, ''] : []),
+    ...args.outro,
+  ].join('\n');
+  return {
+    subject: args.subject,
+    html: summaryLayout({ title: args.title, intro: args.intro, headerImage: d.summary?.headerImage, sections, cta: d.summary?.cta, outro: args.outro, address: d.address }),
+    text,
+  };
+}
+
 function build(title: string, intro: string, rows: [string, string][], outro: string[] = [], subject = title): RenderedEmail {
   return { subject, html: layout(title, intro, rows, outro), text: textVersion(title, intro, rows, outro) };
 }
@@ -91,24 +230,24 @@ function tourMinutes(d: Pick<BookingEmailData, 'startTime' | 'endTime'>): number
 
 export function bookingConfirmation(d: BookingEmailData): RenderedEmail {
   if (d.isTour) {
-    return build(
-      'Your studio tour is booked',
-      `Hi ${d.firstName}, we look forward to showing you around ZAYRO Studios.`,
-      [['Booking ID', d.bookingId], ['Visit', d.serviceName], ...when(d), ['Address', d.address]],
-      [
+    return summaryEmail(d, {
+      title: 'Your studio tour is booked',
+      intro: `Hi ${d.firstName}, we look forward to showing you around ZAYRO Studios.`,
+      subject: 'Your ZAYRO Studios tour is booked',
+      outro: [
         `The tour takes about ${tourMinutes(d)} minutes and is free — no payment needed.`,
         `Need to change the time? Reply to this email or write to ${d.contactEmail}.`,
       ],
-      'Your ZAYRO Studios tour is booked'
-    );
+      forOwner: false,
+    });
   }
-  return build(
-    'Your booking is confirmed',
-    `Hi ${d.firstName}, your session at ZAYRO Studios is confirmed.`,
-    [['Booking ID', d.bookingId], ['Service', d.serviceName], ...when(d), ['Total', formatCents(d.totalCents)], ['Address', d.address]],
-    ['Please arrive 10 minutes early so we can start on time.', `Questions? Reply to this email or write to ${d.contactEmail}.`],
-    'Your ZAYRO Studios booking is confirmed'
-  );
+  return summaryEmail(d, {
+    title: 'Your booking is confirmed',
+    intro: `Hi ${d.firstName}, your session at ZAYRO Studios is confirmed. Here are the details:`,
+    subject: 'Your ZAYRO Studios booking is confirmed',
+    outro: ['Please arrive 10 minutes early so we can start on time.', `Questions? Reply to this email or write to ${d.contactEmail}.`],
+    forOwner: false,
+  });
 }
 
 export function rescheduleConfirmation(d: BookingEmailData & { previousDate: string; previousStart: string }): RenderedEmail {
@@ -220,24 +359,13 @@ export function guestInvite(d: { hostName: string; serviceName: string; date: st
 }
 
 export function ownerNewBooking(d: BookingEmailData & { source: string }): RenderedEmail {
-  const rows: [string, string][] = [
-    ['Booking ID', d.bookingId],
-    ['Service', d.serviceName],
-    ...when(d),
-    ['Customer', `${d.firstName} ${d.lastName ?? ''}`.trim()],
-    ['Email', d.email ?? ''],
-    ['Phone', d.phone ?? ''],
-  ];
-  if (d.company) rows.push(['Company', d.company]);
-  rows.push(['Total', formatCents(d.totalCents)], ['Source', d.source]);
-  for (const [label, value] of d.details ?? []) rows.push([label, value]);
-  return build(
-    d.isTour ? 'New studio tour' : 'New booking',
-    'A booking was just confirmed.',
-    rows,
-    d.notes ? [`Customer notes: ${d.notes}`] : [],
-    `New ${d.isTour ? 'tour' : 'booking'}: ${d.serviceName} on ${formatDateLabel(d.date)}`
-  );
+  return summaryEmail(d, {
+    title: d.isTour ? 'New studio tour at ZAYRO Studios' : 'New booking at ZAYRO Studios',
+    intro: `${`${d.firstName} ${d.lastName ?? ''}`.trim()} just booked the following ${d.isTour ? 'tour' : 'session'}.`,
+    subject: `New ${d.isTour ? 'tour' : 'booking'}: ${d.serviceName} on ${formatDateLabel(d.date)}`,
+    outro: [`Source: ${d.source}`],
+    forOwner: true,
+  });
 }
 
 export function ownerPaymentReview(d: { bookingId: string; orderNumber: string; amountCents: number; reason: string }): RenderedEmail {
