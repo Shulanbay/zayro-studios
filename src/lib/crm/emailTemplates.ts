@@ -93,17 +93,27 @@ function textVersion(title: string, intro: string, rows: [string, string][], out
 const PANEL = '#F4F8FC';
 const LINE = '#E3E9F2';
 
-function summaryRow(label: string, value: string): string {
-  return `<tr><td style="padding:11px 0;border-top:1px solid ${LINE};color:${MUTED};font-size:14px;vertical-align:top;">${esc(label)}</td><td style="padding:11px 0;border-top:1px solid ${LINE};text-align:right;color:${INK};font-size:14px;font-weight:600;vertical-align:top;">${esc(value)}</td></tr>`;
+function summaryRow(label: string, value: string, href?: string): string {
+  // Phone numbers and emails are links, so they can be tapped from the inbox.
+  const shown = href ? `<a href="${esc(href)}" style="color:${BRAND};text-decoration:none;">${esc(value)}</a>` : esc(value);
+  return `<tr><td style="padding:11px 0;border-top:1px solid ${LINE};color:${MUTED};font-size:14px;vertical-align:top;">${esc(label)}</td><td style="padding:11px 0;border-top:1px solid ${LINE};text-align:right;color:${INK};font-size:14px;font-weight:600;vertical-align:top;">${shown}</td></tr>`;
+}
+
+/** tel: link for a phone number as typed by the customer (digits and a leading + only). */
+function telHref(phone: string): string {
+  const digits = phone.replace(/[^\d+]/g, '');
+  return `tel:${digits.length === 10 ? `+1${digits}` : digits}`;
 }
 
 function summaryHeading(text: string): string {
   return `<tr><td colspan="2" style="padding:18px 0 8px;border-top:1px solid ${LINE};color:${INK};font-size:13px;font-weight:700;letter-spacing:0.02em;">${esc(text)}</td></tr>`;
 }
 
+type SummaryRow = [label: string, value: string, href?: string];
+
 interface SummarySection {
   heading?: string;
-  rows: [string, string][];
+  rows: SummaryRow[];
 }
 
 /**
@@ -124,7 +134,7 @@ function summaryLayout(args: {
   // Every row has a hairline above it except the very first one in the panel.
   const cells = args.sections
     .filter((section) => section.rows.length > 0)
-    .flatMap((section) => [...(section.heading ? [summaryHeading(section.heading)] : []), ...section.rows.map(([l, v]) => summaryRow(l, v))]);
+    .flatMap((section) => [...(section.heading ? [summaryHeading(section.heading)] : []), ...section.rows.map(([l, v, href]) => summaryRow(l, v, href))]);
   const panel = cells.map((row, i) => (i === 0 ? row.split(`border-top:1px solid ${LINE};`).join('') : row)).join('');
   const image = args.headerImage
     ? `<tr><td style="padding:0;"><img src="${esc(args.headerImage)}" width="600" alt="ZAYRO Studios" style="display:block;width:100%;max-width:600px;height:auto;border:0;border-radius:18px 18px 0 0;"></td></tr>`
@@ -159,10 +169,10 @@ ${button}
 function summarySections(d: BookingEmailData, forOwner: boolean): SummarySection[] {
   const s = d.summary ?? {};
   const name = `${d.firstName} ${d.lastName ?? ''}`.trim();
-  const top: [string, string][] = [['Name', name]];
+  const top: SummaryRow[] = [['Name', name]];
   if (forOwner) {
-    if (d.email) top.push(['Email', d.email]);
-    if (d.phone) top.push(['Phone', d.phone]);
+    if (d.phone) top.push(['Phone', d.phone, telHref(d.phone)]);
+    if (d.email) top.push(['Email', d.email, `mailto:${d.email}`]);
     if (d.company) top.push(['Company', d.company]);
   }
   top.push(['Total price', d.totalCents > 0 ? `USD ${formatCents(d.totalCents).replace('$', '')}` : 'Free']);
@@ -183,7 +193,7 @@ function summarySections(d: BookingEmailData, forOwner: boolean): SummarySection
   if (d.notes) answers.push(['Notes', d.notes]);
   if (answers.length) sections.push({ heading: forOwner ? 'Booking answers' : 'Your answers', rows: answers });
   if (s.guests && s.guests.length) {
-    sections.push({ heading: 'Guests', rows: s.guests.map((g, i) => [g.name || `Guest ${i + 1}`, g.email] as [string, string]) });
+    sections.push({ heading: 'Guests', rows: s.guests.map((g, i): SummaryRow => [g.name || `Guest ${i + 1}`, g.email, forOwner ? `mailto:${g.email}` : undefined]) });
   }
   const ids: [string, string][] = [['Booking ID', d.bookingId]];
   if (s.orderNumber) ids.push(['Order ID', s.orderNumber]);

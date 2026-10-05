@@ -289,6 +289,10 @@ describe('booking summary emails', () => {
       expect(email.text).toContain(expected);
     }
     expect(email.html).toContain('https://zayro.studio/email/garden-lounge.jpg');
+    // The owner can call or write straight from the inbox.
+    expect(email.html).toContain('href="tel:+12125550100"');
+    expect(email.html).toContain('href="mailto:ann@example.com"');
+    expect(email.text).toContain('Phone: +1 212 555 0100');
     expect(email.html).toContain('Sam &lt;b&gt;Lee&lt;/b&gt;');
     expect(email.html).not.toContain('<b>Lee</b>');
   });
