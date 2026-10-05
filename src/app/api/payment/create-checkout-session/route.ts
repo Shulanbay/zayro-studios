@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { temporaryHolds, services, payments, bookings, integrationLogs } from '@/lib/db/schema';
-import { purchaseItemsFromQuote, quoteForHold } from '@/lib/bookingQuote';
+import { purchaseItemsFromQuote, quoteForHold, setupForHold } from '@/lib/bookingQuote';
 import { parseIntake } from '@/lib/bookingOptions';
 import { checkBookable } from '@/lib/catalogData';
 import { generateBookingId, isValidPhone, getBaseUrl, formatBookingDateUTC, toDateOnly } from '@/lib/utils';
@@ -153,6 +153,7 @@ export async function POST(request: NextRequest) {
       const quoted = await quoteForHold(service, hold, tx);
       if (!quoted.ok) return { kind: 'error' as const, status: 409, error: quoted.error };
       const pricing = quoted.quote;
+      const setup = await setupForHold(hold, tx);
       // Free services never go through Stripe — the server decides the path.
       if (pricing.total <= 0) {
         return {
@@ -250,7 +251,8 @@ export async function POST(request: NextRequest) {
         stripe_session_id: session.id,
         purchase_id: purchase.id,
         source: 'individual',
-        intake: answers.intake as Record<string, unknown>,
+        intake: { ...answers.intake, ...(setup.setupName ? { setupName: setup.setupName } : {}) } as Record<string, unknown>,
+        setup_id: setup.setupId,
         created_at: now,
         updated_at: now,
       });

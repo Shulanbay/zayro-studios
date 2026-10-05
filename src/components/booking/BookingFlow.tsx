@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { CATEGORY_LABELS, bookingCategories, formatDuration, formatPrice, isBookable, servicesInCategory, type CatalogService } from '@/lib/catalog';
 import { addDays, formatTimeLabel, todayInTz } from '@/lib/crm/time';
 import { EDITING_CHOICES, EDITING_LABELS, MAX_GUESTS, MAX_PEOPLE, RECORDING_TYPES, intakeFields, parseIntake } from '@/lib/bookingOptions';
@@ -35,6 +36,14 @@ interface Addon {
   max_quantity: number;
 }
 
+interface StudioSetup {
+  id: number;
+  name: string;
+  description: string | null;
+  seats: number | null;
+  image: string | null;
+}
+
 interface Pricing {
   subtotal: string;
   taxAmount: string;
@@ -62,6 +71,8 @@ interface BookingState {
   selectedService: Service | null;
   selectedDate: string | null;
   selectedSlot: { start: string; end: string } | null;
+  /** Chosen studio setup (services with several setups). */
+  setupId: number | null;
   /** Hours booked (services sold by the hour). */
   hours: number;
   /** Add-on id → quantity. */
@@ -93,7 +104,9 @@ interface IntakeState {
 
 const emptyIntake: IntakeState = { peopleRecording: '', peopleOnCamera: '', recordingType: '', editing: '', project: '', guests: [] };
 
-const STORAGE_KEY = 'zayro-booking-state-v3';
+const STORAGE_KEY = 'zayro-booking-state-v4';
+/** The setup step sits between Service (1) and Date (2). */
+const SETUP_STEP = 1.5;
 const STEP_LABELS = ['Service', 'Date', 'Time', 'Extras', 'Details', 'Confirm'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -180,6 +193,7 @@ const initialState: BookingState = {
   selectedService: null,
   selectedDate: null,
   selectedSlot: null,
+  setupId: null,
   hours: 1,
   addons: {},
   intake: emptyIntake,
@@ -270,6 +284,7 @@ export default function BookingFlow() {
   const [datesError, setDatesError] = useState<string | null>(null);
 
   const [addons, setAddons] = useState<Addon[]>([]);
+  const [setups, setSetups] = useState<StudioSetup[] | null>(null);
   const [slots, setSlots] = useState<TimeSlot[] | null>(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
@@ -369,9 +384,10 @@ export default function BookingFlow() {
         // Answers carry over when switching between services; extras and hours start fresh.
         intake: s.intake,
         selectedService: service,
-        step: 2,
+        step: SETUP_STEP,
       };
     });
+    setSetups(null);
     setSlots(null);
     setDates(null);
   }, []);
@@ -413,7 +429,39 @@ export default function BookingFlow() {
   const totalMinutes = (state.selectedService?.duration_minutes ?? 0) * hours;
   const sessionLength = formatDuration(totalMinutes);
   const hasExtras = addons.length > 0;
-  const labels = STEP_LABELS.map((label, i) => ({ step: i + 1, label })).filter((l) => l.label !== 'Extras' || hasExtras);
+  const hasSetups = (setups?.length ?? 0) > 1;
+  const labels = [
+    { step: 1, label: 'Service' },
+    ...(hasSetups ? [{ step: SETUP_STEP, label: 'Setup' }] : []),
+    ...STEP_LABELS.slice(1).map((label, i) => ({ step: i + 2, label })),
+  ].filter((l) => l.label !== 'Extras' || hasExtras);
+  const chosenSetup = setups?.find((x) => x.id === state.setupId) ?? null;
+
+  // Studio setups for the chosen service. With none or one there is nothing to choose.
+  const currentStep = state.step;
+  useEffect(() => {
+    if (!serviceId) {
+      setSetups(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/booking/setups?service_id=${serviceId}`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (!cancelled) setSetups(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setSetups([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [serviceId]);
+  useEffect(() => {
+    if (currentStep === SETUP_STEP && setups && setups.length <= 1) {
+      setState((s) => (s.step === SETUP_STEP ? { ...s, step: 2, setupId: setups[0]?.id ?? null } : s));
+    }
+  }, [currentStep, setups]);
 
   // Extras offered with the chosen service (current prices from the server).
   useEffect(() => {
@@ -561,6 +609,7 @@ export default function BookingFlow() {
           end_time: slot.end,
           duration_minutes: service.duration_minutes * hours,
           hours,
+          setup_id: state.setupId,
           addons: chosenAddons,
           previous_hold_id: state.holdId,
           website: (document.getElementById('website') as HTMLInputElement | null)?.value || undefined,
@@ -671,7 +720,7 @@ export default function BookingFlow() {
 
   const service = state.selectedService;
   const summaryLine = service
-    ? [service.name, sessionLength, state.selectedDate && longDate(state.selectedDate), state.selectedSlot && `${formatTimeLabel(state.selectedSlot.start)} ET`]
+    ? [service.name, chosenSetup?.name, sessionLength, state.selectedDate && longDate(state.selectedDate), state.selectedSlot && `${formatTimeLabel(state.selectedSlot.start)} ET`]
         .filter(Boolean)
         .join(' · ')
     : '';
@@ -768,6 +817,54 @@ export default function BookingFlow() {
     );
   }
 
+  // ------------------------------------------------------------------ setup
+  if (state.step === SETUP_STEP && service) {
+    content = (
+      <>
+        <StepHeader step={SETUP_STEP} labels={labels} title="Choose your setup" subtitle={service.name} onBack={() => goTo(1)} />
+        {!setups ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6" aria-busy="true" aria-label="Loading setups">
+            <div className="skeleton h-64" />
+            <div className="skeleton h-64" />
+          </div>
+        ) : (
+          <ul className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {setups.map((setup, i) => (
+              <li key={setup.id}>
+                <button
+                  type="button"
+                  onClick={() => goTo(2, { setupId: setup.id })}
+                  aria-pressed={state.setupId === setup.id}
+                  className={`card card-interactive !p-0 overflow-hidden text-left w-full h-full ${state.setupId === setup.id ? 'card-selected' : ''}`}
+                >
+                  {setup.image && (
+                    <span className="relative block aspect-[3/2] bg-zayro-bg">
+                      <Image
+                        src={setup.image}
+                        alt={`${setup.name} podcast setup`}
+                        fill
+                        sizes="(min-width: 768px) 50vw, 100vw"
+                        className="object-cover"
+                        priority={i < 2}
+                      />
+                    </span>
+                  )}
+                  <span className="block p-5">
+                    <span className="flex flex-wrap items-baseline justify-between gap-2">
+                      <span className="text-xl font-black text-zayro-dark">{setup.name}</span>
+                      {setup.seats ? <span className="text-sm font-semibold text-zayro-primary">{setup.seats} seats</span> : null}
+                    </span>
+                    {setup.description && <span className="block text-sm text-zayro-gray mt-1 whitespace-normal">{setup.description}</span>}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </>
+    );
+  }
+
   // ------------------------------------------------------------------ 2
   if (state.step === 2 && service) {
     const today = todayInTz();
@@ -785,7 +882,7 @@ export default function BookingFlow() {
 
     content = (
       <>
-        <StepHeader step={2} labels={labels} title={maxHours > 1 ? 'Session length and date' : 'Pick a date'} subtitle={`${service.name} · ${sessionLength}`} onBack={() => goTo(1)} />
+        <StepHeader step={2} labels={labels} title={maxHours > 1 ? 'Session length and date' : 'Pick a date'} subtitle={[service.name, chosenSetup?.name, sessionLength].filter(Boolean).join(' · ')} onBack={() => goTo(hasSetups ? SETUP_STEP : 1)} />
         {maxHours > 1 && (
           <fieldset className="mb-8 max-w-xl">
             <legend className="field-label mb-3">Session duration</legend>
@@ -1338,6 +1435,7 @@ export default function BookingFlow() {
             <div className="sm:col-span-2">
               <dt className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-1">Service</dt>
               <dd className="text-2xl font-black text-zayro-dark">{service.name}</dd>
+              {chosenSetup && <dd className="text-sm text-zayro-gray mt-1">Setup: {chosenSetup.name}</dd>}
             </div>
             <div>
               <dt className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-1">Date</dt>

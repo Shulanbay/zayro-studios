@@ -101,6 +101,13 @@ async function bookingByCode(code: string) {
   return db.query.bookings.findFirst({ where: eq(schema.bookings.booking_id, code) });
 }
 
+/** The setup a podcast hold needs (photography and tours have nothing to choose). */
+async function setupFor(category: string): Promise<number | undefined> {
+  if (category !== 'podcast') return undefined;
+  const r = await pg.query<{ id: number }>("SELECT id FROM setups WHERE slug = 'sofa-lounge'");
+  return r.rows[0]?.id;
+}
+
 /** Public flow: hold → Stripe Checkout. Returns the payment_pending booking and the fake session. */
 async function startCheckout(date: string, start: string, serviceName = 'Podcast Pro', email = 'client@example.com') {
   const service = await db.query.services.findFirst({ where: eq(schema.services.id, ids[serviceName]) });
@@ -114,6 +121,7 @@ async function startCheckout(date: string, start: string, serviceName = 'Podcast
       start_time: start,
       end_time: end,
       duration_minutes: service.duration_minutes,
+      setup_id: await setupFor(service.category),
     })
   );
   const hold = await holdRes.json();
@@ -755,8 +763,8 @@ describe('migrations on a populated database', () => {
           (SELECT coalesce(sum(extract(epoch FROM start_datetime)), 0)::bigint::text FROM blocked_times) blocks`)
       ).rows[0];
     const migrations = readMigrationFiles({ migrationsFolder: './drizzle' }).slice(5);
-    // 0005-0008 (CRM) and 0009 (intake + add-ons): all safe to re-run.
-    expect(migrations).toHaveLength(5);
+    // 0005-0008 (CRM), 0009 (intake + add-ons) and 0010 (setups): all safe to re-run.
+    expect(migrations).toHaveLength(6);
     const run = async () => {
       for (const m of migrations) for (const stmt of m.sql) if (stmt.trim()) await pg.exec(stmt);
     };

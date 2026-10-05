@@ -31,6 +31,8 @@ export interface AddonChoice {
 export interface BookingSelection {
   units: number;
   addons: AddonChoice[];
+  /** The studio setup the customer chose (podcast). */
+  setupId?: number;
 }
 
 /** Cleans a client-sent add-on list: integer ids, quantity ≥ 1, no duplicates. */
@@ -64,6 +66,8 @@ export interface Intake {
   editing?: (typeof EDITING_CHOICES)[number];
   project?: string;
   guests?: string[];
+  /** Name of the chosen studio setup at booking time (set by the server). */
+  setupName?: string;
 }
 
 export type IntakeField = 'peopleRecording' | 'peopleOnCamera' | 'recordingType' | 'editing' | 'project' | 'guests';
@@ -158,6 +162,7 @@ export function parseIntake(raw: unknown, category: string, customerEmail?: stri
 export function intakeSummary(intake: unknown): [string, string][] {
   const i = (intake && typeof intake === 'object' ? intake : {}) as Intake;
   const rows: [string, string][] = [];
+  if (i.setupName) rows.push(['Setup', i.setupName]);
   if (i.recordingType) rows.push(['Recording', i.recordingType]);
   if (typeof i.peopleRecording === 'number') rows.push(['People', String(i.peopleRecording)]);
   if (typeof i.peopleOnCamera === 'number') rows.push(['On camera', String(i.peopleOnCamera)]);

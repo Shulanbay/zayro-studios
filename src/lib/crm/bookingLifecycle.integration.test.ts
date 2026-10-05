@@ -103,6 +103,13 @@ function endOf(start: string, minutes: number) {
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
+/** The setup a podcast hold needs (photography and tours have nothing to choose). */
+async function setupFor(category: string): Promise<number | undefined> {
+  if (category !== 'podcast') return undefined;
+  const r = await pg.query<{ id: number }>("SELECT id FROM setups WHERE slug = 'sofa-lounge'");
+  return r.rows[0]?.id;
+}
+
 async function requestHold(date: string, start: string, email: string, serviceName = 'Podcast Pro', extra: Record<string, unknown> = {}) {
   const service = await db.query.services.findFirst({ where: eq(schema.services.id, ids[serviceName]) });
   const res = await holdRoute.POST(
@@ -113,6 +120,7 @@ async function requestHold(date: string, start: string, email: string, serviceNa
       start_time: start,
       end_time: endOf(start, service.duration_minutes),
       duration_minutes: service.duration_minutes,
+      setup_id: await setupFor(service.category),
       ...extra,
     })
   );
@@ -444,6 +452,7 @@ describe('hourly sessions, add-ons and intake questions', () => {
         duration_minutes: service.duration_minutes * hours,
         hours,
         addons,
+        setup_id: await setupFor(service.category),
       })
     );
     return { status: res.status, body: await res.json() };
@@ -488,7 +497,9 @@ describe('hourly sessions, add-ons and intake questions', () => {
       editing: 'yes',
       project: 'Pilot episode',
       guests: ['guest.one@example.com', 'guest.two@example.com'],
+      setupName: 'Sofa Lounge',
     });
+    expect(booking.setup_id).toBe(await setupFor('podcast'));
     const items = await pg.query<any>('SELECT item_type, quantity, unit_price_cents, total_cents FROM purchase_items WHERE purchase_id = $1 ORDER BY total_cents DESC', [booking.purchase_id]);
     expect(items.rows).toEqual([
       { item_type: 'service', quantity: 3, unit_price_cents: 20000, total_cents: 60000 },
@@ -555,5 +566,35 @@ describe('hourly sessions, add-ons and intake questions', () => {
     expect(podcast.find((a: any) => a.name === 'Additional Camera')).toMatchObject({ price: '50.00', unit: 'hour', max_quantity: 3 });
     expect(await get('Free Studio Tour')).toEqual([]);
     expect(await get('Headshot Session')).toEqual([]);
+  });
+});
+
+describe('studio setups', () => {
+  it('a podcast booking needs one of the four setups; photography gets its only one automatically', async () => {
+    const setupsRoute = await import('@/app/api/booking/setups/route');
+    const list = await (await setupsRoute.GET(new NextRequest(`http://localhost/api/booking/setups?service_id=${ids['Podcast Pro']}`))).json();
+    expect(list.map((s: any) => s.name)).toEqual(['Sofa Lounge', 'Cream Lounge', 'Garden Lounge', 'Library Table']);
+    expect(list[0]).toMatchObject({ seats: 3, image: '/setups/sofa-lounge.webp' });
+
+    const body = (setup_id?: number) => ({
+      customer_email: 'setup@example.com',
+      service_id: ids['Podcast Pro'],
+      booking_date: '2030-06-10',
+      start_time: '10:00',
+      end_time: '11:00',
+      duration_minutes: 60,
+      setup_id,
+    });
+    const none = await holdRoute.POST(post('/api/booking/create-hold', body()));
+    expect(none.status).toBe(400);
+    expect((await none.json()).error).toMatch(/setup/i);
+    const photo = await pg.query<{ id: number }>("SELECT id FROM setups WHERE slug = 'photo-studio'");
+    expect((await holdRoute.POST(post('/api/booking/create-hold', body(photo.rows[0].id)))).status).toBe(400);
+    expect((await holdRoute.POST(post('/api/booking/create-hold', body(list[2].id)))).status).toBe(200);
+
+    const headshot = await requestHold('2030-06-10', '14:00', 'photo@example.com', 'Headshot Session');
+    expect(headshot.status).toBe(200);
+    const hold = await db.query.temporaryHolds.findFirst({ where: eq(schema.temporaryHolds.id, headshot.body.hold_id) });
+    expect(hold.selection.setupId).toBe(photo.rows[0].id);
   });
 });

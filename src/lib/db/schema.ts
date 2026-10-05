@@ -223,7 +223,7 @@ export const temporaryHolds = pgTable(
     status: holdStatusEnum('status').notNull().default('active'),
     hold_expires_at: timestamp('hold_expires_at', { withTimezone: true }).notNull(),
     // What the hold was quoted for (0009): hours and add-ons, validated on the server.
-    selection: jsonb('selection').$type<{ units?: number; addons?: { id: number; quantity: number }[] }>().notNull().default(sql`'{}'::jsonb`),
+    selection: jsonb('selection').$type<{ units?: number; addons?: { id: number; quantity: number }[]; setupId?: number }>().notNull().default(sql`'{}'::jsonb`),
     created_at: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

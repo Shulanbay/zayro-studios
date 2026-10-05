@@ -134,6 +134,10 @@ The customer picks service → date (only dates with a free slot) → time
   that selection from the database (`lib/bookingQuote.ts`) — the client never
   sends a price. Each add-on becomes its own immutable purchase line item
   (`item_type = 'addon'`).
+- Podcast bookings choose one of the active `setups` whose `metadata.categories`
+  includes the service category (photo in `metadata.image`). The hold stores
+  the choice; the booking gets `setup_id` and a name snapshot in `intake`.
+  The studio is still one room: any setup holds the whole room.
 - Answers to the booking questions are validated per category and stored in
   `bookings.intake`; staff see them on the session page, in the owner email
   and in the Calendar event. Guests the customer adds get one email each

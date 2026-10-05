@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { db } from './db';
-import { serviceAddons } from './db/schema';
-import type { Service, ServiceAddon } from './db/schema';
+import { serviceAddons, setups } from './db/schema';
+import type { Service, ServiceAddon, Setup } from './db/schema';
 import type { Executor } from './db/types';
 import { getTaxRate } from './pricing';
 import { computeQuote, normalizeAddonChoices, normalizeUnits, type AddonChoice, type BookingSelection, type Quote } from './bookingOptions';
@@ -112,4 +112,40 @@ export function purchaseItemsFromQuote(
           metadata: { bookingId: ctx.bookingId, unit: line.unit ?? 'session' },
         }
   );
+}
+
+/** Studio setups a customer can choose for a service of this category (active, in display order). */
+export async function listSetupsForCategory(category: string, exec: Executor = db): Promise<Setup[]> {
+  const rows = await exec.query.setups.findMany({ where: eq(setups.active, true), orderBy: [asc(setups.sort_order), asc(setups.id)] });
+  return rows.filter((s) => {
+    const categories = (s.metadata as { categories?: unknown })?.categories;
+    return Array.isArray(categories) && categories.includes(category);
+  });
+}
+
+/**
+ * Checks the chosen setup. A category with more than one setup needs a
+ * choice; a category with exactly one gets it automatically.
+ */
+export async function resolveSetup(
+  category: string,
+  setupId: unknown,
+  exec: Executor = db
+): Promise<{ ok: true; setupId: number | null } | { ok: false; error: string }> {
+  const options = await listSetupsForCategory(category, exec);
+  if (options.length === 0) return { ok: true, setupId: null };
+  if (setupId === undefined || setupId === null || setupId === '') {
+    return options.length === 1 ? { ok: true, setupId: options[0].id } : { ok: false, error: 'Please choose a studio setup.' };
+  }
+  const id = Number(setupId);
+  const match = options.find((s) => s.id === id);
+  return match ? { ok: true, setupId: match.id } : { ok: false, error: 'That studio setup is not available. Please choose another.' };
+}
+
+/** Booking columns for the setup a hold was created with: the id plus a name snapshot for staff. */
+export async function setupForHold(hold: { selection?: unknown }, exec: Executor = db): Promise<{ setupId: number | null; setupName: string | null }> {
+  const id = Number((hold.selection as { setupId?: unknown } | null)?.setupId);
+  if (!Number.isInteger(id) || id < 1) return { setupId: null, setupName: null };
+  const row = await exec.query.setups.findFirst({ where: eq(setups.id, id) });
+  return row ? { setupId: row.id, setupName: row.name } : { setupId: null, setupName: null };
 }

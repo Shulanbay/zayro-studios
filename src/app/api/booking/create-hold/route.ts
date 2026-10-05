@@ -5,7 +5,7 @@ import { db } from '@/lib/db';
 import { temporaryHolds } from '@/lib/db/schema';
 import { checkTimeSlotConflict, isSlotActuallyAvailable, lockStudioDates, timeToMinutes } from '@/lib/availability';
 import { findBookableService } from '@/lib/catalogData';
-import { quoteBooking, quoteForClient } from '@/lib/bookingQuote';
+import { quoteBooking, quoteForClient, resolveSetup } from '@/lib/bookingQuote';
 import { normalizeAddonChoices, normalizeUnits } from '@/lib/bookingOptions';
 import { enforceRateLimit, isHoneypotTripped } from '@/lib/crm/rateLimit';
 import { isDateString, isTimeString } from '@/lib/crm/time';
@@ -22,6 +22,8 @@ const bodySchema = z.object({
   duration_minutes: z.number().int().positive(),
   /** The hold this browser had before (picking another time gives it back). */
   previous_hold_id: z.string().uuid().optional().nullable(),
+  /** Chosen studio setup (required when the service has several). */
+  setup_id: z.number().int().positive().optional().nullable(),
   /** Hours for services sold by the hour (default 1). */
   hours: z.number().int().min(1).max(24).optional(),
   /** Chosen extras: [{ id, quantity }]. Prices always come from the database. */
@@ -91,6 +93,9 @@ export async function POST(request: NextRequest) {
     if (choices === null) return NextResponse.json({ error: 'Invalid extras' }, { status: 400 });
     const quoted = await quoteBooking(service, units, choices);
     if (!quoted.ok) return NextResponse.json({ error: quoted.error }, { status: 400 });
+    const setup = await resolveSetup(service.category, body.setup_id);
+    if (!setup.ok) return NextResponse.json({ error: setup.error }, { status: 400 });
+    if (setup.setupId) quoted.selection.setupId = setup.setupId;
     const selectionKey = JSON.stringify(quoted.selection);
 
     // Picking another time: give the previous hold back first (its own

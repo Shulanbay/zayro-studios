@@ -7,7 +7,7 @@ import { lockStudioDates } from '@/lib/availability';
 import { upsertCustomer, refreshCustomerStats } from '@/lib/crm/customers';
 import { createPurchase, orderNumberForBooking } from '@/lib/crm/purchases';
 import { enforceRateLimit, isHoneypotTripped } from '@/lib/crm/rateLimit';
-import { purchaseItemsFromQuote, quoteForHold } from '@/lib/bookingQuote';
+import { purchaseItemsFromQuote, quoteForHold, setupForHold } from '@/lib/bookingQuote';
 import { parseIntake } from '@/lib/bookingOptions';
 import { checkBookable } from '@/lib/catalogData';
 import { generateBookingId, isValidEmail, isValidPhone, toDateOnly } from '@/lib/utils';
@@ -132,6 +132,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: quoted.error }, { status: 409 });
     }
     const pricing = quoted.quote;
+    const setup = await setupForHold(hold);
 
     // The whole point of this endpoint: reject anything that isn't actually
     // free, server-side, regardless of what the client believes the price is.
@@ -208,7 +209,8 @@ export async function POST(request: NextRequest) {
             total_amount: (pricing.total / 100).toFixed(2),
             purchase_id: purchase.id,
             source: isTour ? 'studio_tour' : 'individual',
-            intake: answers.intake as Record<string, unknown>,
+            intake: { ...answers.intake, ...(setup.setupName ? { setupName: setup.setupName } : {}) } as Record<string, unknown>,
+            setup_id: setup.setupId,
             created_at: now,
             updated_at: now,
           })
