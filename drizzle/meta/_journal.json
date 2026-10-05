@@ -78,6 +78,13 @@
       "when": 1791250000000,
       "tag": "0010_podcast_setups",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1791260000000,
+      "tag": "0011_addon_price_updates",
+      "breakpoints": true
     }
   ]
 }

@@ -564,6 +564,8 @@ describe('hourly sessions, add-ons and intake questions', () => {
     const podcast = await get('Podcast Pro');
     expect(podcast).toHaveLength(11);
     expect(podcast.find((a: any) => a.name === 'Additional Camera')).toMatchObject({ price: '50.00', unit: 'hour', max_quantity: 3 });
+    expect(podcast.find((a: any) => a.name === 'Professional Studio Photoshoot')).toMatchObject({ price: '350.00', unit: 'hour' });
+    expect(podcast.find((a: any) => a.name === 'Express Editing')).toMatchObject({ price: '300.00', unit: 'session' });
     expect(await get('Free Studio Tour')).toEqual([]);
     expect(await get('Headshot Session')).toEqual([]);
   });
