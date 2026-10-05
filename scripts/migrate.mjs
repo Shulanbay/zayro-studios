@@ -59,6 +59,7 @@ async function report(label) {
       );
       out.overlap_constraint = await count(`SELECT count(*) AS n FROM pg_constraint WHERE conname = 'bookings_no_overlap'`);
       out.roles = await count('SELECT count(*) AS n FROM roles');
+      if (await exists('service_addons')) out.addons = await count('SELECT count(*) AS n FROM service_addons');
     }
     console.log(`[migrate] ${label}: ${JSON.stringify(out)}`);
   } catch (error) {

@@ -43,6 +43,8 @@ export interface SendArgs {
   refs?: EmailRefs;
   context?: Record<string, unknown>;
   replyTo?: string;
+  /** Files to attach (e.g. a calendar invite). */
+  attachments?: { filename: string; content: string; contentType?: string }[];
   render: () => RenderedEmail;
 }
 
@@ -142,7 +144,7 @@ export async function sendLoggedEmail(args: SendArgs): Promise<EmailOutcome> {
     }
 
     // Customers reply to the studio inbox, never to the sending address.
-    const replyTo = args.replyTo ?? (args.recipientType === 'customer' ? BUSINESS_EMAIL : undefined);
+    const replyTo = args.replyTo ?? (args.recipientType === 'customer' || args.recipientType === 'guest' ? BUSINESS_EMAIL : undefined);
 
     try {
       const { data, error } = await resend.emails.send({
@@ -152,6 +154,9 @@ export async function sendLoggedEmail(args: SendArgs): Promise<EmailOutcome> {
         html: rendered.html,
         text: rendered.text,
         ...(replyTo ? { reply_to: replyTo } : {}),
+        ...(args.attachments?.length
+          ? { attachments: args.attachments.map((a) => ({ filename: a.filename, content: Buffer.from(a.content, 'utf8'), content_type: a.contentType })) }
+          : {}),
       });
       if (error) {
         const message = shortError(error);

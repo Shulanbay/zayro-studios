@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { temporaryHolds, services, payments, bookings, integrationLogs } from '@/lib/db/schema';
-import { calculatePricing } from '@/lib/pricing';
+import { purchaseItemsFromQuote, quoteForHold } from '@/lib/bookingQuote';
+import { parseIntake } from '@/lib/bookingOptions';
 import { checkBookable } from '@/lib/catalogData';
 import { generateBookingId, isValidPhone, getBaseUrl, formatBookingDateUTC, toDateOnly } from '@/lib/utils';
 import { upsertCustomer } from '@/lib/crm/customers';
@@ -27,6 +28,8 @@ const bodySchema = z.object({
   phone: z.string().trim().min(7).max(20).refine(isValidPhone, 'Invalid phone number'),
   company: z.string().trim().max(255).optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
+  /** Answers to the booking questions; validated per service category. */
+  intake: z.record(z.unknown()).optional(),
   website: z.string().optional(),
 });
 
@@ -142,8 +145,14 @@ export async function POST(request: NextRequest) {
       const bookable = checkBookable(service);
       if (!bookable.ok) return { kind: 'error' as const, status: bookable.status, error: bookable.error };
 
-      const pricing = await calculatePricing(hold.service_id);
-      if (!pricing) return { kind: 'error' as const, status: 500, error: 'Could not calculate pricing' };
+      const answers = parseIntake(body.intake, service.category, email);
+      if (!answers.ok) return { kind: 'error' as const, status: 400, error: answers.error };
+
+      // The hold remembers the hours and extras it was quoted for; the
+      // price is recomputed from the database, never taken from the client.
+      const quoted = await quoteForHold(service, hold, tx);
+      if (!quoted.ok) return { kind: 'error' as const, status: 409, error: quoted.error };
+      const pricing = quoted.quote;
       // Free services never go through Stripe — the server decides the path.
       if (pricing.total <= 0) {
         return {
@@ -166,7 +175,9 @@ export async function POST(request: NextRequest) {
               currency: pricing.currency.toLowerCase(),
               product_data: {
                 name: service.name,
-                description: `Studio Session - ${formatBookingDateUTC(bookingDate)}, ${formatTimeLabel(hold.start_time)} ET`,
+                description: `Studio Session - ${formatBookingDateUTC(bookingDate)}, ${formatTimeLabel(hold.start_time)} – ${formatTimeLabel(hold.end_time)} ET${
+                  pricing.lines.length > 1 ? ` · incl. ${pricing.lines.length - 1} add-on${pricing.lines.length > 2 ? 's' : ''}` : ''
+                }`,
                 metadata: { serviceId: service.id.toString() },
               },
               // The tax-inclusive total as one line item, so the amount Stripe
@@ -207,15 +218,13 @@ export async function POST(request: NextRequest) {
         taxCents: pricing.taxAmount,
         paymentMethod: 'stripe',
         stripeCheckoutSessionId: session.id,
-        items: [
-          {
-            itemType: 'service',
-            referenceId: service.id,
-            description: `${service.name} — ${bookingDate} ${hold.start_time}–${hold.end_time} ET`,
-            unitPriceCents: pricing.subtotal,
-            metadata: { bookingId: bookingIdString, category: service.category, durationMinutes: hold.duration_minutes, taxRate: pricing.taxRate },
-          },
-        ],
+        items: purchaseItemsFromQuote(pricing, {
+          bookingId: bookingIdString,
+          category: service.category,
+          date: bookingDate,
+          start: hold.start_time,
+          end: hold.end_time,
+        }),
       });
       await tx.insert(bookings).values({
         id: bookingUuid,
@@ -241,6 +250,7 @@ export async function POST(request: NextRequest) {
         stripe_session_id: session.id,
         purchase_id: purchase.id,
         source: 'individual',
+        intake: answers.intake as Record<string, unknown>,
         created_at: now,
         updated_at: now,
       });

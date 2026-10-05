@@ -64,6 +64,13 @@
       "when": 1790356186895,
       "tag": "0008_booking_overlap_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1791200000000,
+      "tag": "0009_booking_intake_addons",
+      "breakpoints": true
     }
   ]
 }

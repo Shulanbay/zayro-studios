@@ -8,6 +8,9 @@ import { sendLoggedEmail, type EmailOutcome } from './crm/emailLog';
 import * as T from './crm/emailTemplates';
 import { decimalToCents } from './crm/money';
 import { utcToWall } from './crm/time';
+import { intakeSummary, type Intake } from './bookingOptions';
+import { buildSessionIcs } from './ics';
+import { purchaseItems } from './db/schema';
 
 /**
  * High-level transactional emails. Each one has a stable dedupe key, so it
@@ -27,6 +30,7 @@ export const EMAIL_TEMPLATES = {
   package_assigned: 'Package assigned',
   package_credit_used: 'Package session booked',
   owner_payment_review: 'Owner: payment needs review',
+  guest_invite: 'Guest invitation',
 } as const;
 
 function contactEmail() {
@@ -71,7 +75,20 @@ export async function sendBookingConfirmationEmail({ booking, service }: Booking
   });
 }
 
+/** Extras bought with a booking, for staff: "Additional Camera × 2". */
+async function addonSummary(booking: Booking): Promise<[string, string][]> {
+  if (!booking.purchase_id) return [];
+  const items = await db.query.purchaseItems.findMany({ where: eq(purchaseItems.purchase_id, booking.purchase_id) });
+  const extras = items.filter((i) => i.item_type === 'addon').map((i) => `${i.description_snapshot.replace(/^Add-on: /, '')} × ${i.quantity}`);
+  return extras.length ? [['Extras', extras.join(', ')]] : [];
+}
+
 export async function sendOwnerNotificationEmail({ booking, service }: BookingEmailData): Promise<EmailOutcome> {
+  const details: [string, string][] = [
+    ['Length', `${booking.duration_minutes} min`],
+    ...(await addonSummary(booking).catch(() => [] as [string, string][])),
+    ...intakeSummary(booking.intake),
+  ];
   return sendLoggedEmail({
     template: 'owner_new_booking',
     recipientType: 'owner',
@@ -79,8 +96,43 @@ export async function sendOwnerNotificationEmail({ booking, service }: BookingEm
     dedupeKey: `owner_new_booking:${booking.id}`,
     refs: { bookingId: booking.id, purchaseId: booking.purchase_id },
     replyTo: booking.customer_email,
-    render: () => T.ownerNewBooking({ ...bookingData(booking, service), source: booking.source }),
+    render: () => T.ownerNewBooking({ ...bookingData(booking, service), source: booking.source, details }),
   });
+}
+
+/**
+ * One email per guest the customer added, with a calendar file. Sent once
+ * per guest per booking (dedupe key); never to the customer themselves.
+ */
+export async function sendGuestInviteEmails({ booking, service }: BookingEmailData): Promise<EmailOutcome[]> {
+  const guests = ((booking.intake ?? {}) as Intake).guests;
+  if (!Array.isArray(guests) || guests.length === 0) return [];
+  const date = toDateOnly(booking.booking_date);
+  const hostName = `${booking.customer_first_name} ${booking.customer_last_name}`.trim();
+  const isTour = service.category === 'tour';
+  const ics = buildSessionIcs({
+    uid: booking.booking_id,
+    title: `${service.name} at ZAYRO Studios`,
+    description: `Hosted by ${hostName}. Booking ${booking.booking_id}.`,
+    location: BUSINESS_ADDRESS,
+    date,
+    startTime: booking.start_time,
+    endTime: booking.end_time,
+  });
+  return Promise.all(
+    guests.slice(0, 8).map((guest) =>
+      sendLoggedEmail({
+        template: 'guest_invite',
+        recipientType: 'guest',
+        to: guest,
+        dedupeKey: `guest_invite:${booking.id}:${guest}`,
+        refs: { bookingId: booking.id },
+        attachments: [{ filename: 'zayro-studios-session.ics', content: ics, contentType: 'text/calendar' }],
+        render: () =>
+          T.guestInvite({ hostName, serviceName: service.name, date, startTime: booking.start_time, endTime: booking.end_time, address: BUSINESS_ADDRESS, contactEmail: contactEmail(), isTour }),
+      })
+    )
+  );
 }
 
 export async function sendRescheduleEmail({
@@ -279,6 +331,12 @@ export async function retryEmail(logId: string): Promise<EmailOutcome> {
       return log.customer_package_id ? sendPackageAssignedEmail(log.customer_package_id) : { sent: false, status: 'failed', error: 'Package missing' };
     case 'package_credit_used':
       return log.booking_id ? sendPackageCreditUsedEmail(log.booking_id) : { sent: false, status: 'failed', error: 'Booking missing' };
+    case 'guest_invite': {
+      const data = await loadBooking();
+      if (!data) return { sent: false, status: 'failed', error: 'Booking not found' };
+      const all = await sendGuestInviteEmails(data);
+      return all.find((o) => o.logId === logId) ?? { sent: false, status: 'failed', error: 'Guest is no longer on this booking' };
+    }
     case 'owner_payment_review': {
       const data = await loadBooking();
       return data

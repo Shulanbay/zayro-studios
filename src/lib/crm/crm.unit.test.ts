@@ -187,3 +187,58 @@ describe('rate limiting', () => {
     expect(rateLimitKey('create-hold', '203.0.113.10')).not.toBe(key);
   });
 });
+
+describe('booking options', () => {
+  it('only hourly podcast services can be booked for several hours, up to nine', async () => {
+    const { maxUnits, normalizeUnits } = await import('@/lib/bookingOptions');
+    const podcast = { category: 'podcast', duration_minutes: 60 };
+    expect(maxUnits(podcast)).toBe(9);
+    expect(maxUnits({ category: 'photography', duration_minutes: 45 })).toBe(1);
+    expect(maxUnits({ category: 'tour', duration_minutes: 15 })).toBe(1);
+    expect(normalizeUnits(undefined, podcast)).toBe(1);
+    expect(normalizeUnits('9', podcast)).toBe(9);
+    expect(normalizeUnits(10, podcast)).toBeNull();
+    expect(normalizeUnits(1.5, podcast)).toBeNull();
+  });
+
+  it('computes quotes in integer cents', async () => {
+    const { computeQuote } = await import('@/lib/bookingOptions');
+    const q = computeQuote({
+      service: { id: 1, name: 'Podcast Pro', base_price: '200.00', duration_minutes: 60 },
+      units: 2,
+      addons: [
+        { addon: { id: 5, name: 'Teleprompter', price_cents: 3000, unit: 'hour' }, quantity: 1 },
+        { addon: { id: 6, name: 'Express Editing', price_cents: 15000, unit: 'session' }, quantity: 1 },
+      ],
+      taxRate: 0,
+    });
+    expect(q).toMatchObject({ subtotal: 40000 + 6000 + 15000, taxAmount: 0, total: 61000, durationMinutes: 120 });
+  });
+
+  it('writes a calendar file with UTC instants and escaped text', async () => {
+    const { buildSessionIcs } = await import('@/lib/ics');
+    const ics = buildSessionIcs({
+      uid: 'ZAY-TEST',
+      title: 'Podcast Pro at ZAYRO Studios',
+      description: 'Hosted by Ada; bring notes, please',
+      location: '40 W 37th St, Suite 603, New York, NY 10018',
+      date: '2030-07-15',
+      startTime: '14:00',
+      endTime: '17:00',
+      now: new Date('2030-07-01T00:00:00Z'),
+    });
+    expect(ics).toContain('DTSTART:20300715T180000Z'); // 2 PM EDT
+    expect(ics).toContain('DTEND:20300715T210000Z');
+    expect(ics).toContain('LOCATION:40 W 37th St\\, Suite 603\\, New York\\, NY 10018');
+    expect(ics).toContain('DESCRIPTION:Hosted by Ada\\; bring notes\\, please');
+    expect(ics.endsWith('END:VCALENDAR\r\n')).toBe(true);
+  });
+
+  it('a tour asks nothing mandatory; staff summaries never list guest emails', async () => {
+    const { parseIntake, intakeSummary } = await import('@/lib/bookingOptions');
+    expect(parseIntake(undefined, 'tour')).toEqual({ ok: true, intake: {} });
+    const rows = intakeSummary({ peopleRecording: 2, guests: ['a@example.com'], recordingType: 'Podcast' });
+    expect(JSON.stringify(rows)).not.toContain('a@example.com');
+    expect(rows).toContainEqual(['Guests invited', '1']);
+  });
+});

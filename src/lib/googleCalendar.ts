@@ -1,3 +1,4 @@
+import { intakeSummary } from './bookingOptions';
 import { createHash } from 'crypto';
 import { google, type calendar_v3 } from 'googleapis';
 import type { Booking, Service } from './db/schema';
@@ -58,6 +59,8 @@ export function buildCalendarEvent(booking: Booking, service: Service): calendar
     booking.company_name ? `Company: ${booking.company_name}` : null,
     `Payment status: ${booking.payment_status}`,
     `Total: $${Number.isFinite(total) ? total.toFixed(2) : booking.total_amount}`,
+    `Length: ${booking.duration_minutes} min`,
+    ...intakeSummary(booking.intake).map(([label, value]) => `${label}: ${value}`),
     booking.notes ? `\nNotes:\n${booking.notes}` : null,
   ]
     .filter((line) => line !== null)

@@ -119,7 +119,13 @@ async function requestHold(date: string, start: string, email: string, serviceNa
   return { status: res.status, body: await res.json() };
 }
 
-const contact = (email: string) => ({ firstName: 'Test', lastName: 'Customer', email, phone: '+1 212 555 0100' });
+const contact = (email: string) => ({
+  firstName: 'Test',
+  lastName: 'Customer',
+  email,
+  phone: '+1 212 555 0100',
+  intake: { peopleRecording: 2, peopleOnCamera: 2, recordingType: 'Podcast', editing: 'no' },
+});
 
 async function checkout(holdId: string, email: string) {
   const res = await checkoutRoute.POST(post('/api/payment/create-checkout-session', { holdId, ...contact(email) }));
@@ -415,5 +421,139 @@ describe('availability ranges', () => {
     expect((await requestHold('2030-05-20', '10:00', 'quote@example.com', 'Studio Photoshoot')).status).toBe(400);
     await db.update(schema.services).set({ visible_in_booking: true }).where(eq(schema.services.id, ids['Studio Photoshoot']));
     expect((await requestHold('2030-05-20', '10:00', 'quote@example.com', 'Studio Photoshoot')).status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe('hourly sessions, add-ons and intake questions', () => {
+  async function addonId(slug: string): Promise<number> {
+    const r = await pg.query<{ id: number }>('SELECT id FROM service_addons WHERE slug = $1', [slug]);
+    return r.rows[0].id;
+  }
+
+  async function holdFor(date: string, start: string, email: string, hours: number, addons: { id: number; quantity: number }[], serviceName = 'Podcast Pro') {
+    const service = await db.query.services.findFirst({ where: eq(schema.services.id, ids[serviceName]) });
+    const res = await holdRoute.POST(
+      post('/api/booking/create-hold', {
+        customer_email: email,
+        service_id: service.id,
+        booking_date: date,
+        start_time: start,
+        end_time: endOf(start, service.duration_minutes * hours),
+        duration_minutes: service.duration_minutes * hours,
+        hours,
+        addons,
+      })
+    );
+    return { status: res.status, body: await res.json() };
+  }
+
+  it('prices a 3-hour session with per-hour and per-session extras on the server', async () => {
+    const camera = await addonId('additional-camera');
+    const editing = await addonId('full-podcast-editing');
+    const hold = await holdFor('2030-06-03', '10:00', 'long@example.com', 3, [
+      { id: camera, quantity: 2 },
+      { id: editing, quantity: 1 },
+    ]);
+    expect(hold.status, JSON.stringify(hold.body)).toBe(200);
+    // 3 × $200 + camera $50 × 2 × 3 h + editing $200 = $1,100; tax 8.875% = $97.63
+    expect(hold.body.pricing).toMatchObject({ subtotal: '1100.00', taxAmount: '97.63', total: '1197.63', units: 3, durationMinutes: 180 });
+    expect(hold.body.pricing.lines).toHaveLength(3);
+
+    // The whole three hours are held.
+    expect(await isSlotActuallyAvailable('2030-06-03', '12:00', '13:00', 60)).toBe(false);
+    expect(await isSlotActuallyAvailable('2030-06-03', '13:00', '14:00', 60)).toBe(true);
+
+    const guests = ['Guest.One@example.com', 'guest.two@example.com', 'long@example.com', 'guest.one@example.com'];
+    const res = await checkoutRoute.POST(
+      post('/api/payment/create-checkout-session', {
+        holdId: hold.body.hold_id,
+        ...contact('long@example.com'),
+        intake: { peopleRecording: 3, peopleOnCamera: 2, recordingType: 'Interview', editing: 'yes', project: 'Pilot episode', guests, price: 1 },
+      })
+    );
+    const body = await res.json();
+    expect(res.status, JSON.stringify(body)).toBe(200);
+    expect(body.pricing.total).toBe('1197.63');
+    expect(h.sessions.get(body.sessionId).amount_total).toBe(119763);
+
+    const booking = await db.query.bookings.findFirst({ where: eq(schema.bookings.stripe_session_id, body.sessionId) });
+    expect(booking).toMatchObject({ duration_minutes: 180, start_time: '10:00', end_time: '13:00', subtotal: '1100.00', total_amount: '1197.63' });
+    // Guests: de-duplicated, lower-cased, and never the customer themselves.
+    expect(booking.intake).toEqual({
+      peopleRecording: 3,
+      peopleOnCamera: 2,
+      recordingType: 'Interview',
+      editing: 'yes',
+      project: 'Pilot episode',
+      guests: ['guest.one@example.com', 'guest.two@example.com'],
+    });
+    const items = await pg.query<any>('SELECT item_type, quantity, unit_price_cents, total_cents FROM purchase_items WHERE purchase_id = $1 ORDER BY total_cents DESC', [booking.purchase_id]);
+    expect(items.rows).toEqual([
+      { item_type: 'service', quantity: 3, unit_price_cents: 20000, total_cents: 60000 },
+      { item_type: 'addon', quantity: 6, unit_price_cents: 5000, total_cents: 30000 },
+      { item_type: 'addon', quantity: 1, unit_price_cents: 20000, total_cents: 20000 },
+    ]);
+
+    // Paid: confirmed for exactly that amount; each guest gets one invitation.
+    expect((await processStripeEvent(paidEvent(body.sessionId))).body).toMatchObject({ status: 'booking_confirmed' });
+    expect(await count('email_logs', `booking_id = '${booking.id}' AND template = 'guest_invite' AND recipient_type = 'guest'`)).toBe(2);
+    expect(await count('email_logs', `booking_id = '${booking.id}' AND recipient = 'long@example.com' AND template = 'guest_invite'`)).toBe(0);
+
+    // A later price change never touches what was sold.
+    await db.update(schema.serviceAddons).set({ price_cents: 99900 }).where(eq(schema.serviceAddons.id, camera));
+    const after = await pg.query<any>('SELECT sum(total_cents)::int AS t FROM purchase_items WHERE purchase_id = $1', [booking.purchase_id]);
+    expect(after.rows[0].t).toBe(110000);
+    await db.update(schema.serviceAddons).set({ price_cents: 5000 }).where(eq(schema.serviceAddons.id, camera));
+
+    // Rescheduling keeps the three hours.
+    const { rescheduleBooking: reschedule } = await import('./bookings');
+    const moved = await reschedule(booking.id, { date: '2030-06-04', startTime: '14:00' }, { id: null, email: 'staff@zayro.test' });
+    expect(moved.booking).toMatchObject({ start_time: '14:00', end_time: '17:00', duration_minutes: 180 });
+  });
+
+  it('refuses lengths and extras the service does not allow', async () => {
+    const camera = await addonId('additional-camera');
+    const teleprompter = await addonId('teleprompter');
+    // Longer than 9 hours, or hours on a fixed-length photoshoot.
+    expect((await holdFor('2030-06-05', '08:00', 'a@example.com', 10, [])).status).toBe(400);
+    expect((await holdFor('2030-06-05', '08:00', 'a@example.com', 2, [], 'Headshot Session')).status).toBe(400);
+    // Nine hours is the limit and fits an 08:00–22:00 day.
+    const nine = await holdFor('2030-06-05', '08:00', 'nine@example.com', 9, []);
+    expect(nine.status).toBe(200);
+    expect(nine.body.pricing.subtotal).toBe('1800.00');
+    // Too many of one extra, an unknown extra, an inactive extra, extras on a free tour or a photoshoot.
+    expect((await holdFor('2030-06-06', '10:00', 'b@example.com', 1, [{ id: camera, quantity: 9 }])).status).toBe(400);
+    expect((await holdFor('2030-06-06', '10:00', 'b@example.com', 1, [{ id: 999999, quantity: 1 }])).status).toBe(400);
+    await db.update(schema.serviceAddons).set({ active: false }).where(eq(schema.serviceAddons.id, teleprompter));
+    expect((await holdFor('2030-06-06', '10:00', 'b@example.com', 1, [{ id: teleprompter, quantity: 1 }])).status).toBe(400);
+    await db.update(schema.serviceAddons).set({ active: true }).where(eq(schema.serviceAddons.id, teleprompter));
+    expect((await holdFor('2030-06-06', '11:00', 'b@example.com', 1, [{ id: camera, quantity: 1 }], 'Free Studio Tour')).status).toBe(400);
+    expect((await holdFor('2030-06-06', '12:00', 'b@example.com', 1, [{ id: camera, quantity: 1 }], 'Headshot Session')).status).toBe(400);
+  });
+
+  it('requires the answers the studio needs before a podcast checkout', async () => {
+    const hold = await requestHold('2030-06-07', '10:00', 'intake@example.com');
+    const attempt = async (intake: unknown) => {
+      const res = await checkoutRoute.POST(post('/api/payment/create-checkout-session', { holdId: hold.body.hold_id, ...contact('intake@example.com'), intake }));
+      return { status: res.status, body: await res.json() };
+    };
+    expect((await attempt(undefined)).status).toBe(400);
+    expect((await attempt({ peopleRecording: 2, peopleOnCamera: 3, recordingType: 'Podcast', editing: 'no' })).status).toBe(400);
+    expect((await attempt({ peopleRecording: 2, peopleOnCamera: 2, recordingType: 'Karaoke', editing: 'no' })).status).toBe(400);
+    expect((await attempt({ peopleRecording: 2, peopleOnCamera: 2, recordingType: 'Podcast', editing: 'no', guests: ['not-an-email'] })).status).toBe(400);
+    expect(h.creates).toBe(0);
+    expect((await attempt({ peopleRecording: 2, peopleOnCamera: 0, recordingType: 'Podcast', editing: 'maybe' })).status).toBe(200);
+  });
+
+  it('the public add-ons list shows only active extras for paid podcast services', async () => {
+    const addonsRoute = await import('@/app/api/booking/addons/route');
+    const get = async (name: string) => (await addonsRoute.GET(new NextRequest(`http://localhost/api/booking/addons?service_id=${ids[name]}`))).json();
+    const podcast = await get('Podcast Pro');
+    expect(podcast).toHaveLength(11);
+    expect(podcast.find((a: any) => a.name === 'Additional Camera')).toMatchObject({ price: '50.00', unit: 'hour', max_quantity: 3 });
+    expect(await get('Free Studio Tour')).toEqual([]);
+    expect(await get('Headshot Session')).toEqual([]);
   });
 });

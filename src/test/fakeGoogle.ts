@@ -44,6 +44,7 @@ export function makeBooking(overrides: Partial<Booking> = {}): Booking {
     updated_by_admin_id: null,
     needs_refund_review: false,
     review_reason: null,
+    intake: {},
     starts_at: null,
     ends_at: null,
     created_at: new Date('2026-10-20T18:05:09Z'),

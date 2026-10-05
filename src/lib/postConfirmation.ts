@@ -1,5 +1,5 @@
 import type { Booking, Service } from './db/schema';
-import { sendBookingConfirmationEmail, sendOwnerNotificationEmail } from './email';
+import { sendBookingConfirmationEmail, sendGuestInviteEmails, sendOwnerNotificationEmail } from './email';
 import { logIntegration, syncGoogleIntegrations } from './integrationSync';
 import type { CalendarSyncResult } from './googleCalendar';
 import type { SheetsSyncResult } from './googleSheets';
@@ -41,6 +41,13 @@ export async function runPostConfirmationSideEffects(booking: Booking, service: 
     ownerEmail.sent ? 'success' : 'failed',
     ownerEmail.sent ? 'Owner notification email sent' : `Owner email skipped: ${ownerEmail.error}`
   );
+
+  // Guests the customer added get their own email with a calendar file.
+  const guestEmails = await sendGuestInviteEmails({ booking, service }).catch(() => []);
+  if (guestEmails.length > 0) {
+    const sent = guestEmails.filter((g) => g.sent).length;
+    await logIntegration('email', booking.id, sent === guestEmails.length ? 'success' : 'failed', `Guest invitations sent: ${sent} of ${guestEmails.length}`);
+  }
 
   return { customerEmail, ownerEmail, calendar: google.calendar, sheets: google.sheets };
 }

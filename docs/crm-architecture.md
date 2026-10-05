@@ -123,6 +123,22 @@ The customer picks service → date (only dates with a free slot) → time
 | `checkout.session.expired` | Same release (idempotent with the above). |
 | Expiry | Holds past `hold_expires_at` never block a slot (every read filters on it); rows are marked `expired` lazily by every availability read for the dates it covers. |
 
+### Hours, add-ons and intake questions (0009)
+
+- Podcast-category services with a 60-minute base are sold by the hour:
+  1–9 hours per booking (`lib/bookingOptions.ts`, `MAX_SESSION_HOURS`).
+  Photography and the tour keep their fixed length.
+- Add-ons live in `service_addons` (price, per session / per hour, max
+  quantity, active) and are managed in *Services → Add-ons*. The hold stores
+  what it was quoted for (`temporary_holds.selection`); checkout re-prices
+  that selection from the database (`lib/bookingQuote.ts`) — the client never
+  sends a price. Each add-on becomes its own immutable purchase line item
+  (`item_type = 'addon'`).
+- Answers to the booking questions are validated per category and stored in
+  `bookings.intake`; staff see them on the session page, in the owner email
+  and in the Calendar event. Guests the customer adds get one email each
+  with an `.ics` file (never a Google invitation).
+
 The public success page gets only a minimal summary (`lib/publicBooking.ts`):
 service, date/time, amount, first name and a masked email — never the phone
 or full email. It polls until the webhook has confirmed the booking and says

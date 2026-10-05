@@ -1,6 +1,7 @@
 import type Stripe from 'stripe';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from './db';
+import { jsonObject } from './db/json';
 import { bookings, payments, temporaryHolds } from './db/schema';
 import type { Booking, TemporaryHold } from './db/schema';
 import type { Executor } from './db/types';
@@ -36,7 +37,7 @@ export async function pendingCheckoutsForHold(exec: Executor, holdId: string): P
   const rows = await exec
     .select({ bookingId: payments.booking_id })
     .from(payments)
-    .where(and(eq(payments.status, 'pending'), sql`${payments.metadata}->>'holdId' = ${holdId}`));
+    .where(and(eq(payments.status, 'pending'), sql`${jsonObject(payments.metadata)}->>'holdId' = ${holdId}`));
   if (rows.length === 0) return [];
   return exec.query.bookings.findMany({
     where: and(

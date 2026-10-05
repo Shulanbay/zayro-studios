@@ -37,6 +37,8 @@ export interface BookingEmailData {
   notes?: string | null;
   address: string;
   contactEmail: string;
+  /** Staff-facing answers to the booking questions and extras: [label, value]. */
+  details?: [string, string][];
 }
 
 const BRAND = '#3D7DFF';
@@ -203,6 +205,20 @@ export function packageExpiring(d: { firstName: string; planName: string; remain
   );
 }
 
+/** Sent to each guest the customer added: when, where, and a calendar file. */
+export function guestInvite(d: { hostName: string; serviceName: string; date: string; startTime: string; endTime: string; address: string; contactEmail: string; isTour: boolean }): RenderedEmail {
+  return build(
+    `You're invited to a ${d.isTour ? 'studio tour' : 'session'} at ZAYRO Studios`,
+    `${d.hostName} added you as a guest for their ${d.isTour ? 'tour' : 'session'} at ZAYRO Studios.`,
+    [['Session', d.serviceName], ...when(d), ['Address', d.address]],
+    [
+      'The attached calendar file adds the session to your calendar.',
+      `Questions about the session? Please contact ${d.hostName} directly, or write to ${d.contactEmail}.`,
+    ],
+    `${d.hostName} invited you to ZAYRO Studios on ${formatDateLabel(d.date)}`
+  );
+}
+
 export function ownerNewBooking(d: BookingEmailData & { source: string }): RenderedEmail {
   const rows: [string, string][] = [
     ['Booking ID', d.bookingId],
@@ -214,6 +230,7 @@ export function ownerNewBooking(d: BookingEmailData & { source: string }): Rende
   ];
   if (d.company) rows.push(['Company', d.company]);
   rows.push(['Total', formatCents(d.totalCents)], ['Source', d.source]);
+  for (const [label, value] of d.details ?? []) rows.push([label, value]);
   return build(
     d.isTour ? 'New studio tour' : 'New booking',
     'A booking was just confirmed.',

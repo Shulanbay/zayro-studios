@@ -283,7 +283,10 @@ export async function rescheduleBooking(
     if (!bookable.ok) throw new CrmError(bookable.error, bookable.status);
   }
 
-  const endTime = endTimeFor(input.startTime, service.duration_minutes);
+  // Same service: keep the booked length (a 3-hour session stays 3 hours).
+  // A different service takes that service's own length.
+  const durationMinutes = serviceId === before.service_id ? before.duration_minutes : service.duration_minutes;
+  const endTime = endTimeFor(input.startTime, durationMinutes);
   const oldDate = toDateOnly(before.booking_date);
   if (oldDate === input.date && before.start_time === input.startTime && serviceId === before.service_id) {
     throw new CrmError('That is already the booking’s time');
@@ -298,7 +301,7 @@ export async function rescheduleBooking(
         date: input.date,
         start: input.startTime,
         end: endTime,
-        duration: service.duration_minutes,
+        duration: durationMinutes,
         overrideHours: !!input.overrideHours,
         excludeBookingId: bookingUuid,
       });
@@ -309,7 +312,7 @@ export async function rescheduleBooking(
           start_time: input.startTime,
           end_time: endTime,
           service_id: service.id,
-          duration_minutes: service.duration_minutes,
+          duration_minutes: durationMinutes,
           updated_by_admin_id: actor.id ?? null,
           updated_at: new Date(),
         })

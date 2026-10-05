@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { getAdminContext } from '@/lib/crm/auth';
 import { Forbidden, Notice, PageHeader } from '@/components/crm/ui';
 import AdminServicesManager from '@/components/admin/AdminServicesManager';
+import AdminAddonsManager, { type AddonRow } from '@/components/admin/AdminAddonsManager';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,6 +12,7 @@ export default async function ServicesPage() {
   if (!admin) redirect('/admin/login');
   if (!admin.can('services.manage')) return <Forbidden what="services" />;
   const services = await db.query.services.findMany({ orderBy: (s, { asc }) => [asc(s.display_order), asc(s.id)] });
+  const addons = (await db.query.serviceAddons.findMany({ orderBy: (a, { asc }) => [asc(a.sort_order), asc(a.id)] })) as AddonRow[];
   return (
     <>
       <PageHeader title="Services" description="The catalog shown on the pricing page and in the booking flow." />
@@ -20,6 +22,9 @@ export default async function ServicesPage() {
         </Notice>
       </div>
       <AdminServicesManager initialRows={services} />
+      <div className="mt-6">
+        <AdminAddonsManager initialRows={addons} />
+      </div>
     </>
   );
 }

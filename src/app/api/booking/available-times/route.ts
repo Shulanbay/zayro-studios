@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAvailableTimeSlotsForDate } from '@/lib/availability';
 import { findBookableService } from '@/lib/catalogData';
+import { normalizeUnits } from '@/lib/bookingOptions';
 import { isDateString } from '@/lib/crm/time';
 
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,9 @@ export async function GET(request: NextRequest) {
 
     // The slot length always comes from the service itself, so a 45-minute
     // headshot and a 2-hour brand shoot see different availability.
-    const durationMinutes = lookup.service.duration_minutes;
+    const units = normalizeUnits(searchParams.get('hours') ?? undefined, lookup.service);
+    if (units === null) return NextResponse.json({ error: 'That session length is not available for this service.' }, { status: 400 });
+    const durationMinutes = lookup.service.duration_minutes * units;
     const slots = await getAvailableTimeSlotsForDate(date, durationMinutes);
 
     return NextResponse.json(

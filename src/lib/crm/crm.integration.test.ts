@@ -125,6 +125,7 @@ async function startCheckout(date: string, start: string, serviceName = 'Podcast
       lastName: 'Lovelace',
       email,
       phone: '+1 212 555 0100',
+      intake: { peopleRecording: 2, peopleOnCamera: 2, recordingType: 'Podcast', editing: 'no' },
     })
   );
   const body = await res.json();
@@ -635,7 +636,7 @@ describe('money and history', () => {
   it('free studio tour: confirmed without Stripe, $0 approved purchase, source studio_tour', async () => {
     const tour = ids['Free Studio Tour'];
     const holdRes = await holdRoute.POST(
-      post('/api/booking/create-hold', { customer_email: 'visitor@example.com', service_id: tour, booking_date: '2030-02-27', start_time: '12:00', end_time: '12:30', duration_minutes: 30 })
+      post('/api/booking/create-hold', { customer_email: 'visitor@example.com', service_id: tour, booking_date: '2030-02-27', start_time: '12:00', end_time: '12:15', duration_minutes: 15 })
     );
     const hold = await holdRes.json();
     const res = await freeRoute.POST(
@@ -750,11 +751,12 @@ describe('migrations on a populated database', () => {
         await pg.query<Record<string, number>>(`SELECT
           (SELECT count(*)::int FROM purchases) p, (SELECT count(*)::int FROM purchase_items) i,
           (SELECT count(*)::int FROM customers) c, (SELECT count(*)::int FROM roles) r,
-          (SELECT count(*)::int FROM package_plans) pp, (SELECT count(*)::int FROM bookings WHERE purchase_id IS NULL) orphan,
+          (SELECT count(*)::int FROM package_plans) pp, (SELECT count(*)::int FROM service_addons) sa, (SELECT count(*)::int FROM bookings WHERE purchase_id IS NULL) orphan,
           (SELECT coalesce(sum(extract(epoch FROM start_datetime)), 0)::bigint::text FROM blocked_times) blocks`)
       ).rows[0];
     const migrations = readMigrationFiles({ migrationsFolder: './drizzle' }).slice(5);
-    expect(migrations).toHaveLength(4);
+    // 0005-0008 (CRM) and 0009 (intake + add-ons): all safe to re-run.
+    expect(migrations).toHaveLength(5);
     const run = async () => {
       for (const m of migrations) for (const stmt of m.sql) if (stmt.trim()) await pg.exec(stmt);
     };

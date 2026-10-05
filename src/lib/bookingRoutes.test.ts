@@ -109,7 +109,15 @@ function post(url: string, body: unknown) {
   });
 }
 
-const customer = { firstName: 'Ada', lastName: 'Lovelace', email: EMAIL, phone: '+1 212 555 0100', company: '', notes: '' };
+const customer = {
+  firstName: 'Ada',
+  lastName: 'Lovelace',
+  email: EMAIL,
+  phone: '+1 212 555 0100',
+  company: '',
+  notes: '',
+  intake: { peopleRecording: 2, peopleOnCamera: 2, recordingType: 'Podcast', editing: 'no' },
+};
 
 beforeEach(() => {
   db.reset();

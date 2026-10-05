@@ -30,6 +30,7 @@ vi.mock('googleapis', () => ({
 vi.mock('@/lib/email', () => ({
   sendBookingConfirmationEmail: vi.fn(async () => ({ sent: true })),
   sendOwnerNotificationEmail: vi.fn(async () => ({ sent: true })),
+  sendGuestInviteEmails: vi.fn(async () => []),
 }));
 
 vi.mock('@/lib/crm/auth', async () => {

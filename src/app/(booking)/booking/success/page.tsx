@@ -57,7 +57,7 @@ function SuccessContent() {
         if (cancelled) return;
         if (res.ok && data.status === 'confirmed' && data.booking) {
           try {
-            sessionStorage.removeItem('zayro-booking-state-v2');
+            sessionStorage.removeItem('zayro-booking-state-v3');
           } catch {
             // ignore
           }

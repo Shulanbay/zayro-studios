@@ -49,8 +49,8 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
   it('adds photography, packages and the tour without touching existing prices', async () => {
     const db = await productionLikeDb();
     const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
-    // 0002, 0003, 0004 (admin audit log enum value) and the CRM migrations 0005-0008.
-    expect(applied).toHaveLength(7);
+    // 0002, 0003, 0004 (admin audit log enum value), the CRM migrations 0005-0008 and 0009 (intake + add-ons).
+    expect(applied).toHaveLength(8);
 
     const rows = await services(db);
     const byName = Object.fromEntries(rows.map((r) => [r.name, r]));
@@ -74,7 +74,7 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
     });
 
     // Tour
-    expect(byName['Free Studio Tour']).toMatchObject({ price: 0, duration_minutes: 30, category: 'tour', is_active: true });
+    expect(byName['Free Studio Tour']).toMatchObject({ price: 0, duration_minutes: 15, category: 'tour', is_active: true }); // 30 in 0003, 15 since 0009
 
     // Packages
     const podcastProId = (await db.query<any>("SELECT id FROM services WHERE name = 'Podcast Pro'")).rows[0].id;
@@ -117,7 +117,7 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
   it('works on an empty database (packages simply have no base service yet)', async () => {
     const db = new PGlite();
     const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
-    expect(applied).toHaveLength(9);
+    expect(applied).toHaveLength(10);
     const rows = await services(db);
     expect(rows.filter((r) => r.category === 'package').every((r) => r.package_base_service_id === null)).toBe(true);
     expect(rows.filter((r) => r.category === 'photography')).toHaveLength(3);

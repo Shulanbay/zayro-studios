@@ -20,4 +20,17 @@ const globalForDb = globalThis as unknown as { __zayroSql?: ReturnType<typeof po
 const client = globalForDb.__zayroSql ?? createClient();
 if (process.env.NODE_ENV !== 'production') globalForDb.__zayroSql = client;
 
+// drizzle already JSON.stringify()s json/jsonb values; without this
+// postgres-js stringifies them a second time and the column ends up holding
+// a JSON *string* ("{\"a\":1}") instead of an object, which breaks SQL
+// operators such as ->>. Pass drizzle's text through unchanged. (Rows
+// written before this fix are still read correctly by drizzle, and SQL that
+// looks inside JSON uses jsonObject() from ./json to accept both shapes.)
+const passThrough = (value: unknown) => value;
+const serializers = (client as unknown as { options?: { serializers?: Record<string, unknown> } }).options?.serializers;
+if (serializers) {
+  serializers['114'] = passThrough; // json
+  serializers['3802'] = passThrough; // jsonb
+}
+
 export const db = drizzle(client, { schema });

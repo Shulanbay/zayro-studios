@@ -55,14 +55,15 @@ export async function moneyMetrics(range: DateRange) {
 
   const byService = rowsOf<{ category: string; name: string; cents: number; items: number }>(
     await db.execute(sql`
-      SELECT coalesce(s.category::text, CASE WHEN i.item_type = 'package' THEN 'package' ELSE 'other' END) AS category,
-             coalesce(s.name, pp.name, i.description_snapshot) AS name,
+      SELECT coalesce(s.category::text, CASE WHEN i.item_type = 'package' THEN 'package' WHEN i.item_type = 'addon' THEN 'addon' ELSE 'other' END) AS category,
+             coalesce(s.name, pp.name, sa.name, i.description_snapshot) AS name,
              sum(i.total_cents)::int AS cents,
              count(*)::int AS items
         FROM purchase_items i
         JOIN purchases p ON p.id = i.purchase_id
         LEFT JOIN services s ON i.item_type = 'service' AND s.id::text = i.reference_id
         LEFT JOIN package_plans pp ON i.item_type = 'package' AND pp.id::text = i.reference_id
+        LEFT JOIN service_addons sa ON i.item_type = 'addon' AND sa.id::text = i.reference_id
        WHERE p.status IN ('paid', 'partially_refunded', 'refunded')
          AND p.purchased_at >= ${start} AND p.purchased_at < ${end}
        GROUP BY 1, 2

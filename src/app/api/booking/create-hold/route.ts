@@ -5,7 +5,8 @@ import { db } from '@/lib/db';
 import { temporaryHolds } from '@/lib/db/schema';
 import { checkTimeSlotConflict, isSlotActuallyAvailable, lockStudioDates, timeToMinutes } from '@/lib/availability';
 import { findBookableService } from '@/lib/catalogData';
-import { calculatePricing } from '@/lib/pricing';
+import { quoteBooking, quoteForClient } from '@/lib/bookingQuote';
+import { normalizeAddonChoices, normalizeUnits } from '@/lib/bookingOptions';
 import { enforceRateLimit, isHoneypotTripped } from '@/lib/crm/rateLimit';
 import { isDateString, isTimeString } from '@/lib/crm/time';
 import { HOLD_MINUTES, releaseHold } from '@/lib/holds';
@@ -21,12 +22,12 @@ const bodySchema = z.object({
   duration_minutes: z.number().int().positive(),
   /** The hold this browser had before (picking another time gives it back). */
   previous_hold_id: z.string().uuid().optional().nullable(),
+  /** Hours for services sold by the hour (default 1). */
+  hours: z.number().int().min(1).max(24).optional(),
+  /** Chosen extras: [{ id, quantity }]. Prices always come from the database. */
+  addons: z.array(z.object({ id: z.number().int().positive(), quantity: z.number().int().min(0).max(20) })).max(30).optional(),
   website: z.string().optional(),
 });
-
-function money(cents: number) {
-  return (cents / 100).toFixed(2);
-}
 
 /**
  * Reserves a slot for one customer while they confirm or pay. The server
@@ -74,15 +75,23 @@ export async function POST(request: NextRequest) {
     }
     const service = lookup.service;
 
-    if (service.duration_minutes !== duration_minutes) {
+    const units = normalizeUnits(body.hours, service);
+    if (units === null) {
+      return NextResponse.json({ error: 'That session length is not available for this service.' }, { status: 400 });
+    }
+    const totalMinutes = service.duration_minutes * units;
+    if (totalMinutes !== duration_minutes) {
       return NextResponse.json({ error: 'Duration does not match service' }, { status: 400 });
     }
-    if (timeToMinutes(end_time) - timeToMinutes(start_time) !== service.duration_minutes) {
+    if (timeToMinutes(end_time) - timeToMinutes(start_time) !== totalMinutes) {
       return NextResponse.json({ error: 'Time range does not match the service duration' }, { status: 400 });
     }
 
-    const pricing = await calculatePricing(service.id);
-    if (!pricing) return NextResponse.json({ error: 'Could not calculate pricing' }, { status: 500 });
+    const choices = normalizeAddonChoices(body.addons);
+    if (choices === null) return NextResponse.json({ error: 'Invalid extras' }, { status: 400 });
+    const quoted = await quoteBooking(service, units, choices);
+    if (!quoted.ok) return NextResponse.json({ error: quoted.error }, { status: 400 });
+    const selectionKey = JSON.stringify(quoted.selection);
 
     // Picking another time: give the previous hold back first (its own
     // email only — a hold id alone can't release someone else's slot here).
@@ -122,7 +131,17 @@ export async function POST(request: NextRequest) {
           )
         )
         .limit(1);
-      if (existing) return { kind: 'existing' as const, id: existing.id, expiresAt: new Date(existing.hold_expires_at) };
+      if (existing && existing.end_time === end_time) {
+        // Same slot, possibly different extras: keep the hold, update what it was quoted for.
+        if (JSON.stringify(existing.selection ?? {}) !== selectionKey) {
+          await tx.update(temporaryHolds).set({ selection: quoted.selection }).where(eq(temporaryHolds.id, existing.id));
+        }
+        return { kind: 'existing' as const, id: existing.id, expiresAt: new Date(existing.hold_expires_at) };
+      }
+      if (existing) {
+        // Same start, different length: replace the customer's own hold.
+        await tx.update(temporaryHolds).set({ status: 'cancelled' }).where(eq(temporaryHolds.id, existing.id));
+      }
 
       if (await checkTimeSlotConflict(booking_date, start_time, end_time, tx)) return { kind: 'conflict' as const };
 
@@ -143,6 +162,7 @@ export async function POST(request: NextRequest) {
         duration_minutes,
         status: 'active',
         hold_expires_at: holdExpiresAt,
+        selection: quoted.selection,
         created_at: now,
       });
       return { kind: 'created' as const, id: holdId, expiresAt: holdExpiresAt };
@@ -160,13 +180,7 @@ export async function POST(request: NextRequest) {
       status: 'active',
       hold_expires_at: result.expiresAt.toISOString(),
       // Server-computed price for the summary; the client never sends a price.
-      pricing: {
-        subtotal: money(pricing.subtotal),
-        taxAmount: money(pricing.taxAmount),
-        total: money(pricing.total),
-        taxRate: pricing.taxRate,
-        currency: pricing.currency,
-      },
+      pricing: quoteForClient(quoted.quote),
     });
   } catch (error) {
     console.error('Error creating hold:', (error as Error)?.message || error);

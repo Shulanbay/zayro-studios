@@ -190,6 +190,8 @@ export const bookings = pgTable(
     updated_by_admin_id: uuid('updated_by_admin_id'),
     needs_refund_review: boolean('needs_refund_review').notNull().default(false),
     review_reason: text('review_reason'),
+    // Answers to the booking questions (0009) — see lib/bookingOptions.ts.
+    intake: jsonb('intake').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
     // Derived from booking_date + start/end time in the room's time zone by
     // the bookings_set_range trigger — never written by application code.
     starts_at: timestamp('starts_at', { withTimezone: true }),
@@ -220,6 +222,8 @@ export const temporaryHolds = pgTable(
     duration_minutes: integer('duration_minutes').notNull(),
     status: holdStatusEnum('status').notNull().default('active'),
     hold_expires_at: timestamp('hold_expires_at', { withTimezone: true }).notNull(),
+    // What the hold was quoted for (0009): hours and add-ons, validated on the server.
+    selection: jsonb('selection').$type<{ units?: number; addons?: { id: number; quantity: number }[] }>().notNull().default(sql`'{}'::jsonb`),
     created_at: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -471,7 +475,7 @@ export const purchases = pgTable('purchases', {
 export const purchaseItems = pgTable('purchase_items', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   purchase_id: uuid('purchase_id').notNull(),
-  item_type: varchar('item_type', { length: 20, enum: ['service', 'package', 'adjustment'] }).notNull(),
+  item_type: varchar('item_type', { length: 20, enum: ['service', 'package', 'adjustment', 'addon'] }).notNull(),
   reference_id: varchar('reference_id', { length: 64 }),
   description_snapshot: text('description_snapshot').notNull(),
   quantity: integer('quantity').notNull().default(1),
@@ -526,7 +530,7 @@ export const EMAIL_STATUSES = ['pending', 'sent', 'failed', 'skipped'] as const;
 export const emailLogs = pgTable('email_logs', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   template: varchar('template', { length: 60 }).notNull(),
-  recipient_type: varchar('recipient_type', { length: 20, enum: ['customer', 'owner', 'admin'] }).notNull(),
+  recipient_type: varchar('recipient_type', { length: 20, enum: ['customer', 'owner', 'admin', 'guest'] }).notNull(),
   recipient: varchar('recipient', { length: 255 }),
   booking_id: uuid('booking_id'),
   purchase_id: uuid('purchase_id'),
@@ -557,6 +561,22 @@ export const availabilityOverrides = pgTable('availability_overrides', {
   end_time: varchar('end_time', { length: 5 }),
   reason: varchar('reason', { length: 255 }),
   created_by: varchar('created_by', { length: 255 }),
+  created_at: createdAt(),
+  updated_at: updatedAt(),
+});
+
+/** Priced extras a customer can add to a booking (0009). */
+export const serviceAddons = pgTable('service_addons', {
+  id: serial('id').primaryKey(),
+  slug: varchar('slug', { length: 80 }).notNull().unique(),
+  name: varchar('name', { length: 160 }).notNull(),
+  description: text('description'),
+  price_cents: integer('price_cents').notNull(),
+  unit: varchar('unit', { length: 10, enum: ['session', 'hour'] }).notNull().default('session'),
+  max_quantity: integer('max_quantity').notNull().default(1),
+  categories: jsonb('categories').$type<string[]>().notNull().default(sql`'["podcast"]'::jsonb`),
+  active: boolean('active').notNull().default(true),
+  sort_order: integer('sort_order').notNull().default(0),
   created_at: createdAt(),
   updated_at: updatedAt(),
 });
@@ -665,6 +685,7 @@ export type Refund = typeof refunds.$inferSelect;
 export type WebhookEvent = typeof webhookEvents.$inferSelect;
 export type EmailLog = typeof emailLogs.$inferSelect;
 export type AvailabilityOverride = typeof availabilityOverrides.$inferSelect;
+export type ServiceAddon = typeof serviceAddons.$inferSelect;
 export type PackagePlan = typeof packagePlans.$inferSelect;
 export type PackagePlanItem = typeof packagePlanItems.$inferSelect;
 export type CustomerPackage = typeof customerPackages.$inferSelect;

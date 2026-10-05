@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAvailableDates, getBookingRules } from '@/lib/availability';
 import { findBookableService } from '@/lib/catalogData';
+import { normalizeUnits } from '@/lib/bookingOptions';
 import { addDays, daysBetween, isDateString, todayInTz } from '@/lib/crm/time';
 
 export const dynamic = 'force-dynamic';
@@ -34,9 +35,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: lookup.error }, { status: lookup.status });
     }
 
+    const units = normalizeUnits(searchParams.get('hours') ?? undefined, lookup.service);
+    if (units === null) return NextResponse.json({ error: 'That session length is not available for this service.' }, { status: 400 });
+    const durationMinutes = lookup.service.duration_minutes * units;
+
     const rules = await getBookingRules();
     const today = todayInTz();
-    const available = await getAvailableDates(fromDate, toDate, lookup.service.duration_minutes, undefined, { rules });
+    const available = await getAvailableDates(fromDate, toDate, durationMinutes, undefined, { rules });
 
     return NextResponse.json(
       {

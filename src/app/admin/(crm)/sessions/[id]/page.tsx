@@ -12,6 +12,7 @@ import { formatDateLabel, formatInstantEt, formatTimeLabel } from '@/lib/crm/tim
 import { getSheetTarget } from '@/lib/googleSheets';
 import { CATEGORY_LABELS } from '@/lib/catalog';
 import { toDateOnly } from '@/lib/utils';
+import { intakeSummary, type Intake } from '@/lib/bookingOptions';
 import { Badge, Card, DefinitionList, Forbidden, Money, Notice, PageHeader, StatusBadge, humanize } from '@/components/crm/ui';
 import { ActionButton } from '@/components/crm/client';
 import { CancelBookingDialog, NotesEditor, RefundDialog } from '@/components/crm/actions';
@@ -40,6 +41,13 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
     auditFor('booking', [booking.id]),
     bookableServiceOptions(),
   ]);
+  const prepRows = intakeSummary(booking.intake).filter(([label]) => label !== 'Guests invited');
+  const guestEmails = Array.isArray((booking.intake as Intake)?.guests) ? ((booking.intake as Intake).guests as string[]) : [];
+  const extras = booking.purchase_id
+    ? (await db.query.purchaseItems.findMany({ where: eq(purchaseItems.purchase_id, booking.purchase_id) }))
+        .filter((i) => i.item_type === 'addon')
+        .map((i) => `${i.description_snapshot.replace(/^Add-on: /, '')} × ${i.quantity}`)
+    : [];
   const [items, refundRows, refundable] = purchase && showMoney
     ? await Promise.all([
         db.query.purchaseItems.findMany({ where: eq(purchaseItems.purchase_id, purchase.id) }),
@@ -100,6 +108,7 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
         </div>
       )}
 
+      {/* What the studio needs to prepare: answers and extras (no prices — visible to every role). */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-2 grid gap-4 min-w-0">
           <Card title="Session">
@@ -118,6 +127,18 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
               ]}
             />
           </Card>
+
+          {(prepRows.length > 0 || extras.length > 0 || guestEmails.length > 0) && (
+            <Card title="Session preparation">
+              <DefinitionList
+                items={[
+                  ...(extras.length > 0 ? ([['Extras', extras.join(', ')]] as [string, string][]) : []),
+                  ...prepRows,
+                  ...(guestEmails.length > 0 ? ([['Guest emails', guestEmails.join(', ')]] as [string, string][]) : []),
+                ]}
+              />
+            </Card>
+          )}
 
           {showMoney && (
             <Card

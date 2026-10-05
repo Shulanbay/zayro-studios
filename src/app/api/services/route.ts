@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getActiveServices } from '@/lib/catalogData';
 import { bookableServices } from '@/lib/catalog';
+import { maxUnits } from '@/lib/bookingOptions';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +23,8 @@ export async function GET() {
         display_order: s.display_order,
         is_featured: s.is_featured,
         badge: s.badge,
+        // Services sold by the hour can be booked for several hours in one go.
+        max_hours: maxUnits(s),
       })),
       { headers: { 'Cache-Control': 'no-store' } }
     );

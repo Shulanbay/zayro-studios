@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
+import { jsonObject } from '@/lib/db/json';
 import { bookings, customerPackages, customers, integrationLogs, purchaseItems, purchases, refunds, services, webhookEvents } from '@/lib/db/schema';
 import { getAdminContext } from '@/lib/crm/auth';
 import { auditFor } from '@/lib/crm/queries';
@@ -42,7 +43,7 @@ export default async function PurchasePage({ params }: { params: { id: string } 
       ? db.query.integrationLogs.findMany({ where: inArray(integrationLogs.booking_id, bookingIds), orderBy: [desc(integrationLogs.created_at)], limit: 20 })
       : [],
     bookingIds.length
-      ? db.query.webhookEvents.findMany({ where: sql`${webhookEvents.safe_payload}->>'bookingId' IN (${sql.join(bookingIds.map((id) => sql`${id}`), sql`, `)})`, orderBy: [desc(webhookEvents.received_at)], limit: 20 })
+      ? db.query.webhookEvents.findMany({ where: sql`${jsonObject(webhookEvents.safe_payload)}->>'bookingId' IN (${sql.join(bookingIds.map((id) => sql`${id}`), sql`, `)})`, orderBy: [desc(webhookEvents.received_at)], limit: 20 })
       : [],
     Promise.all([auditFor('purchase', [purchase.id]), auditFor('refund', refundRows.map((r) => r.id))]).then(([a, b]) => [...a, ...b].sort((x, y) => +y.created_at - +x.created_at)),
   ]);

@@ -7,7 +7,8 @@ import { lockStudioDates } from '@/lib/availability';
 import { upsertCustomer, refreshCustomerStats } from '@/lib/crm/customers';
 import { createPurchase, orderNumberForBooking } from '@/lib/crm/purchases';
 import { enforceRateLimit, isHoneypotTripped } from '@/lib/crm/rateLimit';
-import { calculatePricing } from '@/lib/pricing';
+import { purchaseItemsFromQuote, quoteForHold } from '@/lib/bookingQuote';
+import { parseIntake } from '@/lib/bookingOptions';
 import { checkBookable } from '@/lib/catalogData';
 import { generateBookingId, isValidEmail, isValidPhone, toDateOnly } from '@/lib/utils';
 import { runPostConfirmationSideEffects } from '@/lib/postConfirmation';
@@ -122,11 +123,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: bookable.error }, { status: bookable.status });
     }
 
-    const pricing = await calculatePricing(hold.service_id);
-    if (!pricing) {
-      await logIntegration(null, 'failed', 'Free confirm: pricing calculation failed');
-      return NextResponse.json({ error: 'Could not calculate pricing' }, { status: 500 });
+    const answers = parseIntake(body.intake, service.category, email);
+    if (!answers.ok) return NextResponse.json({ error: answers.error }, { status: 400 });
+
+    const quoted = await quoteForHold(service, hold);
+    if (!quoted.ok) {
+      await logIntegration(null, 'failed', 'Free confirm: hold selection invalid');
+      return NextResponse.json({ error: quoted.error }, { status: 409 });
     }
+    const pricing = quoted.quote;
 
     // The whole point of this endpoint: reject anything that isn't actually
     // free, server-side, regardless of what the client believes the price is.
@@ -168,15 +173,13 @@ export async function POST(request: NextRequest) {
           taxCents: pricing.taxAmount,
           paymentMethod: 'comp',
           purchasedAt: now,
-          items: [
-            {
-              itemType: 'service',
-              referenceId: service.id,
-              description: `${service.name} — ${bookingDate} ${hold.start_time}–${hold.end_time} ET`,
-              unitPriceCents: pricing.subtotal,
-              metadata: { bookingId: bookingIdString, category: service.category, durationMinutes: hold.duration_minutes },
-            },
-          ],
+          items: purchaseItemsFromQuote(pricing, {
+            bookingId: bookingIdString,
+            category: service.category,
+            date: bookingDate,
+            start: hold.start_time,
+            end: hold.end_time,
+          }),
         });
 
         const inserted = await tx
@@ -205,6 +208,7 @@ export async function POST(request: NextRequest) {
             total_amount: (pricing.total / 100).toFixed(2),
             purchase_id: purchase.id,
             source: isTour ? 'studio_tour' : 'individual',
+            intake: answers.intake as Record<string, unknown>,
             created_at: now,
             updated_at: now,
           })

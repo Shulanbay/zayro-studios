@@ -11,6 +11,7 @@ lock; a failure fails the build and the previous deployment keeps serving.
 | `0006_crm_schema` | new tables, new nullable/defaulted columns, triggers, setting defaults | additive only; `IF NOT EXISTS`; old code keeps working |
 | `0007_crm_backfill` | roles, setups, customer emails, service slugs, booking ranges/source, purchases + items for every booking, customer stats, package plans, blocked-time ET fix, conditional unique index | every statement only touches unprocessed rows; purchase amounts copied from each booking's own subtotal/tax/total |
 | `0008_booking_overlap_guard` | `btree_gist` + `bookings_no_overlap` | skipped with a NOTICE if the extension is unavailable or overlapping bookings exist |
+| `0009_booking_intake_addons` | `service_addons` (+ 11 seeded add-ons), `bookings.intake`, `temporary_holds.selection`, `addon` / `guest` added to two CHECK constraints, tour length 30 → 15 min | additive; `IF NOT EXISTS` / `ON CONFLICT DO NOTHING`; old code ignores the new columns |
 
 The build log prints a **counts-only** report before and after
 (`[migrate] before: {...}` / `after: {...}`) plus any NOTICEs.
