@@ -49,8 +49,8 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
   it('adds photography, packages and the tour without touching existing prices', async () => {
     const db = await productionLikeDb();
     const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
-    // 0002, 0003, 0004 (admin audit log enum value), the CRM migrations 0005-0008, 0009 (intake + add-ons) and 0010 (setups), 0011 (add-on prices).
-    expect(applied).toHaveLength(10);
+    // 0002, 0003, 0004 (admin audit log enum value), the CRM migrations 0005-0008, 0009 (intake + add-ons) and 0010 (setups), 0011 (add-on prices), 0012 (photoshoot length).
+    expect(applied).toHaveLength(11);
 
     const rows = await services(db);
     const byName = Object.fromEntries(rows.map((r) => [r.name, r]));
@@ -65,7 +65,8 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
 
     // Photography
     expect(byName['Headshot Session']).toMatchObject({ price: 250, duration_minutes: 45, category: 'photography' });
-    expect(byName['Studio Photoshoot']).toMatchObject({ price: 350, duration_minutes: 90, category: 'photography' });
+    expect(byName['Studio Photoshoot']).toMatchObject({ price: 350, duration_minutes: 60, category: 'photography' });
+    expect(byName['Studio Photoshoot'].features[0]).toBe('Up to 1 hour'); // 90 minutes until 0012
     expect(byName['Brand Content Session']).toMatchObject({
       price: 550,
       duration_minutes: 120,
@@ -117,7 +118,7 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
   it('works on an empty database (packages simply have no base service yet)', async () => {
     const db = new PGlite();
     const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
-    expect(applied).toHaveLength(12);
+    expect(applied).toHaveLength(13);
     const rows = await services(db);
     expect(rows.filter((r) => r.category === 'package').every((r) => r.package_base_service_id === null)).toBe(true);
     expect(rows.filter((r) => r.category === 'photography')).toHaveLength(3);
