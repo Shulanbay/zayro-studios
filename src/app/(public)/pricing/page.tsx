@@ -12,7 +12,6 @@ import {
   formatDuration,
   formatPrice,
   isBookable,
-  packageRequestTopic,
   servicesInCategory,
 } from '@/lib/catalog';
 import type { Service } from '@/lib/db/schema';
@@ -246,9 +245,9 @@ export default async function PricingPage() {
                       ]}
                       features={pkg.features}
                       cta={{
-                        href: contactHref(packageRequestTopic(pkg)),
-                        label: 'Request Monthly Package',
-                        ariaLabel: `Request Monthly Package: ${pkg.name}`,
+                        href: `/packages/buy?package=${pkg.id}`,
+                        label: 'Buy Monthly Package',
+                        ariaLabel: `Buy Monthly Package: ${pkg.name}`,
                       }}
                     />
                   );
@@ -264,13 +263,12 @@ export default async function PricingPage() {
                 <li>
                   Packages are prepaid and valid for{' '}
                   {validityValues.length === 1 ? `${validityValues[0]} days` : 'the number of days shown on each package'}{' '}
-                  from the package start date you choose.
+                  from payment.
                 </li>
                 <li>Each session is scheduled individually, subject to studio availability.</li>
                 <li>One-time payment. Packages do not renew automatically.</li>
                 <li>
-                  Requesting a package doesn&apos;t charge you — we&apos;ll confirm your start date and payment details
-                  with you directly.
+                  Buy your package securely with Stripe, then use your private package link to choose each session date.
                 </li>
               </ul>
             </div>

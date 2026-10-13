@@ -1,4 +1,5 @@
 import type Stripe from 'stripe';
+import { fulfillPackageSession, expirePackageCheckout } from '@/lib/publicPackages';
 import { and, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, payments, purchases, services, temporaryHolds, webhookEvents } from '@/lib/db/schema';
@@ -121,10 +122,12 @@ async function dispatch(event: Stripe.Event): Promise<Result> {
       const session = event.data.object as Stripe.Checkout.Session;
       // Delayed payment methods complete Checkout before the money arrives.
       if (session.payment_status === 'unpaid') return { status: 'awaiting_async_payment' };
-      return confirmPaidSession(session);
+      return session.metadata?.kind === 'monthly_package' ? fulfillPackageSession(session).then(() => ({ status: 'package_activated' })) : confirmPaidSession(session);
     }
-    case 'checkout.session.async_payment_succeeded':
-      return confirmPaidSession(event.data.object as Stripe.Checkout.Session);
+    case 'checkout.session.async_payment_succeeded': {
+      const session = event.data.object as Stripe.Checkout.Session;
+      return session.metadata?.kind === 'monthly_package' ? fulfillPackageSession(session).then(() => ({ status: 'package_activated' })) : confirmPaidSession(session);
+    }
     case 'checkout.session.async_payment_failed':
       return releaseUnpaidSession(event.data.object as Stripe.Checkout.Session, 'failed', 'Payment failed');
     case 'checkout.session.expired':
@@ -352,6 +355,7 @@ async function flagForReview(booking: Booking, session: Stripe.Checkout.Session,
 
 /** Async payment failed / Checkout expired: release the unpaid booking. */
 export async function releaseUnpaidSession(session: Stripe.Checkout.Session, purchaseStatus: 'failed' | 'cancelled', reason: string): Promise<Result> {
+  if (session.metadata?.kind === 'monthly_package') return expirePackageCheckout(session, purchaseStatus);
   const booking = await findSessionBooking(db, session);
   if (!booking) return { status: 'no_booking' };
   const released = await db.transaction(async (tx) => {

@@ -31,6 +31,7 @@ export const EMAIL_TEMPLATES = {
   cancellation: 'Cancellation',
   refund: 'Refund',
   package_assigned: 'Package assigned',
+  package_purchase: 'Monthly package purchased',
   package_credit_used: 'Package session booked',
   owner_payment_review: 'Owner: payment needs review',
   guest_invite: 'Guest invitation',
@@ -364,6 +365,8 @@ export async function retryEmail(logId: string): Promise<EmailOutcome> {
     }
     case 'refund':
       return log.refund_id ? sendRefundEmail(log.refund_id) : { sent: false, status: 'failed', error: 'Refund missing' };
+    case 'package_purchase':
+      return log.purchase_id ? (await import('@/lib/publicPackages')).sendPackagePurchaseEmail(log.purchase_id) : { sent: false, status: 'failed', error: 'Purchase missing' };
     case 'package_assigned':
       return log.customer_package_id ? sendPackageAssignedEmail(log.customer_package_id) : { sent: false, status: 'failed', error: 'Package missing' };
     case 'package_credit_used':

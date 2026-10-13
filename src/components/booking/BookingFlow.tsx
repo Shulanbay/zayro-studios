@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { CATEGORY_LABELS, bookingCategories, formatDuration, formatPrice, isBookable, servicesInCategory, type CatalogService } from '@/lib/catalog';
-import { addDays, formatTimeLabel, todayInTz } from '@/lib/crm/time';
+import { addDays, formatTimeLabel, todayInTz, wallTimeToUtc } from '@/lib/crm/time';
 import { EDITING_CHOICES, EDITING_LABELS, MAX_GUESTS, MAX_PEOPLE, RECORDING_TYPES, intakeFields, parseIntake } from '@/lib/bookingOptions';
 
 interface TimeSlot {
@@ -149,28 +149,28 @@ function money(value: string | number): string {
   return `$${n.toFixed(2)}`;
 }
 
-function loadPersistedState(): Partial<BookingState> | null {
+function loadPersistedState(storageKey: string): Partial<BookingState> | null {
   if (typeof window === 'undefined') return null;
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const raw = sessionStorage.getItem(storageKey);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 }
 
-function persistState(state: BookingState) {
+function persistState(state: BookingState, storageKey: string) {
   try {
     const { loading, error, ...toStore } = state;
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(toStore));
+    sessionStorage.setItem(storageKey, JSON.stringify(toStore));
   } catch {
     // sessionStorage unavailable (private mode etc.) — booking still works, just no reload recovery.
   }
 }
 
-function clearPersistedState() {
+function clearPersistedState(storageKey: string) {
   try {
-    sessionStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(storageKey);
   } catch {
     // ignore
   }
@@ -267,8 +267,22 @@ function StepHeader({
   );
 }
 
-export default function BookingFlow() {
-  const [state, setState] = useState<BookingState>(initialState);
+export interface PackageBooking {
+  id: string;
+  name: string;
+  serviceId: number;
+  expiresOn: string;
+  expiresAt: string;
+  customer: BookingState['customerInfo'];
+}
+
+export default function BookingFlow({ packageBooking, onPackageBooked, onPackageExit }: { packageBooking?: PackageBooking; onPackageBooked?: (bookingId: string) => void; onPackageExit?: () => void } = {}) {
+  const packageServiceId = packageBooking?.serviceId;
+  const packageExpiresOn = packageBooking?.expiresOn;
+  const packageExpiresAt = packageBooking?.expiresAt;
+  const isPackage = !!packageBooking;
+  const storageKey = packageBooking ? `${STORAGE_KEY}:package:${packageBooking.id}` : STORAGE_KEY;
+  const [state, setState] = useState<BookingState>(() => ({ ...initialState, customerInfo: packageBooking?.customer ?? initialState.customerInfo }));
   const [hydrated, setHydrated] = useState(false);
 
   const [allServices, setAllServices] = useState<Service[]>([]);
@@ -293,7 +307,7 @@ export default function BookingFlow() {
 
   // Hydrate from sessionStorage once, then re-validate anything time-sensitive.
   useEffect(() => {
-    const persisted = loadPersistedState();
+    const persisted = loadPersistedState(storageKey);
     if (!persisted || !persisted.selectedService) {
       setHydrated(true);
       return;
@@ -329,12 +343,12 @@ export default function BookingFlow() {
       setState((s) => ({ ...s, ...next, loading: false }));
       setHydrated(true);
     })();
-  }, []);
+  }, [storageKey]);
 
   // Persist on every change, once hydration has settled.
   useEffect(() => {
-    if (hydrated) persistState(state);
-  }, [state, hydrated]);
+    if (hydrated) persistState(state, storageKey);
+  }, [state, hydrated, storageKey]);
 
   // Returning with the browser's back button from Stripe restores this page
   // from the back/forward cache with the spinner still on.
@@ -352,7 +366,7 @@ export default function BookingFlow() {
         const response = await fetch('/api/services');
         if (!response.ok) throw new Error('Failed to load services');
         const data = await response.json();
-        setAllServices(Array.isArray(data) ? data : []);
+        setAllServices(Array.isArray(data) ? data.filter((s: Service) => packageServiceId === undefined || s.id === packageServiceId) : []);
         setServicesError(null);
       } catch {
         setServicesError('Unable to load services right now. Please refresh the page or try again shortly.');
@@ -360,7 +374,7 @@ export default function BookingFlow() {
         setServicesLoading(false);
       }
     })();
-  }, []);
+  }, [packageServiceId]);
 
   // Move keyboard/screen-reader focus to the new step's heading (not on the
   // first render, so opening the page doesn't jump).
@@ -403,7 +417,7 @@ export default function BookingFlow() {
     } catch {
       return;
     }
-    const serviceParam = params.get('service');
+    const serviceParam = packageServiceId ? String(packageServiceId) : params.get('service');
     const categoryParam = params.get('category');
     if (!serviceParam && !categoryParam) return;
 
@@ -419,11 +433,11 @@ export default function BookingFlow() {
     } catch {
       // ignore
     }
-  }, [hydrated, servicesLoading, allServices, state.selectedService, state.step, selectService]);
+  }, [hydrated, servicesLoading, allServices, state.selectedService, state.step, selectService, packageServiceId]);
 
   // Dates with free time in the visible month (studio time, ET).
   const serviceId = state.selectedService?.id;
-  const maxHours = Math.max(1, state.selectedService?.max_hours ?? 1);
+  const maxHours = packageBooking ? 1 : Math.max(1, state.selectedService?.max_hours ?? 1);
   const hours = Math.min(Math.max(1, state.hours || 1), maxHours);
   const totalMinutes = (state.selectedService?.duration_minutes ?? 0) * hours;
   const sessionLength = formatDuration(totalMinutes);
@@ -464,7 +478,7 @@ export default function BookingFlow() {
 
   // Extras offered with the chosen service (current prices from the server).
   useEffect(() => {
-    if (!serviceId) {
+    if (!serviceId || isPackage) {
       setAddons([]);
       return;
     }
@@ -480,7 +494,7 @@ export default function BookingFlow() {
     return () => {
       cancelled = true;
     };
-  }, [serviceId]);
+  }, [serviceId, isPackage]);
 
   useEffect(() => {
     if (state.step !== 2 || !serviceId) return;
@@ -494,7 +508,7 @@ export default function BookingFlow() {
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Could not load dates');
-        if (!cancelled) setDates({ month, available: new Set(data.available_dates), min: data.min_date, max: data.max_date });
+        if (!cancelled) setDates({ month, available: new Set((data.available_dates as string[]).filter((d) => !packageExpiresOn || d <= packageExpiresOn)), min: data.min_date, max: packageExpiresOn && packageExpiresOn < data.max_date ? packageExpiresOn : data.max_date });
       })
       .catch((err: Error) => {
         if (!cancelled) setDatesError(err.message || 'Could not load available dates. Please try again.');
@@ -505,7 +519,7 @@ export default function BookingFlow() {
     return () => {
       cancelled = true;
     };
-  }, [state.step, serviceId, month, hours]);
+  }, [state.step, serviceId, month, hours, packageExpiresOn]);
 
   const loadSlots = useCallback(async (service: Service, date: string, hrs: number) => {
     setSlotsLoading(true);
@@ -514,14 +528,14 @@ export default function BookingFlow() {
       const res = await fetch(`/api/booking/available-times?service_id=${service.id}&date=${date}&hours=${hrs}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not load times');
-      setSlots((data.time_slots as TimeSlot[]).filter((s) => s.available));
+      setSlots((data.time_slots as TimeSlot[]).filter((s) => s.available && (!packageExpiresAt || wallTimeToUtc(date, s.end).getTime() <= Date.parse(packageExpiresAt))));
     } catch (err) {
       setSlots(null);
       setSlotsError((err as Error).message || 'Could not load available times. Please try again.');
     } finally {
       setSlotsLoading(false);
     }
-  }, []);
+  }, [packageExpiresAt]);
 
   useEffect(() => {
     if (state.step === 3 && state.selectedService && state.selectedDate) loadSlots(state.selectedService, state.selectedDate, hours);
@@ -633,7 +647,7 @@ export default function BookingFlow() {
         step: 6,
         holdId: data.hold_id,
         holdExpiresAt: data.hold_expires_at,
-        pricing: data.pricing,
+        pricing: packageBooking ? { subtotal: '0.00', taxAmount: '0.00', total: '0.00' } : data.pricing,
       }));
     } catch (err) {
       setState((s) => ({ ...s, loading: false, error: (err as Error).message }));
@@ -665,6 +679,15 @@ export default function BookingFlow() {
       intake: intakePayload(),
     };
     try {
+      if (packageBooking) {
+        const res = await fetch('/api/packages/book', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, packageId: packageBooking.id }) });
+        const data = await res.json();
+        if (res.status === 410 || res.status === 409) return holdRanOut();
+        if (!res.ok || !data.bookingId) throw new Error(data.error || 'Could not book this package session.');
+        clearPersistedState(storageKey);
+        onPackageBooked?.(data.bookingId);
+        return;
+      }
       // The server decides whether this is free (its own price, never ours).
       if (state.pricing && parseFloat(state.pricing.total) <= 0) {
         const res = await fetch('/api/booking/confirm-free', {
@@ -674,7 +697,7 @@ export default function BookingFlow() {
         });
         const data = await res.json();
         if (res.ok && data.bookingId) {
-          clearPersistedState();
+          clearPersistedState(storageKey);
           window.location.assign(`/booking/success?booking_id=${encodeURIComponent(data.bookingId)}`);
           return;
         }
@@ -690,7 +713,7 @@ export default function BookingFlow() {
       const data = await res.json();
       if (res.status === 410) return holdRanOut();
       if (data.alreadyPaid && data.sessionId) {
-        clearPersistedState();
+        clearPersistedState(storageKey);
         window.location.assign(`/booking/success?session_id=${encodeURIComponent(data.sessionId)}`);
         return;
       }
@@ -797,7 +820,7 @@ export default function BookingFlow() {
                 </span>
               )}
               <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mt-auto">
-                <span className="text-4xl font-black text-zayro-dark">{formatPrice(s.base_price)}</span>
+                <span className="text-4xl font-black text-zayro-dark">{packageBooking ? '1 package session' : formatPrice(s.base_price)}</span>
                 <span className="text-base text-zayro-gray">{formatDuration(s.duration_minutes)}</span>
               </span>
             </button>
@@ -1152,7 +1175,8 @@ export default function BookingFlow() {
                 type="text"
                 autoComplete="given-name"
                 maxLength={100}
-                value={state.customerInfo.firstName}
+                readOnly={!!packageBooking}
+              value={state.customerInfo.firstName}
                 onChange={(e) => updateCustomerInfo('firstName', e.target.value)}
                 required
               />
@@ -1166,7 +1190,8 @@ export default function BookingFlow() {
                 type="text"
                 autoComplete="family-name"
                 maxLength={100}
-                value={state.customerInfo.lastName}
+                readOnly={!!packageBooking}
+              value={state.customerInfo.lastName}
                 onChange={(e) => updateCustomerInfo('lastName', e.target.value)}
                 required
               />
@@ -1182,6 +1207,7 @@ export default function BookingFlow() {
               autoComplete="email"
               inputMode="email"
               maxLength={255}
+              readOnly={!!packageBooking}
               value={state.customerInfo.email}
               onChange={(e) => updateCustomerInfo('email', e.target.value)}
               required
@@ -1197,6 +1223,7 @@ export default function BookingFlow() {
               autoComplete="tel"
               inputMode="tel"
               maxLength={20}
+              readOnly={!!packageBooking}
               value={state.customerInfo.phone}
               onChange={(e) => updateCustomerInfo('phone', e.target.value)}
               required
@@ -1211,6 +1238,7 @@ export default function BookingFlow() {
               type="text"
               autoComplete="organization"
               maxLength={255}
+              readOnly={!!packageBooking}
               value={state.customerInfo.company}
               onChange={(e) => updateCustomerInfo('company', e.target.value)}
             />
@@ -1460,7 +1488,7 @@ export default function BookingFlow() {
           </dl>
 
           <div className="card h-fit">
-            <h2 className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-5">{isFree ? 'Price' : 'Payment'}</h2>
+            <h2 className="text-xs font-bold text-zayro-gray uppercase tracking-wide mb-5">{packageBooking ? 'Package session' : isFree ? 'Price' : 'Payment'}</h2>
             {pricing && !isFree && (
               <dl className="space-y-3 border-b border-zayro-border pb-5 mb-5 text-sm">
                 {(pricing.lines ?? []).length > 1 &&
@@ -1487,7 +1515,7 @@ export default function BookingFlow() {
             )}
             <div className="flex justify-between items-baseline text-2xl font-black mb-6">
               <span className="text-zayro-dark">Total</span>
-              <span className="text-zayro-primary">{isFree ? 'Free' : pricing ? money(pricing.total) : '—'}</span>
+              <span className="text-zayro-primary">{packageBooking ? '1 session' : isFree ? 'Free' : pricing ? money(pricing.total) : '—'}</span>
             </div>
 
             <button
@@ -1496,7 +1524,7 @@ export default function BookingFlow() {
               disabled={state.loading || holdExpired || !pricing}
               className={`button button-primary w-full py-4 text-base ${state.loading ? 'is-loading' : ''}`}
             >
-              {isFree ? 'Confirm booking' : `Pay ${pricing ? money(pricing.total) : ''} securely`}
+              {packageBooking ? 'Book with 1 package session' : isFree ? 'Confirm booking' : `Pay ${pricing ? money(pricing.total) : ''} securely`}
             </button>
 
             {state.error && (
@@ -1505,7 +1533,9 @@ export default function BookingFlow() {
               </p>
             )}
             <p className="text-xs text-zayro-gray mt-4">
-              {isFree
+              {packageBooking
+                ? 'Already paid with your monthly package. This booking uses one session.'
+                : isFree
                 ? 'No payment needed. You’ll get a confirmation email right away.'
                 : 'You’ll pay on Stripe’s secure checkout page. Your booking is confirmed as soon as the payment goes through.'}
             </p>
@@ -1525,7 +1555,7 @@ export default function BookingFlow() {
           className="button button-primary"
           onClick={() => {
             releaseHoldQuietly(state.holdId);
-            clearPersistedState();
+            clearPersistedState(storageKey);
             setState(initialState);
           }}
         >
@@ -1537,6 +1567,7 @@ export default function BookingFlow() {
 
   return (
     <div className="container py-10 md:py-16" ref={headingRef}>
+      {packageBooking && <div className="card mb-8 flex flex-col sm:flex-row sm:items-center gap-4"><div className="flex-1"><p className="font-bold">{packageBooking.name} · One prepaid session</p><p className="text-sm text-zayro-gray">Choose a date by {packageBooking.expiresOn}. No payment required for this session.</p></div><button type="button" className="button button-secondary" onClick={() => { releaseHoldQuietly(state.holdId); clearPersistedState(storageKey); onPackageExit?.(); }}>Back to my package</button></div>}
       {content}
     </div>
   );
