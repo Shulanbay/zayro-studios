@@ -492,7 +492,6 @@ describe('hourly sessions, add-ons and intake questions', () => {
     // Guests: de-duplicated, lower-cased, and never the customer themselves.
     expect(booking.intake).toEqual({
       peopleRecording: 3,
-      peopleOnCamera: 2,
       recordingType: 'Interview',
       editing: 'yes',
       project: 'Pilot episode',
@@ -551,11 +550,11 @@ describe('hourly sessions, add-ons and intake questions', () => {
       return { status: res.status, body: await res.json() };
     };
     expect((await attempt(undefined)).status).toBe(400);
-    expect((await attempt({ peopleRecording: 2, peopleOnCamera: 3, recordingType: 'Podcast', editing: 'no' })).status).toBe(400);
+    expect((await attempt({ peopleRecording: 7, recordingType: 'Podcast', editing: 'no' })).status).toBe(400);
     expect((await attempt({ peopleRecording: 2, peopleOnCamera: 2, recordingType: 'Karaoke', editing: 'no' })).status).toBe(400);
     expect((await attempt({ peopleRecording: 2, peopleOnCamera: 2, recordingType: 'Podcast', editing: 'no', guests: ['not-an-email'] })).status).toBe(400);
     expect(h.creates).toBe(0);
-    expect((await attempt({ peopleRecording: 2, peopleOnCamera: 0, recordingType: 'Podcast', editing: 'maybe' })).status).toBe(200);
+    expect((await attempt({ peopleRecording: 2, recordingType: 'Podcast', editing: 'maybe' })).status).toBe(200);
   });
 
   it('the public add-ons list shows only active extras for paid podcast services', async () => {

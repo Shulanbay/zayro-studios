@@ -46,7 +46,7 @@ export function checkBookable(service: Service): BookableLookup {
     return {
       ok: false,
       status: 400,
-      error: 'Monthly packages are requested through the contact form, not booked as a time slot.',
+      error: 'Monthly packages are purchased separately. Buy a package, then choose your session dates.',
     };
   }
   if (service.quote_only || service.visible_in_booking === false) {

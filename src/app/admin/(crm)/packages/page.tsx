@@ -45,7 +45,7 @@ export default async function PackagesPage({ searchParams }: { searchParams: { s
     <>
       <PageHeader
         title="Packages"
-        description="Monthly memberships as prepaid session credits. The public site still uses “Request Monthly Package”; staff assign packages here."
+        description="Monthly memberships as prepaid session credits. Customers can buy packages online with Stripe and schedule sessions using their private link. Staff can also assign packages here."
         actions={
           manage && (
             <Link href="/admin/packages/assign" className="crm-btn crm-btn-primary">

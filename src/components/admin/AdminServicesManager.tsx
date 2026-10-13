@@ -418,7 +418,7 @@ export default function AdminServicesManager({ initialRows }: { initialRows: Adm
       </div>
       <p className="text-xs text-zayro-gray mt-3">
         Inactive services are hidden from the pricing and booking pages. Only category <strong>tour</strong> goes to
-        the &quot;Studio Tours&quot; sheet; monthly packages are requested via the contact form and never take a time slot.
+        the &quot;Studio Tours&quot; sheet; monthly packages are purchased with Stripe; individual package sessions are scheduled after payment.
       </p>
     </div>
   );
