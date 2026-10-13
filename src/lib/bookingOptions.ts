@@ -56,7 +56,7 @@ export function normalizeAddonChoices(value: unknown): AddonChoice[] | null {
 export const RECORDING_TYPES = ['Podcast', 'Interview', 'YouTube Video', 'Online Course', 'Social Media Content', 'Other'] as const;
 export const EDITING_CHOICES = ['yes', 'no', 'maybe'] as const;
 export const EDITING_LABELS: Record<(typeof EDITING_CHOICES)[number], string> = { yes: 'Yes', no: 'No', maybe: 'Maybe' };
-export const MAX_PEOPLE = 12;
+export const MAX_PEOPLE = 6;
 export const MAX_GUESTS = 8;
 
 export interface Intake {
@@ -78,8 +78,8 @@ export type IntakeField = 'peopleRecording' | 'peopleOnCamera' | 'recordingType'
 export function intakeFields(category: string): { ask: IntakeField[]; required: IntakeField[] } {
   if (HOURLY_CATEGORIES.includes(category)) {
     return {
-      ask: ['peopleRecording', 'peopleOnCamera', 'recordingType', 'editing', 'project', 'guests'],
-      required: ['peopleRecording', 'peopleOnCamera', 'recordingType', 'editing'],
+      ask: ['peopleRecording', 'recordingType', 'editing', 'project', 'guests'],
+      required: ['peopleRecording', 'recordingType', 'editing'],
     };
   }
   if (category === 'photography') return { ask: ['peopleRecording', 'project', 'guests'], required: ['peopleRecording'] };
@@ -113,11 +113,6 @@ export function parseIntake(raw: unknown, category: string, customerEmail?: stri
   const peopleLabel = category === 'photography' ? 'how many people are in the shoot' : category === 'tour' ? 'how many people are visiting' : 'how many people will be recording';
   const e1 = count('peopleRecording', peopleLabel);
   if (e1) return { ok: false, error: e1 };
-  const e2 = count('peopleOnCamera', 'how many people will be on camera');
-  if (e2) return { ok: false, error: e2 };
-  if (intake.peopleOnCamera !== undefined && intake.peopleRecording !== undefined && intake.peopleOnCamera > intake.peopleRecording) {
-    return { ok: false, error: 'People on camera cannot be more than the people recording.' };
-  }
 
   if (ask.includes('recordingType')) {
     const v = typeof input.recordingType === 'string' ? input.recordingType.trim() : '';

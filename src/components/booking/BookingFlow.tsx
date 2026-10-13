@@ -95,14 +95,13 @@ interface BookingState {
 
 interface IntakeState {
   peopleRecording: string;
-  peopleOnCamera: string;
   recordingType: string;
   editing: string;
   project: string;
   guests: { name: string; email: string }[];
 }
 
-const emptyIntake: IntakeState = { peopleRecording: '', peopleOnCamera: '', recordingType: '', editing: '', project: '', guests: [] };
+const emptyIntake: IntakeState = { peopleRecording: '', recordingType: '', editing: '', project: '', guests: [] };
 
 const STORAGE_KEY = 'zayro-booking-state-v5';
 /** The setup step sits between Service (1) and Date (2). */
@@ -565,7 +564,6 @@ export default function BookingFlow() {
 
   const intakePayload = () => ({
     peopleRecording: state.intake.peopleRecording,
-    peopleOnCamera: state.intake.peopleOnCamera,
     recordingType: state.intake.recordingType,
     editing: state.intake.editing,
     project: state.intake.project,
@@ -806,13 +804,17 @@ export default function BookingFlow() {
           ))}
         </div>
 
-        <p className="text-base text-zayro-gray mt-10">
-          Looking for monthly podcast packages? They&apos;re prepaid and arranged by request —{' '}
-          <Link href="/pricing#monthly" className="text-zayro-primary font-semibold hover:underline">
-            see Monthly Packages
+        <div className="card mt-10 flex flex-col sm:flex-row sm:items-center gap-6 bg-white">
+          <div className="flex-1">
+            <h2 className="text-2xl font-black text-zayro-dark mb-2">Record more. Save more.</h2>
+            <p className="text-base text-zayro-gray">
+              Recording regularly? Explore prepaid monthly podcast packages with savings on your sessions.
+            </p>
+          </div>
+          <Link href="/pricing#monthly" className="button button-primary w-full sm:w-auto text-center">
+            Save with Monthly Packages
           </Link>
-          .
-        </p>
+        </div>
       </>
     );
   }
@@ -1238,26 +1240,7 @@ export default function BookingFlow() {
                   ))}
                 </select>
               </div>
-              {ask.includes('peopleOnCamera') && (
-                <div>
-                  <label htmlFor="peopleOnCamera" className="field-label">
-                    How many people will be on camera?{required.includes('peopleOnCamera') ? ' *' : ''}
-                  </label>
-                  <select
-                    id="peopleOnCamera"
-                    value={state.intake.peopleOnCamera}
-                    onChange={(e) => updateIntake('peopleOnCamera', e.target.value)}
-                    required={required.includes('peopleOnCamera')}
-                  >
-                    <option value="">Select…</option>
-                    {Array.from({ length: MAX_PEOPLE + 1 }, (_, i) => i).map((n) => (
-                      <option key={n} value={n}>
-                        {n === 0 ? '0 (audio only)' : n}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+
             </div>
           )}
 
