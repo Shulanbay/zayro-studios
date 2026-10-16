@@ -3,6 +3,7 @@ import { pageMetadata } from '@/lib/seo';
 import Link from 'next/link';
 import { BUSINESS_ADDRESS } from '@/lib/constants';
 import HeroSection from '@/components/sections/HeroSection';
+import AvailableSetupsSection from '@/components/sections/AvailableSetupsSection';
 import StudioExperienceSection from '@/components/sections/StudioExperienceSection';
 import HowBookingWorksSection from '@/components/sections/HowBookingWorksSection';
 import PricingSection from '@/components/sections/PricingSection';
@@ -32,6 +33,7 @@ export default async function Home() {
   return (
     <>
       <HeroSection tourMinutes={tourMinutes} />
+      <AvailableSetupsSection />
       <StudioExperienceSection />
       <HowBookingWorksSection />
 
