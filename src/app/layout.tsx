@@ -3,6 +3,8 @@ import './globals.css';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import SiteChrome from '@/components/layout/SiteChrome';
+import JsonLd from '@/components/seo/JsonLd';
+import { BUSINESS_EMAIL, BUSINESS_NAME, BUSINESS_PHONE } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'ZAYRO Studios | Premium Podcast & Video Studio in NYC',
@@ -37,10 +39,20 @@ export const metadata: Metadata = {
 
 const localBusinessJsonLd = {
   '@context': 'https://schema.org',
-  '@type': 'LocalBusiness',
-  name: 'ZAYRO Studios',
+  '@type': ['LocalBusiness', 'ProfessionalService'],
+  '@id': 'https://zayro.studio/#business',
+  name: BUSINESS_NAME,
   url: 'https://zayro.studio',
-  email: 'hello@zayro.studio',
+  description: 'Podcast, video recording, filming and photography studio in Midtown Manhattan, New York City.',
+  email: BUSINESS_EMAIL,
+  ...(BUSINESS_PHONE ? { telephone: BUSINESS_PHONE } : {}),
+  priceRange: '$$',
+  image: [
+    'https://zayro.studio/setups/cream-lounge.webp',
+    'https://zayro.studio/setups/sofa-lounge.webp',
+    'https://zayro.studio/setups/library-table.webp',
+    'https://zayro.studio/setups/garden-lounge.webp',
+  ],
   address: {
     '@type': 'PostalAddress',
     streetAddress: '40 W 37th St, Suite 603',
@@ -48,6 +60,20 @@ const localBusinessJsonLd = {
     addressRegion: 'NY',
     postalCode: '10018',
     addressCountry: 'US',
+  },
+  areaServed: [
+    { '@type': 'City', name: 'New York City' },
+    { '@type': 'AdministrativeArea', name: 'Manhattan' },
+  ],
+  hasOfferCatalog: {
+    '@type': 'OfferCatalog',
+    name: 'Studio Services',
+    itemListElement: [
+      { '@type': 'OfferCatalog', name: 'Podcast Recording' },
+      { '@type': 'OfferCatalog', name: 'Video Recording and Filming' },
+      { '@type': 'OfferCatalog', name: 'Studio Photography' },
+      { '@type': 'OfferCatalog', name: 'Live Streaming' },
+    ],
   },
 };
 
@@ -64,11 +90,7 @@ export default function RootLayout({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <script
-          type="application/ld+json"
-          // eslint-disable-next-line react/no-danger
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }}
-        />
+        <JsonLd data={localBusinessJsonLd} />
       </head>
       <body className="bg-zayro-bg text-zayro-dark">
         <a href="#main-content" className="skip-link">

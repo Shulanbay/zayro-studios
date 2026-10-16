@@ -25,8 +25,18 @@ export default function Footer() {
             <h4 className="font-bold text-sm mb-6 text-white">STUDIO</h4>
             <ul className="space-y-3 text-sm">
               <li>
+                <Link href="/podcast-studio-nyc" className="text-gray-400 hover:text-white transition-colors">
+                  Podcast Studio NYC
+                </Link>
+              </li>
+              <li>
+                <Link href="/video-production-studio-nyc" className="text-gray-400 hover:text-white transition-colors">
+                  Video Studio NYC
+                </Link>
+              </li>
+              <li>
                 <Link href="/studio" className="text-gray-400 hover:text-white transition-colors">
-                  Tour
+                  Studio &amp; Equipment
                 </Link>
               </li>
               <li>

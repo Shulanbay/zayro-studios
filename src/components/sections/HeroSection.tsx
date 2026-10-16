@@ -27,16 +27,16 @@ export default function HeroSection({ tourMinutes = null }: { tourMinutes?: numb
           </span>
 
           <h1 className="text-[clamp(2.75rem,14vw,4.5rem)] md:text-8xl font-black leading-none tracking-tight mb-6 md:mb-8 text-zayro-dark">
-            PODCAST
+            PODCAST &amp; VIDEO
             <br />
             <span className="bg-gradient-cta bg-clip-text text-transparent">STUDIO</span>
             <br />
-            NEW YORK
+            NYC
           </h1>
 
           <p className="text-lg md:text-2xl text-zayro-gray font-light mb-8 md:mb-12 max-w-2xl mx-auto leading-relaxed">
-            Podcast recording and studio photography in Midtown Manhattan — 4K cameras, broadcast-quality audio and professional
-            lighting.
+            A professional podcast recording, video filming and content production studio in Midtown Manhattan — with 4K cameras,
+            broadcast-quality audio and professional lighting.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center mb-10">

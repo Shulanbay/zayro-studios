@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { pageMetadata } from '@/lib/seo';
 
 export const metadata: Metadata = pageMetadata({
-  title: 'The Studio | ZAYRO Studios',
+  title: 'Recording Studio & Equipment | ZAYRO Studios Manhattan',
   description:
-    'The ZAYRO Studios space and equipment: 4K cameras, broadcast microphones and studio lighting in Midtown Manhattan.',
+    'Explore our Midtown Manhattan recording and filming studio: 4K cameras, Shure microphones, lighting, green screen and flexible podcast sets.',
   path: '/studio',
 });
 
@@ -15,10 +16,10 @@ export default function StudioPage() {
       <section className="section-padding surface-soft">
         <div className="container">
           <h1 className="text-[clamp(2.25rem,10vw,3rem)] md:text-6xl font-bold mb-4 text-zayro-dark">
-            The Studio
+            Recording Studio &amp; Equipment
           </h1>
           <p className="text-xl text-zayro-gray">
-            Broadcast-ready equipment in a Midtown Manhattan location.
+            A flexible podcast, video and filming studio with broadcast-ready equipment in Midtown Manhattan.
           </p>
         </div>
       </section>
@@ -39,6 +40,10 @@ export default function StudioPage() {
                 The studio features flexible set configurations, backdrop options, and the
                 equipment you need for broadcast-quality production.
               </p>
+              <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                <Link href="/podcast-studio-nyc" className="button button-secondary">Podcast Studio</Link>
+                <Link href="/video-production-studio-nyc" className="button button-secondary">Video Production Studio</Link>
+              </div>
             </div>
 
             <div className="card">

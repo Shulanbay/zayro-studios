@@ -5,7 +5,8 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 const NAV = [
-  { href: '/studio', label: 'Studio' },
+  { href: '/podcast-studio-nyc', label: 'Podcast' },
+  { href: '/video-production-studio-nyc', label: 'Video' },
   { href: '/pricing', label: 'Pricing' },
   { href: '/about', label: 'About' },
   { href: '/contact', label: 'Contact' },
@@ -86,7 +87,7 @@ export default function Header() {
             </span>
           </Link>
 
-          <nav className="hidden md:flex items-center gap-10" aria-label="Primary">
+          <nav className="hidden md:flex items-center gap-7" aria-label="Primary">
             {NAV.map((item) => (
               <Link
                 key={item.href}

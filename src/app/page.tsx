@@ -16,9 +16,9 @@ import Reveal from '@/components/ui/Reveal';
 
 export const metadata: Metadata = {
   ...pageMetadata({
-    title: 'ZAYRO Studios | Podcast & Photo Studio in Midtown Manhattan',
+    title: 'Podcast & Video Studio NYC | ZAYRO Studios Manhattan',
     description:
-      'Podcast recording, studio photography and free studio tours at 40 W 37th St, Midtown Manhattan. Live availability and secure online booking.',
+      'Book a Midtown Manhattan podcast and video recording studio with 4K cameras, broadcast audio, professional lighting and camera-ready sets.',
     path: '/',
   }),
 };
@@ -34,6 +34,44 @@ export default async function Home() {
     <>
       <HeroSection tourMinutes={tourMinutes} />
       <AvailableSetupsSection />
+      <section className="section-padding surface-soft" aria-labelledby="nyc-studio-services">
+        <div className="container max-w-5xl">
+          <Reveal>
+            <p className="text-sm font-bold uppercase tracking-[0.2em] text-zayro-primary mb-3">Midtown Manhattan production space</p>
+            <h2 id="nyc-studio-services" className="text-[clamp(2.25rem,10.5vw,3rem)] md:text-7xl font-black text-zayro-dark mb-6">
+              CREATE IN
+              <br />
+              NEW YORK CITY
+            </h2>
+            <p className="text-lg md:text-xl text-zayro-gray max-w-3xl leading-relaxed mb-10">
+              ZAYRO Studios is a podcast recording, video filming and content production studio at 40 W 37th Street in
+              Midtown Manhattan. Choose the service that matches your project.
+            </p>
+          </Reveal>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Reveal>
+              <Link href="/podcast-studio-nyc" className="card card-interactive group block h-full">
+                <p className="text-sm font-bold text-zayro-primary mb-3">PODCAST RECORDING</p>
+                <h3 className="text-3xl font-black text-zayro-dark mb-3">Podcast Studio NYC</h3>
+                <p className="text-zayro-gray mb-6">
+                  Professional audio and multi-camera video podcasts with broadcast microphones, studio lighting and technical support.
+                </p>
+                <span className="font-bold text-zayro-primary">Explore podcast studio →</span>
+              </Link>
+            </Reveal>
+            <Reveal delayMs={80}>
+              <Link href="/video-production-studio-nyc" className="card card-interactive group block h-full">
+                <p className="text-sm font-bold text-zayro-primary mb-3">VIDEO &amp; FILMING</p>
+                <h3 className="text-3xl font-black text-zayro-dark mb-3">Video Production Studio NYC</h3>
+                <p className="text-zayro-gray mb-6">
+                  A flexible Manhattan filming studio for interviews, YouTube videos, courses, branded content and green-screen recording.
+                </p>
+                <span className="font-bold text-zayro-primary">Explore video studio →</span>
+              </Link>
+            </Reveal>
+          </div>
+        </div>
+      </section>
       <StudioExperienceSection />
       <HowBookingWorksSection />
 
