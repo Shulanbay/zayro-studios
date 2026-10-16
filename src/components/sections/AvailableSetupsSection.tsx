@@ -53,7 +53,11 @@ export default function AvailableSetupsSection() {
           {setups.map((setup, index) => (
             <li key={setup.name}>
               <Reveal delayMs={index * 70}>
-                <article className="group h-full overflow-hidden rounded-xl-plus border border-zayro-border bg-white shadow-soft transition-all duration-300 hover:-translate-y-1 hover:shadow-lift">
+                <Link
+                  href="/booking?category=podcast"
+                  aria-label={`Book the ${setup.name} podcast setup`}
+                  className="group block h-full overflow-hidden rounded-xl-plus border border-zayro-border bg-white shadow-soft transition-all duration-300 hover:-translate-y-1 hover:border-zayro-primary hover:shadow-lift"
+                >
                   <div className="relative aspect-[16/10] overflow-hidden bg-zayro-bg">
                     <Image
                       src={setup.image}
@@ -72,15 +76,11 @@ export default function AvailableSetupsSection() {
                       <h3 className="text-2xl font-black text-zayro-dark mb-2">{setup.name}</h3>
                       <p className="text-sm text-zayro-gray leading-relaxed">{setup.description}</p>
                     </div>
-                    <Link
-                      href="/booking?category=podcast"
-                      aria-label={`Book the ${setup.name} podcast setup`}
-                      className="shrink-0 text-2xl text-zayro-primary transition-transform group-hover:translate-x-1"
-                    >
+                    <span className="shrink-0 text-2xl text-zayro-primary transition-transform group-hover:translate-x-1" aria-hidden="true">
                       →
-                    </Link>
+                    </span>
                   </div>
-                </article>
+                </Link>
               </Reveal>
             </li>
           ))}
