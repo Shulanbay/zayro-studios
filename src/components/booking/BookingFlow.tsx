@@ -1635,7 +1635,7 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
   }
 
   return (
-    <div className="container py-10 md:py-16" ref={headingRef}>
+    <div className="container pt-10 pb-8 md:pt-16 md:pb-12" ref={headingRef}>
       {packageBooking && <div className="card mb-8 flex flex-col sm:flex-row sm:items-center gap-4"><div className="flex-1"><p className="font-bold">{packageBooking.name} · One prepaid session</p><p className="text-sm text-zayro-gray">Choose a date by {packageBooking.expiresOn}. No payment required for this session.</p></div><button type="button" className="button button-secondary" onClick={() => { releaseHoldQuietly(state.holdId); clearPersistedState(storageKey); onPackageExit?.(); }}>Back to my package</button></div>}
       {content}
     </div>
