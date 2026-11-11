@@ -574,8 +574,8 @@ describe('studio setups', () => {
   it('a podcast booking needs one of the four setups; photography gets its only one automatically', async () => {
     const setupsRoute = await import('@/app/api/booking/setups/route');
     const list = await (await setupsRoute.GET(new NextRequest(`http://localhost/api/booking/setups?service_id=${ids['Podcast Pro']}`))).json();
-    expect(list.map((s: any) => s.name)).toEqual(['Sofa Lounge', 'Cream Lounge', 'Garden Lounge', 'Library Table']);
-    expect(list[0]).toMatchObject({ seats: 3, image: '/setups/sofa-lounge.webp' });
+    expect(list.map((s: any) => s.name)).toEqual(['Sofa Lounge', 'Conversation Corner', 'Conference Table Setup', 'Bookshelf Setup']);
+    expect(list[0]).toMatchObject({ seats: 4, image: '/setups/sofa-lounge.webp' });
 
     const body = (setup_id?: number) => ({
       customer_email: 'setup@example.com',

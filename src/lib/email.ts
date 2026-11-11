@@ -123,7 +123,8 @@ async function summaryData(booking: Booking, audience: 'customer' | 'owner'): Pr
   return data;
 }
 
-const EMAIL_HEADER_SLUGS = ['sofa-lounge', 'cream-lounge', 'garden-lounge', 'library-table'];
+// Retired setups stay listed: older bookings still use them.
+const EMAIL_HEADER_SLUGS = ['sofa-lounge', 'conversation-corner', 'conference-table', 'bookshelf', 'cream-lounge', 'garden-lounge', 'library-table'];
 
 export async function sendOwnerNotificationEmail({ booking, service }: BookingEmailData): Promise<EmailOutcome> {
   const summary = await summaryData(booking, 'owner');
