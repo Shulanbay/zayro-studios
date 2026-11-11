@@ -766,3 +766,59 @@ select:disabled {
 .crm dialog::backdrop {
   background: rgba(11, 18, 32, 0.35);
 }
+
+/* Homepage trust strip: endless, slow ticker with soft faded edges. */
+.trust-strip-viewport {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 8%, #000 92%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 8%, #000 92%, transparent 100%);
+}
+
+.trust-strip-track {
+  display: flex;
+  width: max-content;
+  animation: trust-strip-scroll 45s linear infinite;
+}
+
+.trust-strip:hover .trust-strip-track {
+  animation-play-state: paused;
+}
+
+.trust-strip-list {
+  display: flex;
+  align-items: center;
+  gap: 3rem;
+  padding-right: 3rem;
+}
+
+@keyframes trust-strip-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trust-strip-viewport {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  .trust-strip-track {
+    width: auto;
+    animation: none;
+  }
+
+  .trust-strip-list {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1rem 2rem;
+    padding: 0 1.5rem;
+  }
+
+  .trust-strip-copy {
+    display: none;
+  }
+}
