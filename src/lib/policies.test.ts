@@ -5,7 +5,7 @@ import { POLICY_COPY, POLICY_FAQ, bookingEligibility } from './policies';
 import { buildFaqs, faqJsonLd } from './faq';
 import { DEFAULT_BOOKING_FACTS } from './bookingFacts';
 import * as T from './crm/emailTemplates';
-import { addonLimit, includedCameras } from './bookingOptions';
+import { addonLimit, includedCameras, parseIntake } from './bookingOptions';
 import { isOpenSevenDays } from './bookingFacts';
 
 function files(dir: string): string[] {
@@ -125,5 +125,14 @@ describe('edited episode delivery', () => {
     const base = { bookingId: 'Z', firstName: 'A', serviceName: 'Full Podcast Package', date: '2031-06-06', startTime: '14:00', endTime: '15:00', totalCents: 1, isTour: false, address: 'x', contactEmail: 'y' };
     expect(T.bookingConfirmation({ ...base, includesEditing: true }).text).toContain(POLICY_COPY.editedDelivery);
     expect(T.bookingConfirmation({ ...base, includesEditing: false }).text).not.toContain('business days');
+  });
+});
+
+describe('guest emails', () => {
+  it('an email typed into the guest name field is used as the email; a plain name without email is still refused', () => {
+    const base = { peopleRecording: 2, recordingType: 'Podcast', editing: 'no' };
+    const r = parseIntake({ ...base, guests: [{ name: ' Shulanbai.FBR@gmail.com ', email: '' }] }, 'podcast', 'owner@example.com');
+    expect(r).toMatchObject({ ok: true, intake: { guests: ['shulanbai.fbr@gmail.com'] } });
+    expect(parseIntake({ ...base, guests: [{ name: 'Shulanbay', email: '' }] }, 'podcast', 'owner@example.com').ok).toBe(false);
   });
 });

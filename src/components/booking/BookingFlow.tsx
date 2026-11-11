@@ -1406,17 +1406,20 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
               <div className="space-y-2">
                 {state.intake.guests.map((g, i) => (
                   <div key={i} className="flex flex-col sm:flex-row gap-2">
+                    {/* Name takes 2/5 of the row on wider screens; the email field gets the rest (was squeezed to nothing). */}
                     <input
                       type="text"
                       autoComplete="off"
                       maxLength={100}
+                      className="w-full sm:w-2/5 sm:flex-none"
                       aria-label={`Guest ${i + 1} name`}
                       placeholder="Guest name"
                       value={g.name}
                       onChange={(e) => updateIntake('guests', state.intake.guests.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
                     />
-                    <div className="flex gap-2 sm:flex-1">
+                    <div className="flex gap-2 sm:flex-1 min-w-0">
                       <input
+                        className="min-w-0 flex-1"
                         type="email"
                         inputMode="email"
                         autoComplete="off"

@@ -205,8 +205,13 @@ export function parseIntake(raw: unknown, category: string, customerEmail?: stri
       if (typeof rawEmail !== 'string' || (rawName !== undefined && rawName !== null && typeof rawName !== 'string')) {
         return { ok: false, error: 'Guest emails must be email addresses.' };
       }
-      const email = rawEmail.trim().toLowerCase();
-      const name = typeof rawName === 'string' ? rawName.trim().slice(0, 100) : '';
+      let email = rawEmail.trim().toLowerCase();
+      let name = typeof rawName === 'string' ? rawName.trim().slice(0, 100) : '';
+      // An email typed into the name field (and no email given): use it as the email.
+      if (!email && EMAIL_RE.test(name)) {
+        email = name.toLowerCase();
+        name = '';
+      }
       if (!email) {
         if (name) return { ok: false, error: `Please add an email for guest "${name.slice(0, 60)}".` };
         continue;
