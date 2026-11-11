@@ -97,3 +97,40 @@ admin saw as refundable (stale dialogs are rejected).
   fixture.
 - The service-account JSON still sits in the repo root on the owner's
   machine — it is ignored by git; delete it once Google is verified.
+
+## Manage Booking links (customer self-service)
+- Token = HMAC-SHA256(`BOOKING_MANAGE_SECRET`, `booking id : random nonce`), 256-bit,
+  base64url. The database keeps only sha256(token) and the nonce; rotating the
+  nonce or setting `manage_token_revoked_at` kills every older link.
+- Link format `/booking/manage#t=…`: the fragment never reaches the server,
+  logs or Referer; the page moves it to `sessionStorage`, strips it from the
+  address bar, sends it only in POST bodies, and Google Analytics is not
+  initialised on `/booking/manage`. The page is `noindex, nofollow`,
+  `Referrer-Policy: no-referrer`, and not in the sitemap.
+- Unknown, malformed and revoked tokens all get the same 404 message.
+- Only the booking owner's emails contain the link; guest emails never do.
+- Every mutation re-checks status and the 24-hour rule on the server (inside
+  the same transaction / compare-and-set as the change), is rate limited per
+  IP (view 60, cancel/reschedule/extend 10 per 10 min), Origin-checked, and
+  audited. Client-sent amounts, ids and Stripe references are never used.
+
+### Secret separation
+| Secret | Used only for | Rotating it affects |
+| --- | --- | --- |
+| `NEXTAUTH_SECRET` | admin magic links + sessions (and the salt of rate-limit keys) | admins sign in again; rate-limit windows restart |
+| `BOOKING_MANAGE_SECRET` | customer Manage Booking links | every issued Manage Booking link stops working; customers use *Request a new link* |
+| `STRIPE_SECRET_KEY` | Stripe API calls | nothing else |
+
+No secret falls back to another. Missing `BOOKING_MANAGE_SECRET` fails
+closed: the Manage Booking API answers 503, confirmation emails go out
+without the link, and Admin → Integrations → Configuration shows it as
+missing (name and state only, never the value).
+
+### Request a new link (`/booking/manage/request-link`)
+Booking reference + the email on the booking. Always the same answer
+("If the booking details match our records…") and at least 1.2 s response
+time, whatever happened. Rate limited per IP (5 / 15 min) and per booking
+reference (5 / h), salted-hash keys. The link goes only to the booking's own
+email (never a guest or a typed-in address), replaces earlier links, and is
+sent at most once per booking per 10 minutes. Unpaid checkouts and links
+revoked by staff get nothing. Audited without the token.

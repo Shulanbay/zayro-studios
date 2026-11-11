@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { formatBookingDateUTC } from '@/lib/utils';
 import { formatDuration } from '@/lib/catalog';
 import { formatTimeLabel } from '@/lib/crm/time';
+import { POLICY_COPY } from '@/lib/policies';
 
 interface BookingSummary {
   bookingId: string;
@@ -216,18 +217,18 @@ function SuccessContent() {
             <span className="text-zayro-primary font-bold" aria-hidden="true">
               →
             </span>
-            <span>Please arrive about 10 minutes early.</span>
+            <span>{POLICY_COPY.studioTime} {POLICY_COPY.earlyArrival}</span>
           </li>
           <li className="flex gap-3">
             <span className="text-zayro-primary font-bold" aria-hidden="true">
               →
             </span>
             <span>
-              Need to change or cancel? Reply to your confirmation email or write to{' '}
+              Need to reschedule, add time or cancel? Use the Manage Your Booking link in your confirmation email. {POLICY_COPY.changes} Questions? Write to{' '}
               <a href="mailto:hello@zayro.studio" className="text-zayro-primary font-semibold">
                 hello@zayro.studio
-              </a>{' '}
-              with your booking ID.
+              </a>
+              .
             </span>
           </li>
         </ul>

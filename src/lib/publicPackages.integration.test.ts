@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import type Stripe from 'stripe';
+import { withPolicy } from '@/test/policy';
 
 const h = vi.hoisted(() => ({ sessions: new Map<string, any>(), creates: 0 }));
 vi.mock('@/lib/db', async () => {
@@ -47,7 +48,7 @@ beforeAll(async () => {
   setupId = (await pg.query("SELECT id FROM setups WHERE slug = 'sofa-lounge'")).rows[0].id;
 });
 function post(url: string, body: unknown, cookie?: string) {
-  return new NextRequest(`https://zayro.studio${url}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(cookie ? { cookie: `${PACKAGE_COOKIE}=${cookie}` } : {}) }, body: JSON.stringify(body) });
+  return new NextRequest(`https://zayro.studio${url}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(cookie ? { cookie: `${PACKAGE_COOKIE}=${cookie}` } : {}) }, body: JSON.stringify(withPolicy(url, body)) });
 }
 async function start() {
   const input = { requestId: crypto.randomUUID(), serviceId: packageId, firstName: 'Ada', lastName: 'Test', email: `pkg${++n}@example.com`, phone: '+12125550100' };

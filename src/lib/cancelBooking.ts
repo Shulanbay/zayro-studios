@@ -1,16 +1,17 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, gte, inArray } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { db } from './db';
 import { bookings, purchases, services, temporaryHolds } from './db/schema';
 import type { Booking } from './db/schema';
 import { toDateOnly } from './utils';
-import { logIntegration, withBookingLock } from './integrationSync';
+import { logIntegration, sheetExtrasFor, withBookingLock } from './integrationSync';
 import { markCalendarEventCancelled, type CalendarCancelResult } from './googleCalendar';
 import { markBookingCancelledInSheet, type SheetsCancelResult } from './googleSheets';
 import { sendCancellationEmail } from './email';
 import { writeAudit, type AuditActor } from './crm/audit';
 import { restoreCredit } from './crm/packages';
 import { refreshCustomerStats } from './crm/customers';
+import { releasePendingExtensions } from './extensions';
 
 /**
  * Admin cancellation of a single booking.
@@ -36,6 +37,16 @@ export const CANCELLABLE_STATUSES = ['pending', 'payment_pending', 'confirmed'] 
 export interface CancelOptions {
   reason?: string | null;
   notifyCustomer?: boolean;
+  /**
+   * Only cancel if the session starts at or after this instant (checked in
+   * the same compare-and-set as the status). Customer self-service passes
+   * now + 24 h, so the policy is enforced atomically on the server.
+   */
+  startsNoEarlierThan?: Date;
+  /** The caller refunds right away (customer self-service); don't flag the booking for a refund decision. */
+  refundFollows?: boolean;
+  /** Refund status line for the cancellation email. */
+  refundNote?: string | null;
 }
 
 export type CancelBookingResult =
@@ -93,6 +104,7 @@ export async function cancelBooking(
   }
 
   const paid = before.payment_status === 'succeeded' && parseFloat(before.total_amount) > 0;
+  const flagForRefund = paid && !options.refundFollows;
 
   const txResult = await db.transaction(async (tx) => {
     const now = new Date();
@@ -104,9 +116,15 @@ export async function cancelBooking(
         cancellation_reason: reason,
         updated_by_admin_id: who.id ?? null,
         updated_at: now,
-        ...(paid ? { needs_refund_review: true, review_reason: 'Paid booking cancelled — decide whether to refund' } : {}),
+        ...(flagForRefund ? { needs_refund_review: true, review_reason: 'Paid booking cancelled — decide whether to refund' } : {}),
       })
-      .where(and(eq(bookings.id, bookingUuid), inArray(bookings.status, [...CANCELLABLE_STATUSES])))
+      .where(
+        and(
+          eq(bookings.id, bookingUuid),
+          inArray(bookings.status, [...CANCELLABLE_STATUSES]),
+          options.startsNoEarlierThan ? gte(bookings.starts_at, options.startsNoEarlierThan) : undefined
+        )
+      )
       .returning();
     if (updated.length === 0) return null;
 
@@ -130,7 +148,7 @@ export async function cancelBooking(
         .update(purchases)
         .set({ status: 'cancelled', updated_at: now })
         .where(and(eq(purchases.id, before.purchase_id), eq(purchases.status, 'pending')));
-      if (paid) {
+      if (flagForRefund) {
         await tx
           .update(purchases)
           .set({ needs_refund_review: true, review_reason: 'Booking cancelled — decide whether to refund', updated_at: now })
@@ -149,7 +167,7 @@ export async function cancelBooking(
         entityId: bookingUuid,
         before: { status: before.status, paymentStatus: before.payment_status },
         after: { status: 'cancelled' },
-        metadata: { reason, holdsReleased: released.length, creditRestored: creditRestored.restored, refundIssued: false },
+        metadata: { reason, holdsReleased: released.length, creditRestored: creditRestored.restored, refundIssued: false, refundFollows: !!options.refundFollows },
       },
       tx
     );
@@ -168,6 +186,8 @@ export async function cancelBooking(
       : { status: 'none' as const, message: 'No unpaid Checkout session to expire' };
 
   const service = await db.query.services.findFirst({ where: eq(services.id, booking.service_id) });
+  // An open extra-time Checkout for this booking can no longer be paid; its hold is released.
+  await releasePendingExtensions(booking.id);
 
   // Same per-booking locks as the sync, so a concurrent retry can't
   // rewrite the row/event between our read and our update.
@@ -178,7 +198,7 @@ export async function cancelBooking(
     { status: 'skipped', message: 'Booking not found' };
 
   const sheets: SheetsCancelResult = service
-    ? (await withBookingLock('google_sheets', booking.id, (_tx, fresh) => markBookingCancelledInSheet(fresh, service)).catch(
+    ? (await withBookingLock('google_sheets', booking.id, async (tx, fresh) => markBookingCancelledInSheet(fresh, service, { extras: await sheetExtrasFor(fresh, tx) })).catch(
         (err) => ({ status: 'failed' as const, rowId: null, message: String((err as Error)?.message || err) })
       )) ?? { status: 'skipped', rowId: null, message: 'Booking not found' }
     : { status: 'skipped', rowId: null, message: 'Service not found' };
@@ -197,7 +217,7 @@ export async function cancelBooking(
 
   let email = { status: 'not_requested', message: 'Customer not notified' };
   if (options.notifyCustomer && service) {
-    const sent = await sendCancellationEmail({ booking, service });
+    const sent = await sendCancellationEmail({ booking, service, refundNote: options.refundNote ?? null });
     email = { status: sent.status, message: sent.sent ? 'Cancellation email sent' : `Email ${sent.status}: ${sent.error ?? ''}`.trim() };
     await logIntegration('email', booking.id, sent.sent ? 'success' : 'failed', email.message);
   }
@@ -223,6 +243,6 @@ export async function cancelBooking(
     calendar,
     sheets,
     email,
-    needsRefundDecision: paid,
+    needsRefundDecision: flagForRefund,
   };
 }

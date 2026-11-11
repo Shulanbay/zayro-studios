@@ -9,7 +9,7 @@ import { Badge, Card, EmptyState, Forbidden, Money, PageHeader, Pagination, Stat
 export const dynamic = 'force-dynamic';
 
 const STATUSES = ['pending', 'paid', 'partially_refunded', 'refunded', 'approved', 'cancelled', 'failed'];
-const TYPES = ['individual', 'studio_tour', 'package', 'manual'];
+const TYPES = ['individual', 'studio_tour', 'package', 'manual', 'extension'];
 
 export default async function PurchasesPage({ searchParams }: { searchParams: PurchaseFilters }) {
   const admin = await getAdminContext();

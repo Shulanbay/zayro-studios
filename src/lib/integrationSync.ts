@@ -1,9 +1,10 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from './db';
-import { bookings, integrationLogs, services } from './db/schema';
+import { bookingExtensions, bookings, integrationLogs, purchases, services } from './db/schema';
 import type { Booking, Service } from './db/schema';
 import { syncCalendarEvent, updateCalendarEvent, type CalendarSyncResult, type CalendarUpdateResult } from './googleCalendar';
-import { syncBookingToSheet, type SheetsSyncResult } from './googleSheets';
+import { syncBookingToSheet, type SheetExtras, type SheetsSyncResult } from './googleSheets';
+import type { Executor } from './db/types';
 
 /**
  * DB side of the Google integrations: serialises concurrent runs for the
@@ -41,6 +42,34 @@ export async function logIntegration(
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+const COLLECTED = ['paid', 'partially_refunded', 'refunded'];
+
+/**
+ * What the optional Paid Bookings columns show, from the database (the
+ * source of truth): net money collected (paid − refunded) on the booking's
+ * own purchase and on each extra-time purchase. Pending, failed and
+ * cancelled payments count as nothing. Re-computed in full on every sync,
+ * so repeating a sync never adds anything twice. Returns null when it can't
+ * be computed — the sheet then leaves those cells empty instead of guessing.
+ */
+export async function sheetExtrasFor(booking: Booking, exec: Executor = db): Promise<SheetExtras | null> {
+  try {
+    const exts = await exec.query.bookingExtensions.findMany({ where: eq(bookingExtensions.booking_id, booking.id) });
+    const ids = [...(booking.purchase_id ? [booking.purchase_id] : []), ...exts.map((e) => e.purchase_id)];
+    const rows = ids.length ? await exec.query.purchases.findMany({ where: inArray(purchases.id, ids) }) : [];
+    const net = (p: (typeof rows)[number]) => (COLLECTED.includes(p.status) ? Math.max(0, p.total_cents - p.refunded_cents) : 0);
+    const extIds = new Set(exts.map((e) => e.purchase_id));
+    const extensionNetCents = rows.filter((p) => extIds.has(p.id)).reduce((n, p) => n + net(p), 0);
+    const own = booking.purchase_id ? rows.find((p) => p.id === booking.purchase_id) : undefined;
+    // Bookings from before the CRM have no purchase row: their own payment is the booking total.
+    const ownNet = own ? net(own) : booking.payment_status === 'succeeded' ? Math.round(parseFloat(booking.total_amount) * 100) : 0;
+    return { extensionNetCents, totalPaidNetCents: ownNet + extensionNetCents };
+  } catch (error) {
+    console.error('[sheets] could not compute paid totals:', (error as Error)?.message || error);
+    return null;
+  }
+}
 
 /**
  * Runs `fn` inside a transaction holding a per-booking, per-integration
@@ -101,7 +130,7 @@ export async function syncSheetsForBooking(booking: Booking, service: Service): 
   try {
     result =
       (await withBookingLock('google_sheets', booking.id, async (tx, fresh) => {
-        const r = await syncBookingToSheet(fresh, service, fresh.google_calendar_event_id);
+        const r = await syncBookingToSheet(fresh, service, fresh.google_calendar_event_id, { extras: await sheetExtrasFor(fresh, tx) });
         if (r.rowId && r.rowId !== fresh.google_sheets_row_id) {
           await tx.update(bookings).set({ google_sheets_row_id: r.rowId }).where(eq(bookings.id, fresh.id));
         }

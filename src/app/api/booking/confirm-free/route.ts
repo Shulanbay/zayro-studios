@@ -12,6 +12,7 @@ import { parseIntake } from '@/lib/bookingOptions';
 import { checkBookable } from '@/lib/catalogData';
 import { generateBookingId, isValidEmail, isValidPhone, toDateOnly } from '@/lib/utils';
 import { runPostConfirmationSideEffects } from '@/lib/postConfirmation';
+import { POLICY_VERSION } from '@/lib/policies';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,6 +53,11 @@ export async function POST(request: NextRequest) {
 
     if (!isValidEmail(email)) {
       return NextResponse.json({ error: 'Invalid email format' }, { status: 400 });
+    }
+
+    // The customer must tick the (never pre-ticked) policy checkbox.
+    if (body.policyAccepted !== true) {
+      return NextResponse.json({ error: "Please agree to the cancellation, rescheduling and studio-time policies. Reload the page if you don't see the checkbox.", code: 'policy_required' }, { status: 400 });
     }
 
     if (!isValidPhone(phone)) {
@@ -211,6 +217,8 @@ export async function POST(request: NextRequest) {
             source: isTour ? 'studio_tour' : 'individual',
             intake: { ...answers.intake, ...(setup.setupName ? { setupName: setup.setupName } : {}) } as Record<string, unknown>,
             setup_id: setup.setupId,
+            policy_version: POLICY_VERSION,
+            policy_accepted_at: now,
             created_at: now,
             updated_at: now,
           })

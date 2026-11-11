@@ -13,7 +13,7 @@ const highlights = [
   { title: 'Broadcast-quality audio', description: 'Record clear voices with Shure SM7B microphones and professional audio mixing.' },
   { title: 'Camera-ready sets', description: 'Choose from four furnished podcast setups designed to look polished on camera.' },
   { title: 'Professional lighting', description: 'Arrive to a studio prepared with flattering, production-ready lighting.' },
-  { title: 'On-site support', description: 'Podcast Pro includes a producer or technician to run the recording session.' },
+  { title: 'On-site support', description: 'Every podcast package includes a videographer / studio technician who runs the recording session.' },
   { title: 'Editing available', description: 'Choose the Full Podcast Package or request post-production for another session.' },
 ] as const;
 

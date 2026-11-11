@@ -16,6 +16,11 @@ import { createPurchase, orderNumberForBooking, recomputeRefundState } from './p
 import { refreshCustomerStats } from './customers';
 import { decimalToCents } from './money';
 import { getStripe, resyncSheetsForPurchase, upsertRefundFromStripe } from './refunds';
+import { confirmExtensionSession, releaseExtensionSession } from '@/lib/manageBooking';
+import { refunds as refundsTable } from '@/lib/db/schema';
+import { sendRefundEmail } from '@/lib/email';
+
+const isExtension = (session: Stripe.Checkout.Session) => session.metadata?.kind === 'booking_extension';
 
 /**
  * Stripe webhook processing with database-backed idempotency.
@@ -122,10 +127,12 @@ async function dispatch(event: Stripe.Event): Promise<Result> {
       const session = event.data.object as Stripe.Checkout.Session;
       // Delayed payment methods complete Checkout before the money arrives.
       if (session.payment_status === 'unpaid') return { status: 'awaiting_async_payment' };
+      if (isExtension(session)) return confirmExtensionSession(session);
       return session.metadata?.kind === 'monthly_package' ? fulfillPackageSession(session).then(() => ({ status: 'package_activated' })) : confirmPaidSession(session);
     }
     case 'checkout.session.async_payment_succeeded': {
       const session = event.data.object as Stripe.Checkout.Session;
+      if (isExtension(session)) return confirmExtensionSession(session);
       return session.metadata?.kind === 'monthly_package' ? fulfillPackageSession(session).then(() => ({ status: 'package_activated' })) : confirmPaidSession(session);
     }
     case 'checkout.session.async_payment_failed':
@@ -356,6 +363,7 @@ async function flagForReview(booking: Booking, session: Stripe.Checkout.Session,
 /** Async payment failed / Checkout expired: release the unpaid booking. */
 export async function releaseUnpaidSession(session: Stripe.Checkout.Session, purchaseStatus: 'failed' | 'cancelled', reason: string): Promise<Result> {
   if (session.metadata?.kind === 'monthly_package') return expirePackageCheckout(session, purchaseStatus);
+  if (isExtension(session)) return releaseExtensionSession(session, purchaseStatus);
   const booking = await findSessionBooking(db, session);
   if (!booking) return { status: 'no_booking' };
   const released = await db.transaction(async (tx) => {
@@ -421,7 +429,20 @@ async function syncChargeRefunds(charge: Stripe.Charge): Promise<Result> {
     for (const id of Array.from(purchaseIds)) await recomputeRefundState(tx, id);
   });
   for (const id of Array.from(purchaseIds)) await resyncSheetsForPurchase(id);
+  for (const id of Array.from(purchaseIds)) await notifyCustomerRefunds(id);
   return { status: purchaseIds.size ? 'refunds_synced' : 'no_matching_purchase' };
+}
+
+/**
+ * Refunds the customer asked for get an email for each state they reach
+ * (requested → issued, or not completed). The dedupe key includes the
+ * state, so a webhook retry never sends the same email twice.
+ */
+async function notifyCustomerRefunds(purchaseId: string) {
+  const rows = await db.query.refunds.findMany({ where: and(eq(refundsTable.purchase_id, purchaseId), eq(refundsTable.source, 'customer')) });
+  for (const r of rows) {
+    if (r.status === 'succeeded' || r.status === 'failed' || r.status === 'canceled') await sendRefundEmail(r.id);
+  }
 }
 
 async function syncRefund(refund: Stripe.Refund): Promise<Result> {
@@ -431,7 +452,10 @@ async function syncRefund(refund: Stripe.Refund): Promise<Result> {
     purchaseId = r.purchaseId;
     if (purchaseId) await recomputeRefundState(tx, purchaseId);
   });
-  if (purchaseId) await resyncSheetsForPurchase(purchaseId);
+  if (purchaseId) {
+    await resyncSheetsForPurchase(purchaseId);
+    await notifyCustomerRefunds(purchaseId);
+  }
   return { status: purchaseId ? 'refund_synced' : 'no_matching_purchase' };
 }
 

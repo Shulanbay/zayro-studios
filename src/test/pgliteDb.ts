@@ -87,10 +87,11 @@ export function rowsOf<T = Record<string, unknown>>(result: unknown): T[] {
  */
 export async function seedCatalog(pg: PGlite): Promise<Record<string, number>> {
   await pg.exec(`
-    INSERT INTO services (id, name, base_price, duration_minutes, category, display_order) VALUES
-      (101, 'Single Podcaster', 170, 60, 'podcast', 10),
-      (102, 'Podcast Pro', 200, 60, 'podcast', 20),
-      (103, 'Full Podcast Package', 450, 60, 'podcast', 30)
+    -- metadata.includedCameras as migration 0017 sets it on the real services.
+    INSERT INTO services (id, name, base_price, duration_minutes, category, display_order, metadata) VALUES
+      (101, 'Single Podcaster', 170, 60, 'podcast', 10, '{"includedCameras": 1}'),
+      (102, 'Podcast Pro', 200, 60, 'podcast', 20, '{"includedCameras": 3}'),
+      (103, 'Full Podcast Package', 450, 60, 'podcast', 30, '{"includedCameras": 3}')
     ON CONFLICT (id) DO NOTHING;
     SELECT setval(pg_get_serial_sequence('services', 'id'), 200);
     INSERT INTO availability (day_of_week, start_time, end_time, is_available)

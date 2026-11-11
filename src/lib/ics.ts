@@ -23,6 +23,8 @@ export function buildSessionIcs(args: {
   startTime: string; // HH:MM
   endTime: string;
   now?: Date;
+  /** Bump for every change of the same event (reschedule, extension) so calendar apps update it in place. */
+  sequence?: number;
 }): string {
   const endDate = args.endTime <= args.startTime ? addDays(args.date, 1) : args.date;
   const lines = [
@@ -34,6 +36,7 @@ export function buildSessionIcs(args: {
     'BEGIN:VEVENT',
     `UID:${icsText(args.uid)}@zayro.studio`,
     `DTSTAMP:${stamp(args.now ?? new Date())}`,
+    ...(args.sequence ? [`SEQUENCE:${Math.max(0, Math.floor(args.sequence))}`] : []),
     `DTSTART:${stamp(wallTimeToUtc(args.date, args.startTime))}`,
     `DTEND:${stamp(wallTimeToUtc(endDate, args.endTime))}`,
     `SUMMARY:${icsText(args.title)}`,

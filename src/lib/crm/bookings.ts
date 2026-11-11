@@ -9,12 +9,13 @@ import { generateBookingId, toDateOnly } from '@/lib/utils';
 import { getTaxRate } from '@/lib/pricing';
 import { checkBookable } from '@/lib/catalogData';
 import { logIntegration, resyncGoogleAfterChange, syncGoogleIntegrations, syncSheetsForBooking } from '@/lib/integrationSync';
-import { sendBookingConfirmationEmail, sendPackageCreditUsedEmail, sendRescheduleEmail } from '@/lib/email';
+import { sendBookingConfirmationEmail, sendGuestScheduleUpdateEmails, sendPackageCreditUsedEmail, sendRescheduleEmail } from '@/lib/email';
 import { writeAudit, type AuditActor } from './audit';
 import { upsertCustomer, refreshCustomerStats, type CustomerInput } from './customers';
 import { createPurchase, orderNumberForBooking } from './purchases';
 import { redeemCredit } from './packages';
 import { CrmError, conflict, notFound } from './errors';
+import { releasePendingExtensions } from '@/lib/extensions';
 import { centsToDecimal, decimalToCents, taxCents } from './money';
 import { minutesToTime, timeToMinutes, wallTimeToUtc } from './time';
 
@@ -39,7 +40,7 @@ function endTimeFor(start: string, durationMinutes: number): string {
 
 async function assertSlotFree(
   tx: Executor,
-  args: { date: string; start: string; end: string; duration: number; overrideHours: boolean; excludeBookingId?: string }
+  args: { date: string; start: string; end: string; duration: number; overrideHours: boolean; excludeBookingId?: string; respectCutoff?: boolean }
 ) {
   if (args.overrideHours) {
     // Outside opening hours / off the grid is allowed for staff, on top of someone else is not.
@@ -50,7 +51,7 @@ async function assertSlotFree(
   }
   const ok = await isSlotActuallyAvailable(args.date, args.start, args.end, args.duration, tx, {
     excludeBookingId: args.excludeBookingId,
-    ignoreCutoff: true,
+    ignoreCutoff: !args.respectCutoff,
   });
   if (!ok) {
     throw conflict(
@@ -259,6 +260,15 @@ export interface RescheduleInput {
   overrideHours?: boolean;
   notifyCustomer?: boolean;
   reason?: string | null;
+  /**
+   * Customer self-service: the new time must be a normal public slot
+   * (booking cutoff applies) and `guard` re-checks the policy on the fresh
+   * row inside the transaction, under the date locks.
+   */
+  respectCutoff?: boolean;
+  guard?: (fresh: Booking) => void;
+  /** Audit operation name override (e.g. 'booking.reschedule_by_customer'). */
+  operation?: string;
 }
 
 /**
@@ -297,6 +307,7 @@ export async function rescheduleBooking(
       await lockStudioDates(tx, [oldDate, input.date]);
       const fresh = await tx.query.bookings.findFirst({ where: eq(bookings.id, bookingUuid) });
       if (!fresh || fresh.status !== 'confirmed') throw conflict('The booking changed; reload and try again');
+      input.guard?.(fresh);
       await assertSlotFree(tx, {
         date: input.date,
         start: input.startTime,
@@ -304,6 +315,7 @@ export async function rescheduleBooking(
         duration: durationMinutes,
         overrideHours: !!input.overrideHours,
         excludeBookingId: bookingUuid,
+        respectCutoff: input.respectCutoff,
       });
       const [updated] = await tx
         .update(bookings)
@@ -322,7 +334,7 @@ export async function rescheduleBooking(
       await writeAudit(
         {
           actor,
-          operation: serviceId !== before.service_id ? 'booking.change_service' : 'booking.reschedule',
+          operation: input.operation ?? (serviceId !== before.service_id ? 'booking.change_service' : 'booking.reschedule'),
           entityType: 'booking',
           entityId: bookingUuid,
           before: { date: oldDate, start: before.start_time, end: before.end_time, serviceId: before.service_id },
@@ -335,6 +347,8 @@ export async function rescheduleBooking(
     })
     .catch(mapOverlapError);
 
+  // Extra time bought for the old time no longer applies.
+  await releasePendingExtensions(booking.id);
   const effects: BookingSideEffects = {};
   const google = await resyncGoogleAfterChange(booking, service);
   effects.calendar = google.calendar.message;
@@ -343,6 +357,12 @@ export async function rescheduleBooking(
     const email = await sendRescheduleEmail({ booking, service, previous: { date: oldDate, startTime: before.start_time } });
     effects.email = email.sent ? 'Reschedule email sent' : `Email ${email.status}: ${email.error ?? ''}`.trim();
     await logIntegration('email', booking.id, email.sent ? 'success' : 'failed', effects.email);
+    // Guests get the new time with an updated calendar file.
+    const guests = await sendGuestScheduleUpdateEmails({ booking, service, change: 'rescheduled' }).catch(() => []);
+    if (guests.length > 0) {
+      const sent = guests.filter((g) => g.sent).length;
+      await logIntegration('email', booking.id, sent === guests.length ? 'success' : 'failed', `Guest schedule updates sent: ${sent} of ${guests.length}`);
+    }
   }
   return { booking, effects };
 }

@@ -6,7 +6,14 @@ import { CrmError, errorResponse } from '@/lib/crm/errors';
 import { pgErrorCode } from '@/lib/db/types';
 import { enforceRateLimit } from '@/lib/crm/rateLimit';
 export const dynamic = 'force-dynamic';
-const schema = z.object({ packageId: z.string().uuid(), holdId: z.string().uuid(), intake: z.record(z.unknown()).optional(), notes: z.string().trim().max(2000).optional() });
+const schema = z.object({
+  packageId: z.string().uuid(),
+  holdId: z.string().uuid(),
+  intake: z.record(z.unknown()).optional(),
+  notes: z.string().trim().max(2000).optional(),
+  // The policy checkbox on the review step.
+  policyAccepted: z.literal(true, { errorMap: () => ({ message: 'Please agree to the cancellation, rescheduling and studio-time policies.' }) }),
+});
 export async function POST(request: NextRequest) {
   const limited = await enforceRateLimit(request, 'package-book', 30, 600);
   if (limited) return limited;

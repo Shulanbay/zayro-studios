@@ -37,6 +37,30 @@ export const PAID_BOOKINGS_HEADERS = [
   'Notes',
 ] as const;
 
+/**
+ * Optional columns U–X of "Paid Bookings" (layout v2). The original "Total"
+ * column (O) always stays the original booking total; these show what was
+ * actually collected once a customer buys extra time. A sheet without them
+ * keeps working (layout v1) and Admin → Integrations asks for the upgrade;
+ * this module never adds columns to the owner's sheet by itself.
+ */
+export const PAID_BOOKINGS_EXTENSION_HEADERS = [
+  'Extension Payments (net)',
+  'Total Paid (net of refunds)',
+  'Current Duration (min)',
+  'Current End Time',
+] as const;
+
+/** Money/time for the optional columns, computed on the server from the database. */
+export interface SheetExtras {
+  /** Net collected on paid extra-time purchases (paid − refunded), in cents. */
+  extensionNetCents: number;
+  /** Net collected on the booking and all its extensions, in cents. */
+  totalPaidNetCents: number;
+}
+
+export type SheetLayout = 'v1' | 'v2';
+
 export const STUDIO_TOURS_HEADERS = [
   'Created At',
   'Booking ID',
@@ -167,8 +191,13 @@ export function timestampCell(value: Date | string | null | undefined): string {
 
 export type CellValue = string | number;
 
-export function buildPaidBookingRow(booking: Booking, service: Service, calendarEventId: string | null): CellValue[] {
-  return [
+export function buildPaidBookingRow(
+  booking: Booking,
+  service: Service,
+  calendarEventId: string | null,
+  extended?: { extras: SheetExtras | null }
+): CellValue[] {
+  const base: CellValue[] = [
     timestampCell(booking.created_at),
     textCell(booking.booking_id),
     dateCell(booking.booking_date),
@@ -189,6 +218,16 @@ export function buildPaidBookingRow(booking: Booking, service: Service, calendar
     textCell(booking.stripe_payment_id),
     textCell(calendarEventId),
     textCell(booking.notes),
+  ];
+  if (!extended) return base;
+  // Layout v2: never guess money — leave the cells empty when the amounts are unknown.
+  const extras = extended.extras;
+  return [
+    ...base,
+    extras ? moneyCell(extras.extensionNetCents / 100) : '',
+    extras ? moneyCell(extras.totalPaidNetCents / 100) : '',
+    booking.duration_minutes,
+    timeCell(booking.end_time),
   ];
 }
 
@@ -229,12 +268,17 @@ function quoteSheet(name: string): string {
   return `'${name.replace(/'/g, "''")}'`;
 }
 
-function lastColumn(target: SheetTarget): string {
-  return columnLetter(target.headers.length - 1);
+function lastColumn(target: SheetTarget, width: number = target.headers.length): string {
+  return columnLetter(width - 1);
 }
 
-export function rowRange(target: SheetTarget, row: number): string {
-  return `${quoteSheet(target.sheetName)}!A${row}:${lastColumn(target)}${row}`;
+/** Columns the tab is written with: the base headers, plus U–X when the sheet has the v2 headers. */
+export function layoutWidth(target: SheetTarget, layout: SheetLayout): number {
+  return target.headers.length + (layout === 'v2' && target.sheetName === PAID_BOOKINGS_SHEET ? PAID_BOOKINGS_EXTENSION_HEADERS.length : 0);
+}
+
+export function rowRange(target: SheetTarget, row: number, width: number = target.headers.length): string {
+  return `${quoteSheet(target.sheetName)}!A${row}:${lastColumn(target, width)}${row}`;
 }
 
 /** Stable, human-readable value stored in bookings.google_sheets_row_id. */
@@ -282,7 +326,7 @@ export async function validateSheetTab(
   sheets: sheets_v4.Sheets,
   spreadsheetId: string,
   target: SheetTarget
-): Promise<{ rowCount: number }> {
+): Promise<{ rowCount: number; layout: SheetLayout }> {
   const meta = await sheets.spreadsheets.get({
     spreadsheetId,
     fields: 'sheets.properties(title,gridProperties.rowCount)',
@@ -292,16 +336,21 @@ export async function validateSheetTab(
     throw new SheetsValidationError(`Tab "${target.sheetName}" was not found in the spreadsheet (names must match exactly)`);
   }
 
+  const isPaid = target.sheetName === PAID_BOOKINGS_SHEET;
   const header = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${quoteSheet(target.sheetName)}!A1:${lastColumn(target)}1`,
+    range: `${quoteSheet(target.sheetName)}!A1:${lastColumn(target, layoutWidth(target, 'v2'))}1`,
   });
-  const problem = compareHeaders(target.headers, header.data.values?.[0]);
+  const row = header.data.values?.[0];
+  const problem = compareHeaders(target.headers, row);
   if (problem) {
     throw new SheetsValidationError(`Header row of "${target.sheetName}" is wrong: ${problem}`);
   }
+  // v2 only when all four optional headers are present, in order; anything else keeps v1 (nothing past column T is written).
+  const tail = (row || []).slice(target.headers.length).map((v) => String(v ?? '').trim());
+  const layout: SheetLayout = isPaid && PAID_BOOKINGS_EXTENSION_HEADERS.every((h, i) => tail[i] === h) ? 'v2' : 'v1';
 
-  return { rowCount: tab.properties?.gridProperties?.rowCount || 1000 };
+  return { rowCount: tab.properties?.gridProperties?.rowCount || 1000, layout };
 }
 
 // ----------------------------------------------------------------------
@@ -367,7 +416,7 @@ export async function syncBookingToSheet(
   booking: Booking,
   service: Service,
   calendarEventId: string | null,
-  options: { sheets?: sheets_v4.Sheets } = {}
+  options: { sheets?: sheets_v4.Sheets; extras?: SheetExtras | null } = {}
 ): Promise<SheetsSyncResult> {
   const decision = getSheetTarget(booking, service);
   if (!decision.target) {
@@ -383,11 +432,12 @@ export async function syncBookingToSheet(
   try {
     const sheets = options.sheets ?? getSheetsClient();
     const spreadsheetId = getSheetsId();
-    const { rowCount } = await validateSheetTab(sheets, spreadsheetId, target);
+    const { rowCount, layout } = await validateSheetTab(sheets, spreadsheetId, target);
+    const width = layoutWidth(target, layout);
 
     const values =
       target.sheetName === PAID_BOOKINGS_SHEET
-        ? buildPaidBookingRow(booking, service, calendarEventId)
+        ? buildPaidBookingRow(booking, service, calendarEventId, layout === 'v2' ? { extras: options.extras ?? null } : undefined)
         : buildStudioTourRow(booking, calendarEventId);
 
     let row: number | null = null;
@@ -403,7 +453,7 @@ export async function syncBookingToSheet(
     if (row !== null) {
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: rowRange(target, row),
+        range: rowRange(target, row, width),
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: [values] },
       });
@@ -417,7 +467,7 @@ export async function syncBookingToSheet(
 
     const appended = await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `${quoteSheet(target.sheetName)}!A1:${lastColumn(target)}1`,
+      range: `${quoteSheet(target.sheetName)}!A1:${lastColumn(target, width)}1`,
       valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [values] },
@@ -453,7 +503,7 @@ export type SheetsCancelResult =
 export async function markBookingCancelledInSheet(
   booking: Booking,
   service: Service,
-  options: { sheets?: sheets_v4.Sheets; now?: Date } = {}
+  options: { sheets?: sheets_v4.Sheets; now?: Date; extras?: SheetExtras | null } = {}
 ): Promise<SheetsCancelResult> {
   if (booking.status !== 'cancelled') {
     return { status: 'skipped', rowId: null, message: `Booking is ${booking.status}, not cancelled` };
@@ -470,7 +520,8 @@ export async function markBookingCancelledInSheet(
   try {
     const sheets = options.sheets ?? getSheetsClient();
     const spreadsheetId = getSheetsId();
-    const { rowCount } = await validateSheetTab(sheets, spreadsheetId, target);
+    const { rowCount, layout } = await validateSheetTab(sheets, spreadsheetId, target);
+    const width = layoutWidth(target, layout);
 
     let row: number | null = null;
     if ((await readBookingIdAt(sheets, spreadsheetId, target, stored.row)) === booking.booking_id) {
@@ -488,13 +539,14 @@ export async function markBookingCancelledInSheet(
         ? buildPaidBookingRow(
             { ...booking, notes: `CANCELLED ${when}${booking.notes ? ` — ${booking.notes}` : ''}` },
             service,
-            booking.google_calendar_event_id
+            booking.google_calendar_event_id,
+            layout === 'v2' ? { extras: options.extras ?? null } : undefined
           )
         : buildStudioTourRow(booking, booking.google_calendar_event_id);
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: rowRange(target, row),
+      range: rowRange(target, row, width),
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [values] },
     });
@@ -520,8 +572,15 @@ export async function checkSheetsConnection(): Promise<{ ok: boolean; message: s
     const tabs = [];
     for (const target of SHEET_TABS) {
       try {
-        await validateSheetTab(sheets, spreadsheetId, target);
-        tabs.push({ sheetName: target.sheetName, ok: true, message: 'Tab and headers OK' });
+        const { layout } = await validateSheetTab(sheets, spreadsheetId, target);
+        tabs.push({
+          sheetName: target.sheetName,
+          ok: true,
+          message:
+            target.sheetName === PAID_BOOKINGS_SHEET && layout === 'v1'
+              ? `Tab and headers OK. Upgrade recommended: type these headers into U1:X1 so extra-time payments show — ${PAID_BOOKINGS_EXTENSION_HEADERS.map((h) => `"${h}"`).join(', ')}`
+              : 'Tab and headers OK',
+        });
       } catch (error) {
         const message = error instanceof SheetsValidationError ? error.message : safeGoogleErrorMessage(error);
         tabs.push({ sheetName: target.sheetName, ok: false, message });

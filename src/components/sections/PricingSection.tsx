@@ -1,25 +1,15 @@
-'use client';
-
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Reveal from '@/components/ui/Reveal';
 import { bookingHref, formatDuration, formatPrice, priceNumber, servicesInCategory, type CatalogService } from '@/lib/catalog';
 
 type Service = Pick<CatalogService, 'id' | 'name' | 'description' | 'base_price' | 'duration_minutes' | 'features' | 'category' | 'badge' | 'is_featured' | 'display_order'>;
 
-export default function PricingSection() {
-  const [allServices, setServices] = useState<Service[] | null>(null);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    fetch('/api/services')
-      .then((r) => {
-        if (!r.ok) throw new Error('failed');
-        return r.json();
-      })
-      .then((data) => setServices(Array.isArray(data) ? data : []))
-      .catch(() => setError(true));
-  }, []);
+/**
+ * Package comparison, server-rendered from the services table (prices,
+ * features and badges are edited in the CRM — nothing is hardcoded here).
+ */
+export default function PricingSection({ services: allServices }: { services: Service[] | null }) {
+  const error = allServices === null || allServices.length === 0;
 
   // The homepage only shows the core podcast sessions; photography, the tour
   // and monthly packages are linked to the full pricing page.
@@ -43,10 +33,6 @@ export default function PricingSection() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
-          {!services &&
-            !error &&
-            [0, 1, 2].map((i) => <div key={i} className="skeleton h-80 rounded-xl-plus" />)}
-
           {services?.map((service, idx) => (
             <Reveal key={service.id} delayMs={idx * 80} className="h-full">
               <div className="card h-full flex flex-col">
@@ -84,6 +70,14 @@ export default function PricingSection() {
             </Reveal>
           ))}
         </div>
+
+        {services && services.length > 0 && (
+          <p className="mt-8 text-sm text-zayro-gray max-w-3xl">
+            Professional editing is included only with the Full Podcast Package; it can be added to the other packages as an
+            extra. Your reserved time includes preparation and setup changes — overtime is not free, but extra time can be
+            purchased when the schedule allows. Additional microphones and cameras are paid extras.
+          </p>
+        )}
 
         <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-4">
           <Link href="/pricing#photography" className="card card-interactive block">

@@ -8,6 +8,7 @@ import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
 import type Stripe from 'stripe';
+import { withPolicy } from '@/test/policy';
 
 const h = vi.hoisted(() => ({
   sessionToken: null as string | null,
@@ -87,7 +88,7 @@ let ipCounter = 0;
 function post(url: string, body: unknown, extraHeaders: Record<string, string> = {}) {
   return new NextRequest(`http://localhost${url}`, {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: JSON.stringify(withPolicy(url, body)),
     headers: { 'Content-Type': 'application/json', 'x-forwarded-for': `10.0.0.${++ipCounter % 250}`, ...extraHeaders },
   });
 }
@@ -764,7 +765,7 @@ describe('migrations on a populated database', () => {
       ).rows[0];
     const migrations = readMigrationFiles({ migrationsFolder: './drizzle' }).slice(5);
     // 0005-0008 (CRM), 0009 (intake + add-ons), 0010 (setups) and 0011-0015: all safe to re-run.
-    expect(migrations).toHaveLength(11);
+    expect(migrations).toHaveLength(13);
     const run = async () => {
       for (const m of migrations) for (const stmt of m.sql) if (stmt.trim()) await pg.exec(stmt);
     };

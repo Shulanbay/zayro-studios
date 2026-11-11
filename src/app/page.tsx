@@ -3,14 +3,20 @@ import { pageMetadata } from '@/lib/seo';
 import Link from 'next/link';
 import { BUSINESS_ADDRESS } from '@/lib/constants';
 import HeroSection from '@/components/sections/HeroSection';
+import TrustStrip from '@/components/sections/TrustStrip';
+import WhatYouCanBookSection from '@/components/sections/WhatYouCanBookSection';
 import AvailableSetupsSection from '@/components/sections/AvailableSetupsSection';
 import StudioExperienceSection from '@/components/sections/StudioExperienceSection';
 import HowBookingWorksSection from '@/components/sections/HowBookingWorksSection';
 import PricingSection from '@/components/sections/PricingSection';
-import EquipmentSection from '@/components/sections/EquipmentSection';
 import FAQSection from '@/components/sections/FAQSection';
+import ProjectsSection from '@/components/sections/ProjectsSection';
+import TestimonialsSection from '@/components/sections/TestimonialsSection';
 import { getBookingFacts } from '@/lib/bookingFacts';
 import { getActiveServices } from '@/lib/catalogData';
+import { getPublicSetups } from '@/lib/setupCatalog';
+import { priceNumber, servicesInCategory, type CatalogService } from '@/lib/catalog';
+import { PUBLISHED_PROJECTS, PUBLISHED_TESTIMONIALS } from '@/lib/showcase';
 import CTASection from '@/components/sections/CTASection';
 import Reveal from '@/components/ui/Reveal';
 
@@ -27,95 +33,23 @@ export const metadata: Metadata = {
 export const revalidate = 300;
 
 export default async function Home() {
-  const [facts, services] = await Promise.all([getBookingFacts(), getActiveServices().catch(() => [])]);
-  // The tour length shown in the hero comes from the service itself.
-  const tourMinutes = services.find((s) => s.category === 'tour')?.duration_minutes ?? null;
+  const [facts, services, setups] = await Promise.all([getBookingFacts(), getActiveServices().catch(() => null), getPublicSetups('podcast')]);
+  // Prices, the tour length and setups all come from the database.
+  const tourMinutes = services?.find((s) => s.category === 'tour')?.duration_minutes ?? null;
+  const podcast = services ? servicesInCategory(services as unknown as CatalogService[], 'podcast') : [];
+  const podcastFrom = podcast.length ? Math.min(...podcast.map((s) => priceNumber(s.base_price))) : null;
   return (
     <>
-      <HeroSection tourMinutes={tourMinutes} />
-      <AvailableSetupsSection />
-      <section className="section-padding surface-soft" aria-labelledby="nyc-studio-services">
-        <div className="container max-w-5xl">
-          <Reveal>
-            <p className="text-sm font-bold uppercase tracking-[0.2em] text-zayro-primary mb-3">Midtown Manhattan production space</p>
-            <h2 id="nyc-studio-services" className="text-[clamp(2.25rem,10.5vw,3rem)] md:text-7xl font-black text-zayro-dark mb-6">
-              CREATE IN
-              <br />
-              NEW YORK CITY
-            </h2>
-            <p className="text-lg md:text-xl text-zayro-gray max-w-3xl leading-relaxed mb-10">
-              ZAYRO Studios is a podcast recording, video filming and content production studio at 40 W 37th Street in
-              Midtown Manhattan. Choose the service that matches your project.
-            </p>
-          </Reveal>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Reveal>
-              <Link href="/podcast-studio-nyc" className="card card-interactive group block h-full">
-                <p className="text-sm font-bold text-zayro-primary mb-3">PODCAST RECORDING</p>
-                <h3 className="text-3xl font-black text-zayro-dark mb-3">Podcast Studio NYC</h3>
-                <p className="text-zayro-gray mb-6">
-                  Professional audio and multi-camera video podcasts with broadcast microphones, studio lighting and technical support.
-                </p>
-                <span className="font-bold text-zayro-primary">Explore podcast studio →</span>
-              </Link>
-            </Reveal>
-            <Reveal delayMs={80}>
-              <Link href="/video-production-studio-nyc" className="card card-interactive group block h-full">
-                <p className="text-sm font-bold text-zayro-primary mb-3">VIDEO &amp; FILMING</p>
-                <h3 className="text-3xl font-black text-zayro-dark mb-3">Video Production Studio NYC</h3>
-                <p className="text-zayro-gray mb-6">
-                  A flexible Manhattan filming studio for interviews, YouTube videos, courses, branded content and green-screen recording.
-                </p>
-                <span className="font-bold text-zayro-primary">Explore video studio →</span>
-              </Link>
-            </Reveal>
-          </div>
-        </div>
-      </section>
-      <StudioExperienceSection />
+      <HeroSection podcastFrom={podcastFrom} />
+      <TrustStrip openSevenDays={facts.openSevenDays} />
+      <WhatYouCanBookSection tourMinutes={tourMinutes} />
+      <AvailableSetupsSection setups={setups} />
+      <PricingSection services={services} />
       <HowBookingWorksSection />
-
-      {/* What a session includes */}
-      <section className="section-padding surface-soft">
-        <div className="container max-w-4xl">
-          <Reveal>
-            <h2 className="text-[clamp(2.25rem,10.5vw,3rem)] md:text-7xl font-black mb-8 text-zayro-dark">
-              BUILT FOR
-              <br />
-              CREATORS
-            </h2>
-          </Reveal>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Reveal>
-              <div className="card h-full">
-                <h3 className="text-2xl font-bold text-zayro-dark mb-4">Ready when you arrive</h3>
-                <p className="text-zayro-gray leading-relaxed mb-4">
-                  Cameras, microphones and lighting are set up in the studio, so you can focus on your conversation.
-                </p>
-                <p className="text-zayro-gray leading-relaxed">
-                  Podcast Pro includes a producer / technician on site who runs the session for you.
-                </p>
-              </div>
-            </Reveal>
-
-            <Reveal delayMs={80}>
-              <div className="card h-full">
-                <h3 className="text-2xl font-bold text-zayro-dark mb-4">Your files, your way</h3>
-                <p className="text-zayro-gray leading-relaxed mb-4">
-                  Recording sessions include your raw files. Professional editing is included in the Full Podcast Package.
-                </p>
-                <p className="text-zayro-gray leading-relaxed">
-                  Recording only? Ask us for an editing quote for any session.
-                </p>
-              </div>
-            </Reveal>
-          </div>
-        </div>
-      </section>
-
-      <EquipmentSection />
-      <PricingSection />
+      <StudioExperienceSection />
+      {/* Hidden until there is approved, real work to show (lib/showcase.ts). */}
+      <ProjectsSection projects={PUBLISHED_PROJECTS} />
+      <TestimonialsSection testimonials={PUBLISHED_TESTIMONIALS} />
 
       {/* Location */}
       <section className="section-padding bg-white">
@@ -168,7 +102,7 @@ export default async function Home() {
         </div>
       </section>
 
-      <FAQSection facts={facts} />
+      <FAQSection facts={facts} compact />
       <CTASection />
     </>
   );

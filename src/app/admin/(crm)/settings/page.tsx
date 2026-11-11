@@ -13,7 +13,7 @@ const ENV_GROUPS: { label: string; names: string[] }[] = [
   { label: 'Stripe', names: ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY'] },
   { label: 'Email', names: ['RESEND_API_KEY', 'EMAIL_FROM', 'OWNER_EMAIL'] },
   { label: 'Google', names: ['GOOGLE_CALENDAR_EMAIL', 'GOOGLE_CALENDAR_PRIVATE_KEY', 'GOOGLE_CALENDAR_ID', 'GOOGLE_SHEETS_ID'] },
-  { label: 'Booking', names: ['TEMPORARY_HOLD_DURATION_MINUTES'] },
+  { label: 'Booking', names: ['BOOKING_MANAGE_SECRET', 'TEMPORARY_HOLD_DURATION_MINUTES'] },
 ];
 
 export default async function SettingsPage() {

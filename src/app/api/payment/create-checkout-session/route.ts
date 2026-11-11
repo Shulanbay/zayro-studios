@@ -14,6 +14,7 @@ import { decimalToCents } from '@/lib/crm/money';
 import { getStripe } from '@/lib/crm/refunds';
 import { formatTimeLabel } from '@/lib/crm/time';
 import { lockHold, pendingCheckoutsForHold } from '@/lib/holds';
+import { POLICY_VERSION } from '@/lib/policies';
 
 /** Checkout session lifetime: Stripe's minimum is 30 minutes, plus a minute of clock slack. */
 const CHECKOUT_MINUTES = 31;
@@ -30,6 +31,9 @@ const bodySchema = z.object({
   notes: z.string().trim().max(2000).optional().nullable(),
   /** Answers to the booking questions; validated per service category. */
   intake: z.record(z.unknown()).optional(),
+  /** The policy checkbox on the review step (must be ticked by the customer). */
+  policyAccepted: z.boolean().optional(),
+  policyVersion: z.string().max(40).optional(),
   website: z.string().optional(),
 });
 
@@ -65,6 +69,9 @@ export async function POST(request: NextRequest) {
     body = parsed.data;
   } catch {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+  }
+  if (body.policyAccepted !== true) {
+    return NextResponse.json({ error: "Please agree to the cancellation, rescheduling and studio-time policies. Reload the page if you don't see the checkbox.", code: 'policy_required' }, { status: 400 });
   }
 
   const stripe = getStripe();
@@ -110,6 +117,8 @@ export async function POST(request: NextRequest) {
               customer_phone: phone,
               company_name: company || null,
               notes: notes || null,
+              policy_version: POLICY_VERSION,
+              policy_accepted_at: new Date(),
               updated_at: new Date(),
             })
             .where(eq(bookings.id, prior.id));
@@ -253,6 +262,9 @@ export async function POST(request: NextRequest) {
         source: 'individual',
         intake: { ...answers.intake, ...(setup.setupName ? { setupName: setup.setupName } : {}) } as Record<string, unknown>,
         setup_id: setup.setupId,
+        // The policies the customer agreed to (server's own version, not the client's).
+        policy_version: POLICY_VERSION,
+        policy_accepted_at: now,
         created_at: now,
         updated_at: now,
       });

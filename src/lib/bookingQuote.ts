@@ -4,8 +4,9 @@ import { serviceAddons, setups } from './db/schema';
 import type { Service, ServiceAddon, Setup } from './db/schema';
 import type { Executor } from './db/types';
 import { getTaxRate } from './pricing';
-import { computeQuote, normalizeAddonChoices, normalizeUnits, type AddonChoice, type BookingSelection, type Quote } from './bookingOptions';
+import { addonAvailability, addonLimit, computeQuote, normalizeAddonChoices, normalizeUnits, type AddonChoice, type BookingSelection, type Quote } from './bookingOptions';
 import type { NewLineItem } from './crm/purchases';
+import { cameraConfigMessage, logConfigWarning } from './configWarnings';
 
 /** Add-ons a customer can buy with a service of this category, in display order. */
 export async function listAddonsForCategory(category: string, exec: Executor = db): Promise<ServiceAddon[]> {
@@ -14,6 +15,16 @@ export async function listAddonsForCategory(category: string, exec: Executor = d
     orderBy: [asc(serviceAddons.sort_order), asc(serviceAddons.id)],
   });
   return rows.filter((a) => Array.isArray(a.categories) && a.categories.includes(category));
+}
+
+/**
+ * Add-ons offered with this service, with each add-on's max_quantity
+ * narrowed to what the service allows (e.g. the camera limit). Add-ons the
+ * service can't take are left out.
+ */
+export async function listAddonsForService(service: Service, exec: Executor = db): Promise<ServiceAddon[]> {
+  const rows = await listAddonsForCategory(service.category, exec);
+  return rows.map((a) => ({ ...a, max_quantity: addonLimit(service, a) })).filter((a) => a.max_quantity > 0);
 }
 
 export type QuoteResult = { ok: true; quote: Quote; selection: BookingSelection } | { ok: false; error: string };
@@ -45,8 +56,17 @@ export async function quoteBooking(service: Service, units: number, choices: Add
       if (!addon || !Array.isArray(addon.categories) || !addon.categories.includes(service.category)) {
         return { ok: false, error: 'One of the selected extras is no longer available. Please review your extras.' };
       }
-      if (choice.quantity > addon.max_quantity) {
-        return { ok: false, error: `You can add at most ${addon.max_quantity} × ${addon.name}.` };
+      const { limit, configError } = addonAvailability(service, addon);
+      if (configError) {
+        // Fail closed: never sell (or underprice) cameras for a package whose camera count isn't configured.
+        await logConfigWarning(cameraConfigMessage(service, configError));
+        return { ok: false, error: `${addon.name} is temporarily unavailable for ${service.name}. Please remove it or contact the studio.` };
+      }
+      if (limit === 0) {
+        return { ok: false, error: `${addon.name} is not available with ${service.name}: it already includes the studio's maximum number of cameras.` };
+      }
+      if (choice.quantity > limit) {
+        return { ok: false, error: `You can add at most ${limit} × ${addon.name}.` };
       }
       picked.push({ addon, quantity: choice.quantity });
     }

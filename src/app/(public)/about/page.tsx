@@ -36,8 +36,8 @@ export default function AboutPage() {
             <h2 className="text-2xl font-bold mb-4 text-zayro-dark">Why ZAYRO?</h2>
             <p className="text-zayro-gray leading-relaxed mb-4">
               Every session comes with a studio that's lit, mic'd and ready to record — you show up
-              and record, we handle the technical side. Podcast Pro adds up to three cameras and a
-              producer on site.
+              and record, we handle the technical side. Podcast Pro adds up to three cameras, with a
+              videographer / studio technician on site.
             </p>
             <p className="text-zayro-gray leading-relaxed">
               Need a finished episode? Professional editing is included in the Full Podcast Package

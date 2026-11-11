@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { pageMetadata } from '@/lib/seo';
+import { POLICY_COPY } from '@/lib/policies';
 
 export const metadata: Metadata = pageMetadata({
   title: 'Terms of Service | ZAYRO Studios',
@@ -22,7 +23,7 @@ export default function TermsPage() {
       <section className="section-padding bg-white">
         <div className="container max-w-3xl card">
           <p className="text-zayro-gray leading-relaxed mb-6">
-            Last updated: September 26, 2026
+            Last updated: November 11, 2026
           </p>
 
           <h2 className="text-2xl font-bold mb-4">Agreement to Terms</h2>
@@ -31,16 +32,27 @@ export default function TermsPage() {
             of this agreement. If you do not agree to abide by the above, please do not use this service.
           </p>
 
-          <h2 className="text-2xl font-bold mb-4">Booking and Cancellation Policy</h2>
+          <h2 id="booking-policies" className="text-2xl font-bold mb-4 scroll-mt-24">Booking, Cancellation and Studio-Time Policies</h2>
           <p className="text-zayro-gray leading-relaxed mb-4">
-            All studio bookings are subject to the following terms:
+            All studio bookings are subject to the following terms. You agree to them when you book.
           </p>
           <ul className="space-y-2 text-zayro-gray mb-6">
-            <li>• Full payment is required at time of booking</li>
-            <li>• Cancellations more than 24 hours in advance receive a full refund</li>
-            <li>• Cancellations within 24 hours forfeit 50% of the booking amount</li>
-            <li>• No-shows forfeit 100% of the booking amount</li>
-            <li>• Rescheduling must be made at least 24 hours in advance</li>
+            <li>• Full payment is required at the time of booking.</li>
+            <li>• {POLICY_COPY.cancellation}</li>
+            <li>• {POLICY_COPY.changes}</li>
+            <li>• {POLICY_COPY.noShow}</li>
+            <li>• {POLICY_COPY.refund}</li>
+            <li>• {POLICY_COPY.studioTime}</li>
+            <li>• {POLICY_COPY.earlyArrival}</li>
+            <li>• {POLICY_COPY.setupChange}</li>
+            <li>• {POLICY_COPY.lateArrival}</li>
+            <li>• {POLICY_COPY.extension}</li>
+            <li>• Full Podcast Package: {POLICY_COPY.editedDelivery}</li>
+            <li>• Sessions use at most 3 cameras. Additional cameras can be added only to packages that include fewer than 3.</li>
+            <li>
+              • Cancel, reschedule or add time with the secure Manage Your Booking link in your confirmation email. Changes
+              to your package, extras or details are made by contacting the studio.
+            </li>
           </ul>
 
           <h2 className="text-2xl font-bold mb-4">Intellectual Property Rights</h2>

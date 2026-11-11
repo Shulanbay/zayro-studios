@@ -96,6 +96,10 @@ webhook idempotency, refunds, package credits, permissions, CSV safety.
 ## Environment Variables
 
 See `.env.example` for the complete list of required environment variables.
+`BOOKING_MANAGE_SECRET` (customer Manage Booking links) is separate from
+`NEXTAUTH_SECRET` (admin auth) and `STRIPE_SECRET_KEY` (payments). Generate it
+with a cryptographically secure tool (e.g. `openssl rand -base64 48`) and store
+it only in Vercel's environment variables.
 
 ## Google Calendar & Google Sheets
 

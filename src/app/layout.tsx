@@ -112,7 +112,8 @@ export default function RootLayout({
             <script
               // eslint-disable-next-line react/no-danger
               dangerouslySetInnerHTML={{
-                __html: `window.dataLayer = window.dataLayer || [];function gtag(){dataLayer.push(arguments);}gtag('js', new Date());gtag('config', '${gaId}');`,
+                // Never on Manage Booking: that page's URL carries a private link token.
+                __html: `window.dataLayer = window.dataLayer || [];function gtag(){dataLayer.push(arguments);}if(location.pathname.indexOf('/booking/manage')!==0){gtag('js', new Date());gtag('config', '${gaId}');}`,
               }}
             />
           </>

@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { bookings, purchases, refunds, services } from '@/lib/db/schema';
+import { bookingExtensions, bookings, purchases, refunds, services } from '@/lib/db/schema';
 import type { Refund } from '@/lib/db/schema';
 import type { Executor } from '@/lib/db/types';
 import { cancelBooking } from '@/lib/cancelBooking';
@@ -67,6 +67,27 @@ export interface RefundRequest {
   expectedAvailableCents: number;
   cancelBooking?: boolean;
   notifyCustomer?: boolean;
+  /**
+   * Who asked for it: staff in the CRM (default) or the customer from Manage
+   * Booking. Same rules, same idempotency; only attribution differs.
+   */
+  source?: 'admin' | 'customer';
+}
+
+/** The booking a purchase paid for: its own purchase, or an extension purchase of that booking. */
+async function bookingOfPurchase(exec: Executor, purchaseId: string, bookingId?: string | null) {
+  if (bookingId) {
+    const own = await exec.query.bookings.findFirst({ where: and(eq(bookings.id, bookingId), eq(bookings.purchase_id, purchaseId)) });
+    if (own) return own;
+    const ext = await exec.query.bookingExtensions.findFirst({
+      where: and(eq(bookingExtensions.booking_id, bookingId), eq(bookingExtensions.purchase_id, purchaseId)),
+    });
+    return ext ? exec.query.bookings.findFirst({ where: eq(bookings.id, bookingId) }) : undefined;
+  }
+  const linked = await exec.query.bookings.findFirst({ where: eq(bookings.purchase_id, purchaseId) });
+  if (linked) return linked;
+  const ext = await exec.query.bookingExtensions.findFirst({ where: eq(bookingExtensions.purchase_id, purchaseId) });
+  return ext ? exec.query.bookings.findFirst({ where: eq(bookings.id, ext.booking_id) }) : undefined;
 }
 
 export async function issueRefund(req: RefundRequest, actor: AuditActor) {
@@ -90,14 +111,10 @@ export async function issueRefund(req: RefundRequest, actor: AuditActor) {
     }
     if (req.amountCents > available) throw new CrmError('That is more than the refundable amount');
 
-    let bookingId = req.bookingId ?? null;
-    if (bookingId) {
-      const b = await tx.query.bookings.findFirst({ where: and(eq(bookings.id, bookingId), eq(bookings.purchase_id, purchase.id)) });
-      if (!b) throw new CrmError('That booking does not belong to this purchase');
-    } else {
-      const linked = await tx.query.bookings.findFirst({ where: eq(bookings.purchase_id, purchase.id) });
-      bookingId = linked?.id ?? null;
-    }
+    const linkedBooking = await bookingOfPurchase(tx, purchase.id, req.bookingId);
+    if (req.bookingId && !linkedBooking) throw new CrmError('That booking does not belong to this purchase');
+    const bookingId = linkedBooking?.id ?? null;
+    const source = req.source ?? 'admin';
 
     const manual = purchase.payment_method !== 'stripe';
     const [row] = await tx
@@ -109,8 +126,8 @@ export async function issueRefund(req: RefundRequest, actor: AuditActor) {
         status: manual ? 'succeeded' : 'pending',
         reason: req.reason.trim().slice(0, 1000),
         requested_by: actor.email ?? null,
-        requested_by_admin_id: actor.id ?? null,
-        source: 'admin',
+        requested_by_admin_id: source === 'admin' ? actor.id ?? null : null,
+        source,
       })
       .returning();
     if (manual) await recomputeRefundState(tx, purchase.id);
@@ -120,7 +137,7 @@ export async function issueRefund(req: RefundRequest, actor: AuditActor) {
         operation: 'refund.request',
         entityType: 'purchase',
         entityId: purchase.id,
-        after: { refundId: row.id, amountCents: req.amountCents, reason: row.reason, method: purchase.payment_method },
+        after: { refundId: row.id, amountCents: req.amountCents, reason: row.reason, method: purchase.payment_method, source },
         metadata: { availableBefore: available, orderNumber: purchase.order_number },
       },
       tx
@@ -210,6 +227,12 @@ export async function resolveRefundReview(purchaseId: string, note: string, acto
 
 export async function resyncSheetsForPurchase(purchaseId: string) {
   const linked = await db.query.bookings.findMany({ where: eq(bookings.purchase_id, purchaseId) });
+  // An extension purchase belongs to its booking's sheet row.
+  const ext = await db.query.bookingExtensions.findFirst({ where: eq(bookingExtensions.purchase_id, purchaseId) });
+  if (ext && !linked.some((b) => b.id === ext.booking_id)) {
+    const b = await db.query.bookings.findFirst({ where: eq(bookings.id, ext.booking_id) });
+    if (b) linked.push(b);
+  }
   for (const b of linked) {
     if (!b.google_sheets_row_id) continue;
     const service = await db.query.services.findFirst({ where: eq(services.id, b.service_id) });
@@ -241,7 +264,7 @@ export async function upsertRefundFromStripe(tx: Executor, refund: Stripe.Refund
   if (!paymentIntent) return { purchaseId: null, created: false };
   const purchase = await tx.query.purchases.findFirst({ where: eq(purchases.stripe_payment_intent_id, paymentIntent) });
   if (!purchase) return { purchaseId: null, created: false };
-  const booking = await tx.query.bookings.findFirst({ where: eq(bookings.purchase_id, purchase.id) });
+  const booking = await bookingOfPurchase(tx, purchase.id);
 
   const inserted = await tx
     .insert(refunds)
