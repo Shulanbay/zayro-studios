@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { BUSINESS_ADDRESS } from '@/lib/constants';
 import { formatPrice } from '@/lib/catalog';
+import HeroWaves from './HeroWaves';
 
 /**
  * Above the fold: rendered immediately (no scroll-reveal), so the largest
@@ -11,8 +12,15 @@ import { formatPrice } from '@/lib/catalog';
 export default function HeroSection({ podcastFrom = null, media = null }: { podcastFrom?: number | null; media?: React.ReactNode }) {
   const supporting = [podcastFrom !== null ? `Podcast sessions from ${formatPrice(podcastFrom)}` : null, 'Live availability', 'Raw files delivered within 24 hours'].filter(Boolean);
   return (
-    <section className="surface-soft relative overflow-hidden pt-16 pb-16 md:pt-28 md:pb-24">
-      <div className="container max-w-5xl">
+    <section className="relative overflow-hidden bg-[#f0f6fd] pt-16 pb-16 md:pt-28 md:pb-24">
+      <HeroWaves />
+      {/* Soft glow behind the copy so the dots never fight the text. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{ background: 'radial-gradient(ellipse 55% 50% at 50% 50%, rgba(240,246,253,0.85) 0%, rgba(240,246,253,0.55) 45%, rgba(240,246,253,0) 80%)' }}
+      />
+      <div className="container relative max-w-5xl">
         <div className="text-center">
           <span className="chip mb-6">
             <span className="chip-dot" aria-hidden="true" />
