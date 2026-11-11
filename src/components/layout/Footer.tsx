@@ -6,7 +6,7 @@ export default function Footer() {
 
   return (
     <footer className="bg-zayro-dark text-white">
-      <div className="container py-16 md:py-24">
+      <div className="container py-12 md:py-16">
         {/* Main Footer Content */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-16 md:mb-24">
           {/* Brand */}
