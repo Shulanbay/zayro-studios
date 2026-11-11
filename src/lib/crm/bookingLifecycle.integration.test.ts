@@ -466,8 +466,8 @@ describe('hourly sessions, add-ons and intake questions', () => {
       { id: editing, quantity: 1 },
     ]);
     expect(hold.status, JSON.stringify(hold.body)).toBe(200);
-    // 3 × $200 + camera $30 × 2 × 3 h + editing $200 = $980; tax 8.875% = $86.98
-    expect(hold.body.pricing).toMatchObject({ subtotal: '980.00', taxAmount: '86.98', total: '1066.98', units: 3, durationMinutes: 180 });
+    // 3 × $200 + camera $30 × 2 × 3 h + editing $250 = $1,030; tax 8.875% = $91.41
+    expect(hold.body.pricing).toMatchObject({ subtotal: '1030.00', taxAmount: '91.41', total: '1121.41', units: 3, durationMinutes: 180 });
     expect(hold.body.pricing.lines).toHaveLength(3);
 
     // The whole three hours are held.
@@ -484,11 +484,11 @@ describe('hourly sessions, add-ons and intake questions', () => {
     );
     const body = await res.json();
     expect(res.status, JSON.stringify(body)).toBe(200);
-    expect(body.pricing.total).toBe('1066.98');
-    expect(h.sessions.get(body.sessionId).amount_total).toBe(106698);
+    expect(body.pricing.total).toBe('1121.41');
+    expect(h.sessions.get(body.sessionId).amount_total).toBe(112141);
 
     const booking = await db.query.bookings.findFirst({ where: eq(schema.bookings.stripe_session_id, body.sessionId) });
-    expect(booking).toMatchObject({ duration_minutes: 180, start_time: '10:00', end_time: '13:00', subtotal: '980.00', total_amount: '1066.98' });
+    expect(booking).toMatchObject({ duration_minutes: 180, start_time: '10:00', end_time: '13:00', subtotal: '1030.00', total_amount: '1121.41' });
     // Guests: de-duplicated, lower-cased, and never the customer themselves.
     expect(booking.intake).toEqual({
       peopleRecording: 3,
@@ -502,7 +502,7 @@ describe('hourly sessions, add-ons and intake questions', () => {
     const items = await pg.query<any>('SELECT item_type, quantity, unit_price_cents, total_cents FROM purchase_items WHERE purchase_id = $1 ORDER BY total_cents DESC', [booking.purchase_id]);
     expect(items.rows).toEqual([
       { item_type: 'service', quantity: 3, unit_price_cents: 20000, total_cents: 60000 },
-      { item_type: 'addon', quantity: 1, unit_price_cents: 20000, total_cents: 20000 },
+      { item_type: 'addon', quantity: 1, unit_price_cents: 25000, total_cents: 25000 },
       { item_type: 'addon', quantity: 6, unit_price_cents: 3000, total_cents: 18000 },
     ]);
 
@@ -514,7 +514,7 @@ describe('hourly sessions, add-ons and intake questions', () => {
     // A later price change never touches what was sold.
     await db.update(schema.serviceAddons).set({ price_cents: 99900 }).where(eq(schema.serviceAddons.id, camera));
     const after = await pg.query<any>('SELECT sum(total_cents)::int AS t FROM purchase_items WHERE purchase_id = $1', [booking.purchase_id]);
-    expect(after.rows[0].t).toBe(98000);
+    expect(after.rows[0].t).toBe(103000);
     await db.update(schema.serviceAddons).set({ price_cents: 3000 }).where(eq(schema.serviceAddons.id, camera));
 
     // Rescheduling keeps the three hours.
@@ -565,6 +565,7 @@ describe('hourly sessions, add-ons and intake questions', () => {
     expect(podcast.find((a: any) => a.name === 'Additional Camera')).toMatchObject({ price: '30.00', unit: 'hour', max_quantity: 3 });
     expect(podcast.find((a: any) => a.name === 'Professional Studio Photoshoot')).toMatchObject({ price: '350.00', unit: 'hour' });
     expect(podcast.find((a: any) => a.name === 'Express Editing')).toMatchObject({ price: '300.00', unit: 'session' });
+    expect(podcast.find((a: any) => a.name === 'Full Podcast Editing')).toMatchObject({ price: '250.00', unit: 'session' });
     expect(await get('Free Studio Tour')).toEqual([]);
     expect(await get('Headshot Session')).toEqual([]);
   });
