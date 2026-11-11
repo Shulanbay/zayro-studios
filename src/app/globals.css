@@ -363,13 +363,16 @@ select:disabled {
 .container {
   max-width: 100%;
   margin: 0 auto;
-  padding: 0 1.5rem;
+  /* Side padding only, so py-* utilities on a container still apply. */
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
 }
 
 @media (min-width: 640px) {
   .container {
     max-width: 640px;
-    padding: 0 2rem;
+    padding-left: 2rem;
+    padding-right: 2rem;
   }
 }
 
@@ -557,7 +560,8 @@ select:disabled {
   }
 
   .container {
-    padding: 0 1.25rem;
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
   }
 }
 
