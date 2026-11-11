@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { desc, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { bookings, customerPackages, customers, emailLogs, integrationLogs, purchaseItems, purchases, refunds, services } from '@/lib/db/schema';
+import { bookingExtensions, bookings, customerPackages, customers, emailLogs, integrationLogs, purchaseItems, purchases, refunds, services } from '@/lib/db/schema';
 import { getAdminContext } from '@/lib/crm/auth';
 import { auditFor } from '@/lib/crm/queries';
 import { refundableCents } from '@/lib/crm/refunds';
@@ -41,6 +41,15 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
     auditFor('booking', [booking.id]),
     bookableServiceOptions(),
   ]);
+  // Extra time the customer bought from Manage Booking (each its own purchase).
+  const extensions = showMoney
+    ? await db
+        .select({ id: bookingExtensions.id, status: bookingExtensions.status, prevEnd: bookingExtensions.previous_end_time, newEnd: bookingExtensions.new_end_time, purchaseId: purchases.id, order: purchases.order_number, total: purchases.total_cents })
+        .from(bookingExtensions)
+        .innerJoin(purchases, eq(purchases.id, bookingExtensions.purchase_id))
+        .where(eq(bookingExtensions.booking_id, booking.id))
+        .orderBy(desc(bookingExtensions.created_at))
+    : [];
   const prepRows = intakeSummary(booking.intake).filter(([label]) => label !== 'Guests invited');
   const guestEmails = guestList(booking.intake).map((g) => (g.name ? `${g.name} <${g.email}>` : g.email));
   const extras = booking.purchase_id
@@ -185,6 +194,23 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
                 <p className="text-xs text-zayro-gray mt-3">
                   Line item (snapshot at purchase): {items.map((i) => `${i.description_snapshot} — ${(i.total_cents / 100).toFixed(2)}`).join('; ')}
                 </p>
+              )}
+              {extensions.length > 0 && (
+                <div className="mt-3 text-sm">
+                  <p className="font-semibold">Extra time (customer self-service)</p>
+                  <ul className="divide-y divide-zayro-border border-t border-zayro-border">
+                    {extensions.map((x) => (
+                      <li key={x.id} className="py-2 flex flex-wrap justify-between gap-2">
+                        <span>
+                          {x.prevEnd} → {x.newEnd} ET · <StatusBadge status={x.status} />
+                        </span>
+                        <Link href={`/admin/purchases/${x.purchaseId}`}>
+                          {x.order} · <Money cents={x.total} />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
               {refundRows.length > 0 && (
                 <ul className="mt-3 text-sm divide-y divide-zayro-border border-t border-zayro-border">

@@ -1,49 +1,17 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import type { BookingFacts } from '@/lib/bookingFacts';
+import { buildFaqs } from '@/lib/faq';
 
-function hours(n: number) {
-  return `${n} hour${n === 1 ? '' : 's'}`;
-}
+/** Homepage shows the questions that decide a booking; /faq shows them all. */
+const HOME_IDS = ['studio-time', 'raw-files', 'editing', 'cancel', 'reschedule', 'add-time', 'setup-change', 'hours'];
 
-export default function FAQSection({ showHeading = true, facts }: { showHeading?: boolean; facts: BookingFacts }) {
+export default function FAQSection({ showHeading = true, facts, compact = false }: { showHeading?: boolean; facts: BookingFacts; compact?: boolean }) {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
-
-  const faqs = [
-    {
-      question: 'What time can I book the studio?',
-      answer: facts.hoursSentence
-        ? `Sessions can be booked from ${facts.hoursSentence}. The booking calendar always shows the live availability for your chosen date.`
-        : 'Opening hours vary by day. The booking calendar always shows the live availability for your chosen date (New York time).',
-    },
-    {
-      question: 'How far in advance can I book?',
-      answer: `You can book up to ${facts.horizonDays} days ahead. Same-day sessions are possible when a time is free — online booking closes ${hours(
-        facts.minNoticeHours
-      )} before the start time.`,
-    },
-    {
-      question: 'Do you offer editing services?',
-      answer:
-        'Yes. Professional editing is included in the Full Podcast Package. Single Podcaster and Podcast Pro are recording-only sessions: you get the raw files, and editing can be added separately — just ask us for a quote.',
-    },
-    {
-      question: 'Can I live stream from the studio?',
-      answer:
-        'Live streaming can be arranged on request. Email us what and where you want to stream before you book, and we will confirm what is possible for your session.',
-    },
-    {
-      question: 'What is your cancellation policy?',
-      answer:
-        'You can cancel or reschedule up to 24 hours before your booking for a full refund. Cancellations within 24 hours are subject to a 50% fee. No-shows forfeit the full booking amount.',
-    },
-    {
-      question: 'How do I get to the studio?',
-      answer:
-        'We are at 40 W 37th St, Suite 603, New York, NY 10018 — a short walk from Herald Square and Bryant Park. If you plan to drive, there are public parking garages in the area; email us and we will help with directions.',
-    },
-  ];
+  const all = buildFaqs(facts);
+  const faqs = compact ? HOME_IDS.map((id) => all.find((f) => f.id === id)).filter((f): f is (typeof all)[number] => !!f) : all;
 
   return (
     <section className="section-padding bg-zayro-bg">
@@ -65,7 +33,7 @@ export default function FAQSection({ showHeading = true, facts }: { showHeading?
             const buttonId = `faq-button-${idx}`;
             const isOpen = openIndex === idx;
             return (
-              <div key={idx} className="card overflow-hidden">
+              <div key={faq.id} id={`faq-${faq.id}`} className="card overflow-hidden scroll-mt-24">
                 <h3>
                   <button
                     id={buttonId}
@@ -107,6 +75,14 @@ export default function FAQSection({ showHeading = true, facts }: { showHeading?
 
         <div className="mt-12 text-center">
           <p className="text-zayro-gray font-light">
+            {compact && (
+              <>
+                <Link href="/faq" className="text-zayro-primary font-semibold hover:underline">
+                  See all questions
+                </Link>
+                {' · '}
+              </>
+            )}
             More questions?{' '}
             <a href="mailto:hello@zayro.studio" className="text-zayro-primary font-semibold hover:underline">
               Email us

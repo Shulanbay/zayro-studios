@@ -87,7 +87,7 @@ export default function Header() {
             </span>
           </Link>
 
-          <nav className="hidden md:flex items-center gap-7" aria-label="Primary">
+          <nav className="hidden lg:flex items-center gap-7" aria-label="Primary">
             {NAV.map((item) => (
               <Link
                 key={item.href}
@@ -102,7 +102,7 @@ export default function Header() {
             ))}
           </nav>
 
-          <div className="hidden md:block">
+          <div className="hidden lg:block">
             <Link href="/booking" className="button button-primary text-sm px-6 py-2.5 uppercase tracking-wide">
               Book a Session
             </Link>
@@ -111,7 +111,7 @@ export default function Header() {
           <button
             ref={toggleRef}
             type="button"
-            className="md:hidden flex items-center justify-center w-11 h-11 p-0 -mr-2 rounded-full text-zayro-dark hover:bg-zayro-bg"
+            className="lg:hidden flex items-center justify-center w-11 h-11 p-0 -mr-2 rounded-full text-zayro-dark hover:bg-zayro-bg"
             onClick={() => setIsMenuOpen((open) => !open)}
             aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
             aria-expanded={isMenuOpen}
@@ -130,7 +130,7 @@ export default function Header() {
         <nav
           id="mobile-nav"
           ref={menuRef}
-          className={`md:hidden border-t border-zayro-border ${isMenuOpen ? 'block pb-6' : 'hidden'}`}
+          className={`lg:hidden border-t border-zayro-border ${isMenuOpen ? 'block pb-6' : 'hidden'}`}
           aria-label="Mobile"
         >
           <div className="flex flex-col gap-1 pt-3">

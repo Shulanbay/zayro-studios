@@ -2,11 +2,13 @@ import type { Metadata } from 'next';
 import { pageMetadata } from '@/lib/seo';
 import FAQSection from '@/components/sections/FAQSection';
 import { getBookingFacts } from '@/lib/bookingFacts';
+import { buildFaqs, faqJsonLd } from '@/lib/faq';
+import JsonLd from '@/components/seo/JsonLd';
 
 export const metadata: Metadata = pageMetadata({
   title: 'FAQ | ZAYRO Studios',
   description:
-    'Answers about booking, hours, editing, cancellations and visiting ZAYRO Studios in Midtown Manhattan.',
+    'Answers about booking, studio time, raw files, editing, cancellations, rescheduling and visiting ZAYRO Studios in Midtown Manhattan.',
   path: '/faq',
 });
 
@@ -17,6 +19,8 @@ export default async function FAQPage() {
   const facts = await getBookingFacts();
   return (
     <div>
+      {/* Built from the same list as the visible answers below. */}
+      <JsonLd data={faqJsonLd(buildFaqs(facts))} />
       <section className="section-padding surface-soft">
         <div className="container">
           <h1 className="text-[clamp(2.25rem,10vw,3rem)] md:text-6xl font-bold mb-4 text-zayro-dark">

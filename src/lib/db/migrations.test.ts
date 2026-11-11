@@ -50,7 +50,7 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
     const db = await productionLikeDb();
     const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
     // 0002, 0003, 0004 (admin audit log enum value), the CRM migrations 0005-0008, 0009 (intake + add-ons) and 0010 (setups), 0011 (add-on prices), 0012 (photoshoot length), 0013 (camera price), 0014 (new setups), 0015 (editing price).
-    expect(applied).toHaveLength(14);
+    expect(applied).toHaveLength(16);
 
     const rows = await services(db);
     const byName = Object.fromEntries(rows.map((r) => [r.name, r]));
@@ -59,9 +59,17 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
     expect(byName['Single Podcaster'].price).toBe(170);
     expect(byName['Podcast Pro'].price).toBe(200);
     expect(byName['Full Podcast Package'].price).toBe(450);
-    expect(byName['Single Podcaster'].features).toEqual(['1 camera', '1 microphone', 'Recording Only']);
-    expect(byName['Full Podcast Package'].features).toEqual(['Recording', 'Professional Editing']);
+    // 0016: the approved package copy replaces untouched seed text (never prices).
+    expect(byName['Single Podcaster'].features).toContain('Videographer / studio technician');
+    expect(byName['Single Podcaster'].features).not.toContain('Recording Only');
+    expect(byName['Full Podcast Package'].features).toContain('Your edited episode will be delivered within 3 business days.');
+    expect(byName['Full Podcast Package'].features).not.toContain('Edited full episode within 3 days');
+    expect(byName['Podcast Pro'].badge).toBe('Most Popular');
+    // 0017: cameras each package includes (drives the 3-camera limit).
+    const cams = (await db.query<{ name: string; c: number }>("SELECT name, (metadata->>'includedCameras')::int AS c FROM services WHERE category = 'podcast'")).rows;
+    expect(Object.fromEntries(cams.map((r) => [r.name, r.c]))).toMatchObject({ 'Single Podcaster': 1, 'Podcast Pro': 3, 'Full Podcast Package': 3 });
     expect(byName['Podcast Pro'].features).toContain('Up to 3 cameras');
+    expect(byName['Podcast Pro'].features).toContain('Up to 2 microphones');
 
     // Photography
     expect(byName['Headshot Session']).toMatchObject({ price: 250, duration_minutes: 45, category: 'photography' });
@@ -115,10 +123,51 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
     expect(rows.find((r) => r.name === 'Headshot Session')).toMatchObject({ price: 275, features: ['custom'] });
   });
 
+  it('0016 keeps package copy edited in the CRM and never touches prices', async () => {
+    const db = await productionLikeDb();
+    await db.exec(`UPDATE services SET features = '["custom copy"]', base_price = 185 WHERE name = 'Single Podcaster'`);
+    await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
+    const byName = Object.fromEntries((await services(db)).map((r) => [r.name, r]));
+    expect(byName['Single Podcaster']).toMatchObject({ price: 185, features: ['custom copy'] });
+    // Re-running 0016 by hand changes nothing.
+    const before = await services(db);
+    for (const stmt of readFileSync('drizzle/0016_customer_self_service.sql', 'utf8').split('--> statement-breakpoint')) if (stmt.trim()) await db.exec(stmt);
+    expect(await services(db)).toEqual(before);
+    const checks = (await db.query<{ conname: string; def: string }>(
+      "SELECT conname, pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname IN ('refunds_source_check','purchases_type_check','temporary_holds_kind_check')"
+    )).rows;
+    expect(checks.find((c) => c.conname === 'refunds_source_check')?.def).toContain('customer');
+    expect(checks.find((c) => c.conname === 'purchases_type_check')?.def).toContain('extension');
+  });
+
+  it('0017 keeps CRM-set camera counts and other metadata; business-days copy only on the untouched Full package bullet', async () => {
+    const db = await productionLikeDb();
+    // Apply everything up to 0016, then simulate CRM edits before 0017 runs.
+    const all = readMigrationFiles({ migrationsFolder: './drizzle' });
+    const upTo16 = all.filter((m) => m.folderMillis < 1791320000000);
+    for (const m of upTo16.slice(2)) {
+      for (const stmt of m.sql) if (stmt.trim()) await db.exec(stmt);
+      await db.query('INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2)', [m.hash, m.folderMillis]);
+    }
+    await db.exec(`UPDATE services SET metadata = '{"includedCameras": 2, "note": "crm"}' WHERE name = 'Single Podcaster'`);
+    await db.exec(`UPDATE services SET metadata = '{"note": "keep"}' WHERE name = 'Podcast Pro'`);
+    await db.exec(`UPDATE services SET features = '["custom full copy"]' WHERE name = 'Full Podcast Package'`);
+    const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
+    expect(applied).toHaveLength(1);
+    const rows = Object.fromEntries((await db.query<any>("SELECT name, metadata, features FROM services WHERE category = 'podcast'")).rows.map((r) => [r.name, r]));
+    expect(rows['Single Podcaster'].metadata).toEqual({ includedCameras: 2, note: 'crm' });
+    expect(rows['Podcast Pro'].metadata).toEqual({ note: 'keep', includedCameras: 3 });
+    expect(rows['Full Podcast Package'].features).toEqual(['custom full copy']);
+    // Running 0017 again by hand changes nothing.
+    const before = (await db.query<any>('SELECT id, metadata, features FROM services ORDER BY id')).rows;
+    for (const stmt of readFileSync('drizzle/0017_camera_limit_business_days.sql', 'utf8').split('--> statement-breakpoint')) if (stmt.trim()) await db.exec(stmt);
+    expect((await db.query<any>('SELECT id, metadata, features FROM services ORDER BY id')).rows).toEqual(before);
+  });
+
   it('works on an empty database (packages simply have no base service yet)', async () => {
     const db = new PGlite();
     const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
-    expect(applied).toHaveLength(16);
+    expect(applied).toHaveLength(18);
     const rows = await services(db);
     expect(rows.filter((r) => r.category === 'package').every((r) => r.package_base_service_id === null)).toBe(true);
     expect(rows.filter((r) => r.category === 'photography')).toHaveLength(3);

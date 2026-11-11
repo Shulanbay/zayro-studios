@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { findBookableService } from '@/lib/catalogData';
-import { listAddonsForCategory } from '@/lib/bookingQuote';
+import { listAddonsForService } from '@/lib/bookingQuote';
 
 export const dynamic = 'force-dynamic';
 
-/** Extras that can be added to a booking of this service (active only, current prices). */
+/** Extras that can be added to a booking of this service (active only, current prices, per-service limits such as the camera cap). */
 export async function GET(request: NextRequest) {
   const serviceId = request.nextUrl.searchParams.get('service_id');
   if (!serviceId) return NextResponse.json({ error: 'Missing service_id' }, { status: 400 });
@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     const lookup = await findBookableService(serviceId);
     if (!lookup.ok) return NextResponse.json({ error: lookup.error }, { status: lookup.status });
     // Free services (the studio tour) have no paid extras.
-    const addons = parseFloat(lookup.service.base_price) > 0 ? await listAddonsForCategory(lookup.service.category) : [];
+    const addons = parseFloat(lookup.service.base_price) > 0 ? await listAddonsForService(lookup.service) : [];
     return NextResponse.json(
       addons.map((a) => ({
         id: a.id,

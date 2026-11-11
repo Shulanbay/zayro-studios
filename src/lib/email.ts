@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db } from './db';
-import { bookings, customerPackages, customers, emailLogs, packagePlans, purchases, refunds, services } from './db/schema';
+import { bookingExtensions, bookings, customerPackages, customers, emailLogs, packagePlans, purchases, refunds, services } from './db/schema';
 import type { Booking, EmailLog, Service } from './db/schema';
 import { BUSINESS_ADDRESS, BUSINESS_EMAIL } from './constants';
 import { toDateOnly } from './utils';
@@ -14,6 +14,10 @@ import { formatDuration } from './catalog';
 import { SITE_URL } from './seo';
 import { buildSessionIcs } from './ics';
 import { purchaseItems } from './db/schema';
+import { ManageLinkConfigError, ensureManageToken, manageUrl } from './manageToken';
+import { logConfigWarning } from './configWarnings';
+import { POLICY_COPY, changeDeadline } from './policies';
+import { formatInstantEt } from './crm/time';
 
 /**
  * High-level transactional emails. Each one has a stable dedupe key, so it
@@ -35,7 +39,32 @@ export const EMAIL_TEMPLATES = {
   package_credit_used: 'Package session booked',
   owner_payment_review: 'Owner: payment needs review',
   guest_invite: 'Guest invitation',
+  guest_schedule_update: 'Guest: schedule update',
+  extension: 'Session extended',
+  manage_link: 'Manage Booking link (requested)',
 } as const;
+
+/**
+ * The booking owner's Manage Booking link (created on first use). Only the
+ * customer's own emails call this; guests never get it. Never throws.
+ */
+async function manageLinkFor(booking: Booking): Promise<string | null> {
+  try {
+    const token = await ensureManageToken(booking.id);
+    return token ? manageUrl(token) : null;
+  } catch (error) {
+    // Never block a confirmation email; staff see the warning in Integrations.
+    console.error('[email] manage link unavailable:', (error as Error)?.message || error);
+    if (error instanceof ManageLinkConfigError) await logConfigWarning('BOOKING_MANAGE_SECRET is missing; confirmation emails are sent without a Manage Booking link.');
+    return null;
+  }
+}
+
+/** Bumps for every schedule change, so each change gets its own email and calendar update. */
+function scheduleVersion(booking: Booking): number {
+  const t = booking.updated_at ? new Date(booking.updated_at).getTime() : 0;
+  return Number.isFinite(t) ? Math.floor(t / 1000) : 0;
+}
 
 function contactEmail() {
   return BUSINESS_EMAIL;
@@ -58,6 +87,8 @@ function bookingData(booking: Booking, service: Service): T.BookingEmailData {
     notes: booking.notes,
     address: BUSINESS_ADDRESS,
     contactEmail: contactEmail(),
+    // The package copy (services.features) is the source: only packages that promise an edited episode mention its delivery time.
+    includesEditing: Array.isArray(service.features) && service.features.includes(POLICY_COPY.editedDelivery),
   };
 }
 
@@ -70,6 +101,11 @@ interface BookingEmailData {
 export async function sendBookingConfirmationEmail({ booking, service }: BookingEmailData): Promise<EmailOutcome> {
   const template = service.category === 'tour' ? 'tour_confirmation' : 'booking_confirmation';
   const summary = await summaryData(booking, 'customer');
+  const link = await manageLinkFor(booking);
+  if (link) {
+    summary.cta = { label: T.MANAGE_CTA_LABEL, url: link };
+    summary.ctaNote = T.MANAGE_CTA_NOTE;
+  }
   return sendLoggedEmail({
     template,
     recipientType: 'customer',
@@ -111,6 +147,11 @@ async function summaryData(booking: Booking, audience: 'customer' | 'owner'): Pr
       booking.setup_id ? db.query.setups.findFirst({ where: eq(setups.id, booking.setup_id) }) : null,
     ]);
     data.orderNumber = purchase?.order_number ?? null;
+    if (purchase) {
+      data.subtotalCents = purchase.subtotal_cents;
+      data.taxCents = purchase.tax_cents;
+    }
+    if (booking.starts_at) data.changeDeadlineLabel = formatInstantEt(changeDeadline(new Date(booking.starts_at)));
     data.extras = items.filter((i) => i.item_type === 'addon').map((i) => `${i.description_snapshot.replace(/^Add-on: /, '')}${i.quantity > 1 ? ` × ${i.quantity}` : ''}`);
     if (setup) {
       data.setupName = setup.name;
@@ -179,16 +220,116 @@ export async function sendRescheduleEmail({
   service,
   previous,
 }: BookingEmailData & { previous: { date: string; startTime: string } }): Promise<EmailOutcome> {
+  const link = await manageLinkFor(booking);
+  const setupName = ((booking.intake ?? {}) as Intake).setupName ?? null;
   return sendLoggedEmail({
     template: 'reschedule',
     recipientType: 'customer',
     to: booking.customer_email,
-    // One email per new time.
-    dedupeKey: `reschedule:${booking.id}:${toDateOnly(booking.booking_date)}T${booking.start_time}`,
+    // One email per change (moving A → B → A sends two).
+    dedupeKey: `reschedule:${booking.id}:${toDateOnly(booking.booking_date)}T${booking.start_time}:v${scheduleVersion(booking)}`,
     refs: { bookingId: booking.id },
     context: { previousDate: previous.date, previousStart: previous.startTime },
     render: () =>
-      T.rescheduleConfirmation({ ...bookingData(booking, service), previousDate: previous.date, previousStart: previous.startTime }),
+      T.rescheduleConfirmation({ ...bookingData(booking, service), previousDate: previous.date, previousStart: previous.startTime, manageUrl: link, setupName }),
+  });
+}
+
+/** Guests' copy of a schedule change, with an updated calendar file (same UID, higher SEQUENCE). */
+export async function sendGuestScheduleUpdateEmails({
+  booking,
+  service,
+  change,
+}: BookingEmailData & { change: 'rescheduled' | 'extended' }): Promise<EmailOutcome[]> {
+  const guests = ((booking.intake ?? {}) as Intake).guests;
+  if (!Array.isArray(guests) || guests.length === 0) return [];
+  const date = toDateOnly(booking.booking_date);
+  const hostName = `${booking.customer_first_name} ${booking.customer_last_name}`.trim();
+  const version = scheduleVersion(booking);
+  const ics = buildSessionIcs({
+    uid: booking.booking_id,
+    title: `${service.name} at ZAYRO Studios`,
+    description: `Hosted by ${hostName}. Booking ${booking.booking_id}.`,
+    location: BUSINESS_ADDRESS,
+    date,
+    startTime: booking.start_time,
+    endTime: booking.end_time,
+    sequence: version,
+  });
+  return Promise.all(
+    guests.slice(0, 8).map((guest) =>
+      sendLoggedEmail({
+        template: 'guest_schedule_update',
+        recipientType: 'guest',
+        to: guest,
+        dedupeKey: `guest_update:${booking.id}:${guest}:v${version}`,
+        refs: { bookingId: booking.id },
+        context: { change },
+        attachments: [{ filename: 'zayro-studios-session.ics', content: ics, contentType: 'text/calendar' }],
+        render: () =>
+          T.guestScheduleUpdate({ hostName, serviceName: service.name, date, startTime: booking.start_time, endTime: booking.end_time, address: BUSINESS_ADDRESS, contactEmail: contactEmail(), change }),
+      })
+    )
+  );
+}
+
+/**
+ * A Manage Booking link the customer requested. Goes only to the email
+ * stored on the booking; `dedupeKey` (one per cooldown window) keeps
+ * repeated requests from sending more than one email, and a failed send
+ * can be retried from Integrations with the booking's current link.
+ */
+export async function sendManageLinkEmail(booking: Booking, dedupeKey: string): Promise<EmailOutcome> {
+  const service = await db.query.services.findFirst({ where: eq(services.id, booking.service_id) });
+  const link = await manageLinkFor(booking);
+  if (!service || !link) return { sent: false, status: 'failed', error: 'Manage link unavailable' };
+  return sendLoggedEmail({
+    template: 'manage_link',
+    recipientType: 'customer',
+    to: booking.customer_email,
+    dedupeKey,
+    refs: { bookingId: booking.id },
+    render: () =>
+      T.manageLinkEmail({
+        firstName: booking.customer_first_name || 'there',
+        bookingId: booking.booking_id,
+        serviceName: service.name,
+        date: toDateOnly(booking.booking_date),
+        startTime: booking.start_time,
+        endTime: booking.end_time,
+        manageUrl: link,
+        contactEmail: contactEmail(),
+      }),
+  });
+}
+
+/** Customer email after a paid extension is applied. One per extension. */
+export async function sendExtensionEmail(extensionId: string): Promise<EmailOutcome> {
+  const ext = await db.query.bookingExtensions.findFirst({ where: eq(bookingExtensions.id, extensionId) });
+  if (!ext) return { sent: false, status: 'failed', error: 'Extension not found' };
+  const [booking, purchase] = await Promise.all([
+    db.query.bookings.findFirst({ where: eq(bookings.id, ext.booking_id) }),
+    db.query.purchases.findFirst({ where: eq(purchases.id, ext.purchase_id) }),
+  ]);
+  const service = booking ? await db.query.services.findFirst({ where: eq(services.id, booking.service_id) }) : null;
+  if (!booking || !purchase || !service) return { sent: false, status: 'failed', error: 'Extension data missing' };
+  const link = await manageLinkFor(booking);
+  return sendLoggedEmail({
+    template: 'extension',
+    recipientType: 'customer',
+    to: booking.customer_email,
+    dedupeKey: `extension:${ext.id}`,
+    refs: { bookingId: booking.id, purchaseId: purchase.id },
+    render: () =>
+      T.extensionConfirmation({
+        ...bookingData(booking, service),
+        previousEnd: ext.previous_end_time,
+        addedLabel: formatDuration(ext.added_minutes),
+        amountCents: purchase.total_cents,
+        taxCents: purchase.tax_cents,
+        orderNumber: purchase.order_number,
+        manageUrl: link,
+      }),
   });
 }
 
@@ -215,11 +356,16 @@ export async function sendRefundEmail(refundId: string): Promise<EmailOutcome> {
   if (!purchase) return { sent: false, status: 'failed', error: 'Purchase not found' };
   const customer = purchase.customer_id ? await db.query.customers.findFirst({ where: eq(customers.id, purchase.customer_id) }) : null;
   const booking = refund.booking_id ? await db.query.bookings.findFirst({ where: eq(bookings.id, refund.booking_id) }) : null;
+  // One email per refund state the customer should hear about. A refund
+  // that is still processing is "requested", never "issued".
+  const status: T.RefundEmailStatus =
+    refund.status === 'succeeded' ? 'succeeded' : refund.status === 'failed' || refund.status === 'canceled' ? 'failed' : 'pending';
   return sendLoggedEmail({
     template: 'refund',
     recipientType: 'customer',
     to: customer?.email ?? booking?.customer_email,
-    dedupeKey: `refund:${refund.id}`,
+    dedupeKey: `refund:${refund.id}:${status}`,
+    context: { status },
     refs: { refundId: refund.id, purchaseId: purchase.id, bookingId: refund.booking_id },
     render: () =>
       T.refundNotice({
@@ -230,6 +376,7 @@ export async function sendRefundEmail(refundId: string): Promise<EmailOutcome> {
         totalRefundedCents: purchase.refunded_cents,
         originalCents: purchase.total_cents,
         contactEmail: contactEmail(),
+        status,
       }),
   });
 }
@@ -301,12 +448,14 @@ export async function sendOwnerPaymentReviewEmail(args: {
   orderNumber: string;
   amountCents: number;
   reason: string;
+  /** Distinguishes a second review for the same booking (e.g. a paid extension). */
+  dedupeSuffix?: string;
 }): Promise<EmailOutcome> {
   return sendLoggedEmail({
     template: 'owner_payment_review',
     recipientType: 'owner',
     to: process.env.OWNER_EMAIL,
-    dedupeKey: `owner_payment_review:${args.booking.id}`,
+    dedupeKey: `owner_payment_review:${args.booking.id}${args.dedupeSuffix ? `:${args.dedupeSuffix}` : ''}`,
     refs: { bookingId: args.booking.id, purchaseId: args.booking.purchase_id },
     context: { reason: args.reason, amountCents: args.amountCents, orderNumber: args.orderNumber },
     render: () =>
@@ -344,6 +493,7 @@ export async function retryEmail(logId: string): Promise<EmailOutcome> {
     case 'reschedule': {
       const data = await loadBooking();
       if (!data) return { sent: false, status: 'failed', error: 'Booking not found' };
+      const link = await manageLinkFor(data.booking);
       // Re-send the log's own email (its dedupe key), even if the booking moved again since.
       return sendLoggedEmail({
         template: 'reschedule',
@@ -357,6 +507,7 @@ export async function retryEmail(logId: string): Promise<EmailOutcome> {
             ...bookingData(data.booking, data.service),
             previousDate: String(ctx.previousDate ?? ''),
             previousStart: String(ctx.previousStart ?? ''),
+            manageUrl: link,
           }),
       });
     }
@@ -366,6 +517,20 @@ export async function retryEmail(logId: string): Promise<EmailOutcome> {
     }
     case 'refund':
       return log.refund_id ? sendRefundEmail(log.refund_id) : { sent: false, status: 'failed', error: 'Refund missing' };
+    case 'manage_link': {
+      const data = await loadBooking();
+      return data ? sendManageLinkEmail(data.booking, log.dedupe_key) : { sent: false, status: 'failed', error: 'Booking not found' };
+    }
+    case 'extension': {
+      const ext = log.purchase_id ? await db.query.bookingExtensions.findFirst({ where: eq(bookingExtensions.purchase_id, log.purchase_id) }) : null;
+      return ext ? sendExtensionEmail(ext.id) : { sent: false, status: 'failed', error: 'Extension missing' };
+    }
+    case 'guest_schedule_update': {
+      const data = await loadBooking();
+      if (!data) return { sent: false, status: 'failed', error: 'Booking not found' };
+      const all = await sendGuestScheduleUpdateEmails({ ...data, change: ctx.change === 'extended' ? 'extended' : 'rescheduled' });
+      return all.find((o) => o.logId === logId) ?? { sent: false, status: 'failed', error: 'This update was superseded by a later change' };
+    }
     case 'package_purchase':
       return log.purchase_id ? (await import('@/lib/publicPackages')).sendPackagePurchaseEmail(log.purchase_id) : { sent: false, status: 'failed', error: 'Purchase missing' };
     case 'package_assigned':

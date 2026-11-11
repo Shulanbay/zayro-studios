@@ -15,6 +15,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       setups.map((s) => ({
         id: s.id,
+        // Stable identity for deep links (/booking?category=podcast&setup=<slug>); names are display only.
+        slug: s.slug,
         name: s.name,
         description: s.description,
         seats: s.capacity,

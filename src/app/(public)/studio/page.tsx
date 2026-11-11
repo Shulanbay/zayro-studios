@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { pageMetadata } from '@/lib/seo';
+import EquipmentSection from '@/components/sections/EquipmentSection';
 
 export const metadata: Metadata = pageMetadata({
   title: 'Recording Studio & Equipment | ZAYRO Studios Manhattan',
@@ -78,6 +79,9 @@ export default function StudioPage() {
           </div>
         </div>
       </section>
+
+      {/* The detailed equipment list (moved here from the homepage). */}
+      <EquipmentSection />
     </div>
   );
 }

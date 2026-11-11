@@ -11,6 +11,9 @@ import { toDateOnly } from '@/lib/utils';
 import { Card, DefinitionList, Forbidden, PageHeader, StatusBadge, humanize } from '@/components/crm/ui';
 import { ActionButton } from '@/components/crm/client';
 import { GoogleConnectionTest, StripeWebhookStatus } from '@/components/admin/AdminControls';
+import { cameraConfig } from '@/lib/bookingOptions';
+import { isManageSecretConfigured } from '@/lib/manageToken';
+import { PAID_BOOKINGS_EXTENSION_HEADERS } from '@/lib/googleSheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,6 +61,16 @@ export default async function IntegrationsPage() {
   ]);
 
   const google = getGoogleConfigStatus();
+  // Catalog/configuration checks (values never shown).
+  const [podcastServices, configWarnings] = await Promise.all([
+    db.query.services.findMany({ where: and(eq(services.category, 'podcast'), eq(services.is_active, true)) }),
+    db.query.integrationLogs.findMany({
+      where: and(eq(integrationLogs.integration_type, 'admin'), isNull(integrationLogs.booking_id), eq(integrationLogs.status, 'failed'), gte(integrationLogs.created_at, since)),
+      orderBy: [desc(integrationLogs.created_at)],
+      limit: 10,
+    }),
+  ]);
+  const cameraRows = podcastServices.map((svc) => ({ id: svc.id, name: svc.name, config: cameraConfig(svc) }));
   const stripeKey = process.env.STRIPE_SECRET_KEY || '';
   const stripeMode = stripeKey.startsWith('sk_live_') || stripeKey.startsWith('rk_live_') ? 'Live' : stripeKey ? 'Test' : 'Not configured';
   const emailCount = Object.fromEntries(emailStats.map((r) => [r.status, Number(r.n)]));
@@ -173,6 +186,31 @@ export default async function IntegrationsPage() {
             </ul>
           )}
           <p className="text-xs text-zayro-gray mt-3">Retrying an email never re-sends one that already went out, and never touches Calendar or Sheets.</p>
+        </Card>
+
+        <Card title="Configuration">
+          <DefinitionList
+            items={[
+              ['Manage Booking links (BOOKING_MANAGE_SECRET)', <YesNo key="m" ok={isManageSecretConfigured()} yes="configured" no="missing — links disabled" />],
+              ...cameraRows.map((r): [string, React.ReactNode] => [
+                `Cameras: ${r.name}`,
+                r.config.ok ? `${r.config.included} included · up to ${Math.max(0, 3 - r.config.included)} extra` : <span key={r.id} className="text-red-700 font-medium">Invalid ({r.config.reason}) — Additional Camera off</span>,
+              ]),
+              ['Sheets “Paid Bookings” extra-time columns', `Optional U1:X1 headers: ${PAID_BOOKINGS_EXTENSION_HEADERS.join(' · ')} (use “Test connection” to check)`],
+            ]}
+          />
+          {configWarnings.length > 0 && (
+            <>
+              <h3 className="text-sm font-semibold mt-5 mb-2">Recent configuration warnings</h3>
+              <ul className="text-xs divide-y divide-zayro-border">
+                {configWarnings.map((l) => (
+                  <li key={l.id} className="py-1.5">
+                    <span className="text-zayro-gray">{formatInstantEt(l.created_at)}</span> · <span className="text-red-700">{l.error_message}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </Card>
 
         <Card title="Google Calendar & Sheets">

@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { CATEGORY_LABELS, bookingCategories, formatDuration, formatPrice, isBookable, servicesInCategory, type CatalogService } from '@/lib/catalog';
 import { addDays, formatTimeLabel, todayInTz, wallTimeToUtc } from '@/lib/crm/time';
 import { EDITING_CHOICES, EDITING_LABELS, MAX_GUESTS, MAX_PEOPLE, RECORDING_TYPES, intakeFields, parseIntake } from '@/lib/bookingOptions';
+import { POLICY_COPY, POLICY_VERSION } from '@/lib/policies';
 
 interface TimeSlot {
   start: string;
@@ -38,6 +39,7 @@ interface Addon {
 
 interface StudioSetup {
   id: number;
+  slug?: string;
   name: string;
   description: string | null;
   seats: number | null;
@@ -89,6 +91,8 @@ interface BookingState {
   holdId: string | null;
   holdExpiresAt: string | null;
   pricing: Pricing | null;
+  /** The customer ticked the policy checkbox on the review step (never pre-ticked). */
+  policyAccepted?: boolean;
   loading: boolean;
   error: string | null;
 }
@@ -303,6 +307,9 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
   const [slotsError, setSlotsError] = useState<string | null>(null);
 
   const deepLinkHandled = useRef(false);
+  // /booking?setup=<slug>: the setup to preselect once the setups for the chosen service are known.
+  const preferredSetup = useRef<string | null>(null);
+  const [setupLinkError, setSetupLinkError] = useState<string | null>(null);
   const headingRef = useRef<HTMLDivElement>(null);
 
   // Hydrate from sessionStorage once, then re-validate anything time-sensitive.
@@ -313,7 +320,8 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
       return;
     }
     (async () => {
-      let next: Partial<BookingState> = { ...persisted };
+      // Agreement to the policies is given fresh on every visit, never restored.
+      let next: Partial<BookingState> = { ...persisted, policyAccepted: false };
       if (persisted.holdId) {
         try {
           const res = await fetch('/api/booking/validate-hold', {
@@ -419,7 +427,9 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
     }
     const serviceParam = packageServiceId ? String(packageServiceId) : params.get('service');
     const categoryParam = params.get('category');
-    if (!serviceParam && !categoryParam) return;
+    const setupParam = params.get('setup');
+    if (setupParam && /^[a-z0-9-]{1,80}$/.test(setupParam)) preferredSetup.current = setupParam;
+    if (!serviceParam && !categoryParam && !setupParam) return;
 
     const target = serviceParam ? allServices.find((s) => String(s.id) === serviceParam) : undefined;
     if (target && isBookable(target)) {
@@ -473,6 +483,21 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
   useEffect(() => {
     if (currentStep === SETUP_STEP && setups && setups.length <= 1) {
       setState((s) => (s.step === SETUP_STEP ? { ...s, step: 2, setupId: setups[0]?.id ?? null } : s));
+    }
+  }, [currentStep, setups]);
+  // A setup chosen on the homepage: preselect it by slug, using only the
+  // setups the server says are active for this service. An unknown or
+  // retired slug falls back to the normal choice, with a note.
+  useEffect(() => {
+    if (currentStep !== SETUP_STEP || !setups || setups.length <= 1 || !preferredSetup.current) return;
+    const slug = preferredSetup.current;
+    preferredSetup.current = null;
+    const match = setups.find((x) => x.slug === slug);
+    if (match) {
+      setSetupLinkError(null);
+      setState((s) => (s.step === SETUP_STEP ? { ...s, step: 2, setupId: match.id, error: null } : s));
+    } else {
+      setSetupLinkError('That setup is not available for this service. Please choose one of the setups below.');
     }
   }, [currentStep, setups]);
 
@@ -645,6 +670,7 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
         ...s,
         loading: false,
         step: 6,
+        policyAccepted: false,
         holdId: data.hold_id,
         holdExpiresAt: data.hold_expires_at,
         pricing: packageBooking ? { subtotal: '0.00', taxAmount: '0.00', total: '0.00' } : data.pricing,
@@ -667,6 +693,11 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
 
   const confirmOrPay = async () => {
     if (holdExpired) return holdRanOut();
+    if (!state.policyAccepted) {
+      setState((s) => ({ ...s, error: 'Please agree to the cancellation, rescheduling and studio-time policies to continue.' }));
+      document.getElementById('policy-ack')?.focus();
+      return;
+    }
     setState((s) => ({ ...s, loading: true, error: null }));
     const payload = {
       holdId: state.holdId,
@@ -677,6 +708,8 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
       company: state.customerInfo.company.trim(),
       notes: state.customerInfo.notes.trim(),
       intake: intakePayload(),
+      policyAccepted: state.policyAccepted === true,
+      policyVersion: POLICY_VERSION,
     };
     try {
       if (packageBooking) {
@@ -847,6 +880,12 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
     content = (
       <>
         <StepHeader step={SETUP_STEP} labels={labels} title="Choose your setup" subtitle={service.name} onBack={() => goTo(1)} />
+        {setupLinkError && (
+          <p className="form-error-banner mb-6" role="alert">
+            {setupLinkError}
+          </p>
+        )}
+        <p className="text-sm text-zayro-gray mb-6 max-w-2xl">{POLICY_COPY.setupChange}</p>
         {!setups ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6" aria-busy="true" aria-label="Loading setups">
             <div className="skeleton h-64" />
@@ -858,7 +897,10 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
               <li key={setup.id}>
                 <button
                   type="button"
-                  onClick={() => goTo(2, { setupId: setup.id })}
+                  onClick={() => {
+                    setSetupLinkError(null);
+                    goTo(2, { setupId: setup.id });
+                  }}
                   aria-pressed={state.setupId === setup.id}
                   className={`card card-interactive !p-0 overflow-hidden text-left w-full h-full ${state.setupId === setup.id ? 'card-selected' : ''}`}
                 >
@@ -930,6 +972,9 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
               {formatPrice(service.base_price)} per hour · {state.hours} hour{state.hours === 1 ? '' : 's'} ={' '}
               <span className="font-semibold text-zayro-dark">{money(parseFloat(service.base_price) * state.hours)}</span>
               {' '}before extras
+            </p>
+            <p className="text-sm text-zayro-gray mt-3">
+              {POLICY_COPY.studioTime} {POLICY_COPY.earlyArrival}
             </p>
           </fieldset>
         )}
@@ -1518,9 +1563,30 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
               <span className="text-zayro-primary">{packageBooking ? '1 session' : isFree ? 'Free' : pricing ? money(pricing.total) : '—'}</span>
             </div>
 
+            <div className="mb-5 rounded-xl bg-zayro-bg p-4 text-sm text-zayro-gray leading-relaxed">
+              <p className="mb-2">{POLICY_COPY.concise}</p>
+              <p>{POLICY_COPY.earlyArrival}</p>
+            </div>
+            <label htmlFor="policy-ack" className="flex items-start gap-3 mb-5 cursor-pointer text-sm text-zayro-dark">
+              <input
+                id="policy-ack"
+                type="checkbox"
+                className="mt-0.5 h-5 w-5 flex-shrink-0 accent-zayro-primary"
+                checked={state.policyAccepted === true}
+                onChange={(e) => setState((s) => ({ ...s, policyAccepted: e.target.checked, error: null }))}
+                aria-describedby="policy-ack-terms"
+              />
+              <span>
+                {POLICY_COPY.acknowledgment}{' '}
+                <Link id="policy-ack-terms" href="/terms#booking-policies" target="_blank" className="text-zayro-primary font-semibold underline">
+                  Read the terms
+                </Link>
+              </span>
+            </label>
             <button
               type="button"
               onClick={confirmOrPay}
+              aria-disabled={!state.policyAccepted}
               disabled={state.loading || holdExpired || !pricing}
               className={`button button-primary w-full py-4 text-base ${state.loading ? 'is-loading' : ''}`}
             >

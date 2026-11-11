@@ -5,6 +5,7 @@
  */
 import { formatDateLabel, formatTimeLabel } from './time';
 import { formatCents } from './money';
+import { POLICY_COPY } from '../policies';
 
 export function esc(value: unknown): string {
   return String(value ?? '')
@@ -41,6 +42,8 @@ export interface BookingEmailData {
   details?: [string, string][];
   /** Full booking details for the summary emails (see bookingSummary). */
   summary?: BookingSummaryData;
+  /** The service includes professional editing (Full Podcast Package): mention the delivery time. */
+  includesEditing?: boolean;
 }
 
 /** Everything the "booking summary" emails show beyond the basics. */
@@ -58,13 +61,25 @@ export interface BookingSummaryData {
   guests?: { name: string; email: string }[];
   /** Button under the summary. */
   cta?: { label: string; url: string } | null;
+  /** One line shown right above the button. */
+  ctaNote?: string | null;
+  subtotalCents?: number | null;
+  taxCents?: number | null;
+  /** "Thu, Nov 12, 2026, 2:00 PM ET" — last moment to cancel or reschedule. */
+  changeDeadlineLabel?: string | null;
 }
 
 const BRAND = '#3D7DFF';
 const INK = '#0B1220';
 const MUTED = '#5B6472';
 
-function layout(title: string, intro: string, rows: [string, string][], outro: string[] = []): string {
+function ctaButton(cta: { label: string; url: string } | null | undefined, note?: string | null): string {
+  if (!cta) return '';
+  const noteHtml = note ? `<p style="margin:20px 0 0;color:${MUTED};font-size:14px;line-height:1.6;text-align:center;">${esc(note)}</p>` : '';
+  return `${noteHtml}<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:${note ? '12px' : '24px'} auto 8px;"><tr><td style="border-radius:999px;background:${BRAND};"><a href="${esc(cta.url)}" style="display:inline-block;padding:13px 30px;font-size:15px;font-weight:700;color:#FFFFFF;text-decoration:none;border-radius:999px;">${esc(cta.label)}</a></td></tr></table>`;
+}
+
+function layout(title: string, intro: string, rows: [string, string][], outro: string[] = [], cta?: { label: string; url: string; note?: string } | null): string {
   const rowHtml = rows
     .map(
       ([label, value]) =>
@@ -80,14 +95,16 @@ function layout(title: string, intro: string, rows: [string, string][], outro: s
 <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3;color:${INK};">${esc(title)}</h1>
 <p style="margin:0 0 20px;color:${MUTED};font-size:15px;line-height:1.6;">${esc(intro)}</p>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #E3E9F2;border-bottom:1px solid #E3E9F2;margin:0 0 20px;">${rowHtml}</table>
+${ctaButton(cta, cta?.note)}
 ${outroHtml}
 </td></tr></table>
 <p style="color:#8A93A3;font-size:12px;margin-top:16px;">ZAYRO Studios · 40 W 37th St, Suite 603, New York, NY 10018</p>
 </td></tr></table></body></html>`;
 }
 
-function textVersion(title: string, intro: string, rows: [string, string][], outro: string[] = []): string {
-  return [title, '', intro, '', ...rows.map(([l, v]) => `${l}: ${v}`), '', ...outro].join('\n');
+function textVersion(title: string, intro: string, rows: [string, string][], outro: string[] = [], cta?: { label: string; url: string; note?: string } | null): string {
+  const ctaLines = cta ? [...(cta.note ? [cta.note] : []), `${cta.label}: ${cta.url}`, ''] : [];
+  return [title, '', intro, '', ...rows.map(([l, v]) => `${l}: ${v}`), '', ...ctaLines, ...outro].join('\n');
 }
 
 const PANEL = '#F4F8FC';
@@ -128,6 +145,7 @@ function summaryLayout(args: {
   headerImage?: string | null;
   sections: SummarySection[];
   cta?: { label: string; url: string } | null;
+  ctaNote?: string | null;
   outro?: string[];
   address: string;
 }): string {
@@ -139,9 +157,7 @@ function summaryLayout(args: {
   const image = args.headerImage
     ? `<tr><td style="padding:0;"><img src="${esc(args.headerImage)}" width="600" alt="ZAYRO Studios" style="display:block;width:100%;max-width:600px;height:auto;border:0;border-radius:18px 18px 0 0;"></td></tr>`
     : '';
-  const button = args.cta
-    ? `<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:24px auto 8px;"><tr><td style="border-radius:999px;background:${BRAND};"><a href="${esc(args.cta.url)}" style="display:inline-block;padding:13px 30px;font-size:15px;font-weight:700;color:#FFFFFF;text-decoration:none;border-radius:999px;">${esc(args.cta.label)}</a></td></tr></table>`
-    : '';
+  const button = ctaButton(args.cta, args.ctaNote);
   const outro = (args.outro ?? []).map((p) => `<p style="margin:0 0 10px;color:${MUTED};font-size:14px;line-height:1.6;">${esc(p)}</p>`).join('');
   return `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"></head><body style="margin:0;background:${PANEL};font-family:-apple-system,system-ui,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${PANEL};padding:24px 12px;"><tr><td align="center">
@@ -175,12 +191,16 @@ function summarySections(d: BookingEmailData, forOwner: boolean): SummarySection
     if (d.email) top.push(['Email', d.email, `mailto:${d.email}`]);
     if (d.company) top.push(['Company', d.company]);
   }
+  if (typeof s.subtotalCents === 'number' && d.totalCents > 0) {
+    top.push(['Subtotal', formatCents(s.subtotalCents)]);
+    if (typeof s.taxCents === 'number' && s.taxCents > 0) top.push(['Sales tax', formatCents(s.taxCents)]);
+  }
   top.push(['Total price', d.totalCents > 0 ? `USD ${formatCents(d.totalCents).replace('$', '')}` : 'Free']);
   if (s.durationLabel) top.push(['Session length', s.durationLabel]);
 
   const session: [string, string][] = [
     ['Date', formatDateLabel(d.date)],
-    ['Time', `${formatTimeLabel(d.startTime)} – ${formatTimeLabel(d.endTime)} ET`],
+    ['Time', `${formatTimeLabel(d.startTime)} – ${formatTimeLabel(d.endTime)} ET (New York time)`],
     ['Location', d.address],
   ];
   if (s.setupName) session.push(['Setup', s.setupName]);
@@ -198,6 +218,15 @@ function summarySections(d: BookingEmailData, forOwner: boolean): SummarySection
   const ids: [string, string][] = [['Booking ID', d.bookingId]];
   if (s.orderNumber) ids.push(['Order ID', s.orderNumber]);
   sections.push({ heading: 'Reference', rows: ids });
+  if (!forOwner && !d.isTour && s.changeDeadlineLabel) {
+    sections.push({
+      heading: 'Policies',
+      rows: [
+        ['Cancel for a full refund by', s.changeDeadlineLabel],
+        ['Reschedule online by', s.changeDeadlineLabel],
+      ],
+    });
+  }
   return sections;
 }
 
@@ -210,18 +239,26 @@ function summaryEmail(d: BookingEmailData, args: { title: string; intro: string;
     '',
     ...sections.flatMap((sec) => [...(sec.heading ? ['', `${sec.heading}:`] : []), ...sec.rows.map(([l, v]) => `${l}: ${v}`)]),
     '',
+    ...(d.summary?.ctaNote ? [d.summary.ctaNote] : []),
     ...(d.summary?.cta ? [`${d.summary.cta.label}: ${d.summary.cta.url}`, ''] : []),
     ...args.outro,
   ].join('\n');
   return {
     subject: args.subject,
-    html: summaryLayout({ title: args.title, intro: args.intro, headerImage: d.summary?.headerImage, sections, cta: d.summary?.cta, outro: args.outro, address: d.address }),
+    html: summaryLayout({ title: args.title, intro: args.intro, headerImage: d.summary?.headerImage, sections, cta: d.summary?.cta, ctaNote: d.summary?.ctaNote, outro: args.outro, address: d.address }),
     text,
   };
 }
 
-function build(title: string, intro: string, rows: [string, string][], outro: string[] = [], subject = title): RenderedEmail {
-  return { subject, html: layout(title, intro, rows, outro), text: textVersion(title, intro, rows, outro) };
+function build(title: string, intro: string, rows: [string, string][], outro: string[] = [], subject = title, cta?: { label: string; url: string; note?: string } | null): RenderedEmail {
+  return { subject, html: layout(title, intro, rows, outro, cta), text: textVersion(title, intro, rows, outro, cta) };
+}
+
+/** The Manage Booking button: only ever in emails to the booking's owner. */
+export const MANAGE_CTA_LABEL = 'Manage Your Booking';
+export const MANAGE_CTA_NOTE = 'Use this secure link to review, reschedule, extend or cancel your booking.';
+function manageCta(url?: string | null): { label: string; url: string; note: string } | null {
+  return url ? { label: MANAGE_CTA_LABEL, url, note: MANAGE_CTA_NOTE } : null;
 }
 
 function when(d: Pick<BookingEmailData, 'date' | 'startTime' | 'endTime'>): [string, string][] {
@@ -255,24 +292,83 @@ export function bookingConfirmation(d: BookingEmailData): RenderedEmail {
     title: 'Your booking is confirmed',
     intro: `Hi ${d.firstName}, your session at ZAYRO Studios is confirmed. Here are the details:`,
     subject: 'Your ZAYRO Studios booking is confirmed',
-    outro: ['Please arrive 10 minutes early so we can start on time.', `Questions? Reply to this email or write to ${d.contactEmail}.`],
+    outro: [
+      ...(d.includesEditing ? [POLICY_COPY.editedDelivery] : []),
+      POLICY_COPY.studioTime,
+      POLICY_COPY.earlyArrival,
+      POLICY_COPY.changes,
+      POLICY_COPY.refund,
+      `Questions? Reply to this email or write to ${d.contactEmail}.`,
+    ],
     forOwner: false,
   });
 }
 
-export function rescheduleConfirmation(d: BookingEmailData & { previousDate: string; previousStart: string }): RenderedEmail {
+export function rescheduleConfirmation(d: BookingEmailData & { previousDate: string; previousStart: string; manageUrl?: string | null; setupName?: string | null }): RenderedEmail {
+  const rows: [string, string][] = [
+    ['Booking ID', d.bookingId],
+    ['Service', d.serviceName],
+  ];
+  if (d.setupName) rows.push(['Setup', d.setupName]);
+  rows.push(['Previously', `${formatDateLabel(d.previousDate)}, ${formatTimeLabel(d.previousStart)} ET`], ...when(d), ['Address', d.address]);
   return build(
-    'Your booking has a new time',
-    `Hi ${d.firstName}, your ${d.isTour ? 'studio tour' : 'session'} has been moved.`,
+    'Your session has been rescheduled',
+    `Hi ${d.firstName}, your ${d.isTour ? 'studio tour' : 'session'} has a new time. Everything else about your booking stays the same.`,
+    rows,
     [
-      ['Booking ID', d.bookingId],
-      ['Service', d.serviceName],
-      ['Previously', `${formatDateLabel(d.previousDate)}, ${formatTimeLabel(d.previousStart)} ET`],
-      ...when(d),
-      ['Address', d.address],
+      ...(d.isTour ? [] : [POLICY_COPY.studioTime, POLICY_COPY.changes]),
+      `If the new time doesn't work for you, reply to this email or write to ${d.contactEmail}.`,
     ],
-    [`If the new time doesn't work for you, reply to this email or write to ${d.contactEmail}.`],
-    'Your ZAYRO Studios booking was rescheduled'
+    'Your ZAYRO Studios session has been rescheduled',
+    manageCta(d.manageUrl)
+  );
+}
+
+/** The session got paid extra time right after it. */
+export function extensionConfirmation(
+  d: BookingEmailData & { previousEnd: string; addedLabel: string; amountCents: number; taxCents: number; orderNumber: string; manageUrl?: string | null }
+): RenderedEmail {
+  const rows: [string, string][] = [
+    ['Booking ID', d.bookingId],
+    ['Service', d.serviceName],
+    ['Date', formatDateLabel(d.date)],
+    ['Previous end', `${formatTimeLabel(d.previousEnd)} ET`],
+    ['New time', `${formatTimeLabel(d.startTime)} – ${formatTimeLabel(d.endTime)} ET`],
+    ['Added time', d.addedLabel],
+  ];
+  if (d.taxCents > 0) rows.push(['Sales tax', formatCents(d.taxCents)]);
+  rows.push(['Paid', formatCents(d.amountCents)], ['Order', d.orderNumber], ['Address', d.address]);
+  return build(
+    'Your session has been extended',
+    `Hi ${d.firstName}, your extra time is confirmed. Your session now ends at ${formatTimeLabel(d.endTime)} ET.`,
+    rows,
+    [POLICY_COPY.studioTime, `Questions? Reply to this email or write to ${d.contactEmail}.`],
+    'Your ZAYRO Studios session has been extended',
+    manageCta(d.manageUrl)
+  );
+}
+
+/** Sent to each guest when the host's session moves or gets longer, with an updated calendar file. */
+export function guestScheduleUpdate(d: {
+  hostName: string;
+  serviceName: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  address: string;
+  contactEmail: string;
+  change: 'rescheduled' | 'extended';
+}): RenderedEmail {
+  const what = d.change === 'extended' ? 'now runs longer' : 'has a new time';
+  return build(
+    `Updated: session at ZAYRO Studios`,
+    `${d.hostName}'s session at ZAYRO Studios ${what}. Here are the current details.`,
+    [['Session', d.serviceName], ...when(d), ['Address', d.address]],
+    [
+      'The attached calendar file updates the session in your calendar.',
+      `Questions about the session? Please contact ${d.hostName} directly, or write to ${d.contactEmail}.`,
+    ],
+    `Updated time: ${d.hostName}'s session at ZAYRO Studios on ${formatDateLabel(d.date)}`
   );
 }
 
@@ -282,13 +378,16 @@ export function cancellationNotice(d: BookingEmailData & { refundNote?: string |
     `Want to book another time? Reply to this email or write to ${d.contactEmail}.`,
   ].filter(Boolean);
   return build(
-    'Your booking was cancelled',
-    `Hi ${d.firstName}, your ${d.isTour ? 'studio tour' : 'session'} at ZAYRO Studios has been cancelled.`,
+    'Your booking has been canceled',
+    `Hi ${d.firstName}, your ${d.isTour ? 'studio tour' : 'session'} at ZAYRO Studios has been canceled.`,
     [['Booking ID', d.bookingId], ['Service', d.serviceName], ...when(d)],
     outro,
-    'Your ZAYRO Studios booking was cancelled'
+    'Your ZAYRO Studios booking has been canceled'
   );
 }
+
+/** Refund state as the customer should read it. Never says "completed" while Stripe is still processing. */
+export type RefundEmailStatus = 'pending' | 'succeeded' | 'failed';
 
 export function refundNotice(d: {
   firstName: string;
@@ -298,16 +397,30 @@ export function refundNotice(d: {
   totalRefundedCents: number;
   originalCents: number;
   contactEmail: string;
+  status?: RefundEmailStatus;
 }): RenderedEmail {
+  const status = d.status ?? 'succeeded';
   const rows: [string, string][] = [['Order', d.orderNumber]];
   if (d.bookingId) rows.push(['Booking ID', d.bookingId]);
-  rows.push(['Refund', formatCents(d.amountCents)], ['Refunded in total', `${formatCents(d.totalRefundedCents)} of ${formatCents(d.originalCents)}`]);
+  rows.push(['Refund', formatCents(d.amountCents)], ['Status', status === 'pending' ? 'Requested — processing' : status === 'failed' ? 'Not completed' : 'Issued']);
+  if (status === 'succeeded') rows.push(['Refunded in total', `${formatCents(d.totalRefundedCents)} of ${formatCents(d.originalCents)}`]);
+  if (status === 'failed') {
+    return build(
+      'We could not complete your refund',
+      `Hi ${d.firstName}, your refund of ${formatCents(d.amountCents)} could not be completed automatically. Our team has been notified and will contact you.`,
+      rows,
+      [`Questions? Write to ${d.contactEmail}.`],
+      'Your ZAYRO Studios refund needs attention'
+    );
+  }
   return build(
-    'Your refund is on its way',
-    `Hi ${d.firstName}, we've issued a refund to your original payment method.`,
+    status === 'pending' ? 'Your refund has been requested' : 'Your refund has been issued',
+    status === 'pending'
+      ? `Hi ${d.firstName}, we've requested a refund of ${formatCents(d.amountCents)} to your original payment method. It is being processed.`
+      : `Hi ${d.firstName}, we've issued a refund of ${formatCents(d.amountCents)} to your original payment method.`,
     rows,
-    ['Refunds usually appear on your statement within 5–10 business days.', `Questions? Write to ${d.contactEmail}.`],
-    'Your ZAYRO Studios refund'
+    [POLICY_COPY.refund, `Questions? Write to ${d.contactEmail}.`],
+    status === 'pending' ? 'Your ZAYRO Studios refund has been requested' : 'Your ZAYRO Studios refund has been issued'
   );
 }
 
@@ -385,5 +498,17 @@ export function ownerPaymentReview(d: { bookingId: string; orderNumber: string; 
     [['Booking ID', d.bookingId], ['Order', d.orderNumber], ['Amount', formatCents(d.amountCents)], ['Reason', d.reason]],
     ['Open the booking in the admin CRM to refund or rebook.'],
     `Action needed: payment for ${d.bookingId}`
+  );
+}
+
+/** A fresh Manage Booking link the customer asked for (only ever sent to the booking's own email). */
+export function manageLinkEmail(d: { firstName: string; bookingId: string; serviceName: string; date: string; startTime: string; endTime: string; manageUrl: string; contactEmail: string }): RenderedEmail {
+  return build(
+    'Your booking link',
+    `Hi ${d.firstName}, here is a new secure link to your booking. Earlier links no longer work.`,
+    [['Booking ID', d.bookingId], ['Service', d.serviceName], ...when(d)],
+    ['If you did not ask for this link, you can ignore this email — nobody else can see your booking without it.', `Questions? Write to ${d.contactEmail}.`],
+    'Your ZAYRO Studios booking link',
+    manageCta(d.manageUrl)
   );
 }

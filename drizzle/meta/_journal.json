@@ -113,6 +113,20 @@
       "when": 1791300000000,
       "tag": "0015_full_editing_price",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1791310000000,
+      "tag": "0016_customer_self_service",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1791320000000,
+      "tag": "0017_camera_limit_business_days",
+      "breakpoints": true
     }
   ]
 }

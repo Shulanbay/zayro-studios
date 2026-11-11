@@ -192,6 +192,15 @@ export const bookings = pgTable(
     review_reason: text('review_reason'),
     // Answers to the booking questions (0009) — see lib/bookingOptions.ts.
     intake: jsonb('intake').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    // Customer self-service (0016): hash of the Manage Booking link and the
+    // random nonce it is derived from (see lib/manageToken.ts). Never logged.
+    manage_token_hash: varchar('manage_token_hash', { length: 64 }),
+    manage_token_nonce: varchar('manage_token_nonce', { length: 64 }),
+    manage_token_issued_at: timestamp('manage_token_issued_at', { withTimezone: true }),
+    manage_token_revoked_at: timestamp('manage_token_revoked_at', { withTimezone: true }),
+    // Studio policies the customer agreed to before paying (lib/policies.ts).
+    policy_version: varchar('policy_version', { length: 40 }),
+    policy_accepted_at: timestamp('policy_accepted_at', { withTimezone: true }),
     // Derived from booking_date + start/end time in the room's time zone by
     // the bookings_set_range trigger — never written by application code.
     starts_at: timestamp('starts_at', { withTimezone: true }),
@@ -224,6 +233,9 @@ export const temporaryHolds = pgTable(
     hold_expires_at: timestamp('hold_expires_at', { withTimezone: true }).notNull(),
     // What the hold was quoted for (0009): hours and add-ons, validated on the server.
     selection: jsonb('selection').$type<{ units?: number; addons?: { id: number; quantity: number }[]; setupId?: number }>().notNull().default(sql`'{}'::jsonb`),
+    // 0016: 'extension' holds reserve the time right after `booking_id` while it is paid for.
+    kind: varchar('kind', { length: 20, enum: ['booking', 'extension'] }).notNull().default('booking'),
+    booking_id: uuid('booking_id'),
     created_at: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -443,7 +455,7 @@ export const customerNotes = pgTable('customer_notes', {
   updated_at: updatedAt(),
 });
 
-export const PURCHASE_TYPES = ['individual', 'package', 'studio_tour', 'manual'] as const;
+export const PURCHASE_TYPES = ['individual', 'package', 'studio_tour', 'manual', 'extension'] as const;
 export const PURCHASE_STATUSES = ['pending', 'paid', 'partially_refunded', 'refunded', 'cancelled', 'failed', 'approved'] as const;
 export const PAYMENT_METHODS = ['stripe', 'cash', 'card_terminal', 'bank_transfer', 'comp', 'package_credit', 'other'] as const;
 
@@ -497,7 +509,7 @@ export const refunds = pgTable('refunds', {
   reason: text('reason'),
   requested_by: varchar('requested_by', { length: 255 }),
   requested_by_admin_id: uuid('requested_by_admin_id'),
-  source: varchar('source', { length: 20, enum: ['admin', 'stripe'] }).notNull().default('admin'),
+  source: varchar('source', { length: 20, enum: ['admin', 'stripe', 'customer'] }).notNull().default('admin'),
   failure_reason: text('failure_reason'),
   created_at: createdAt(),
   updated_at: updatedAt(),
@@ -638,6 +650,28 @@ export const packageCreditTransactions = pgTable('package_credit_transactions', 
   created_at: createdAt(),
 });
 
+export const EXTENSION_STATUSES = ['pending', 'confirmed', 'cancelled', 'failed', 'needs_review'] as const;
+
+/** Paid extra time right after a booking (0016). The money is its own purchase (type 'extension'). */
+export const bookingExtensions = pgTable('booking_extensions', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  booking_id: uuid('booking_id').notNull(),
+  purchase_id: uuid('purchase_id').notNull(),
+  hold_id: uuid('hold_id'),
+  added_minutes: integer('added_minutes').notNull(),
+  previous_end_time: varchar('previous_end_time', { length: 5 }).notNull(),
+  new_end_time: varchar('new_end_time', { length: 5 }).notNull(),
+  previous_duration_minutes: integer('previous_duration_minutes').notNull(),
+  new_duration_minutes: integer('new_duration_minutes').notNull(),
+  status: varchar('status', { length: 20, enum: EXTENSION_STATUSES }).notNull().default('pending'),
+  stripe_checkout_session_id: varchar('stripe_checkout_session_id', { length: 255 }).unique(),
+  stripe_payment_intent_id: varchar('stripe_payment_intent_id', { length: 255 }),
+  review_reason: text('review_reason'),
+  confirmed_at: timestamp('confirmed_at', { withTimezone: true }),
+  created_at: createdAt(),
+  updated_at: updatedAt(),
+});
+
 export const rateLimits = pgTable('rate_limits', {
   key: varchar('key', { length: 200 }).primaryKey(),
   window_start: timestamp('window_start', { withTimezone: true }).notNull(),
@@ -690,3 +724,4 @@ export type PackagePlan = typeof packagePlans.$inferSelect;
 export type PackagePlanItem = typeof packagePlanItems.$inferSelect;
 export type CustomerPackage = typeof customerPackages.$inferSelect;
 export type PackageCreditTransaction = typeof packageCreditTransactions.$inferSelect;
+export type BookingExtension = typeof bookingExtensions.$inferSelect;

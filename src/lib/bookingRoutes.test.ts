@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 import type { RouteDb } from '@/test/fakeRouteDb';
 import { makeService } from '@/test/fakeGoogle';
 import type { Service } from '@/lib/db/schema';
+import { withPolicy } from '@/test/policy';
 
 const h = vi.hoisted(() => {
   process.env.STRIPE_SECRET_KEY ||= 'sk_test_fake';
@@ -104,7 +105,7 @@ function hold(serviceId: number, overrides: Record<string, unknown> = {}) {
 function post(url: string, body: unknown) {
   return new NextRequest(`http://localhost${url}`, {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: JSON.stringify(withPolicy(url, body)),
     headers: { 'Content-Type': 'application/json' },
   });
 }

@@ -153,6 +153,18 @@ in the meantime, is recorded (`purchases.status = paid`) but the booking is
 **not** confirmed; `needs_refund_review` is set and the admin dashboard,
 session detail and purchase detail show a warning.
 
+### Customer self-service (0016)
+
+`lib/manageBooking.ts` wraps the staff domain functions for the customer:
+`cancelBooking` (+ atomic 24-hour guard) → `issueRefund` (`source:
+customer`), `rescheduleBooking` (+ in-transaction policy guard, public cutoff),
+and extensions (hold + purchase type `extension` + Checkout; the webhook
+applies it under `lockStudioDates`, the overlap constraint is the final
+guarantee). Access is a per-booking capability token
+(`lib/manageToken.ts`), sent in the URL fragment and the JSON body only.
+Policies live in `lib/policies.ts` and feed the FAQ, Terms, booking flow,
+emails and the Manage Booking page.
+
 ## 5. Stripe lifecycle
 
 | Event | Handling |
@@ -162,7 +174,8 @@ session detail and purchase detail show a warning.
 | `checkout.session.async_payment_failed` | purchase `failed`, booking cancelled, slot released |
 | `payment_intent.payment_failed` | recorded on the purchase (Checkout may still be retried by the customer) |
 | `charge.refunded` | refunds upserted by `stripe_refund_id`, purchase `refunded_cents` = `charge.amount_refunded` |
-| `refund.updated` | refund status synced; purchase totals recomputed from succeeded refunds |
+| `refund.updated` | refund status synced; purchase totals recomputed from succeeded refunds; customer refunds get a status email (one per state) |
+| `checkout.session.*` with `metadata.kind = booking_extension` | completed/async succeeded → extension applied once (or flagged for refund); expired/failed → hold released, booking unchanged |
 
 Idempotency: `webhook_events (provider, external_event_id)` is unique. An
 event is *claimed* with a conditional update (`received|failed →
@@ -197,7 +210,8 @@ Names only — values live in Vercel.
 | Name | Used for |
 | --- | --- |
 | `DATABASE_URL` | Neon connection (runtime + migrations) |
-| `NEXTAUTH_SECRET` | HMAC for magic links and admin sessions |
+| `NEXTAUTH_SECRET` | HMAC for admin magic links and admin sessions (admin auth only) |
+| `BOOKING_MANAGE_SECRET` | HMAC for customer Manage Booking links only (≥ 32 random bytes; no fallback — links are disabled without it) |
 | `NEXTAUTH_URL` | fallback base URL |
 | `ADMIN_EMAILS` | bootstrap Owners (first login creates an Owner profile) |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe (test mode) |

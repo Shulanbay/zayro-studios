@@ -89,3 +89,36 @@ customer_packages 1─* package_credit_transactions *─0..1 bookings
 package_plans 1─* package_plan_items *─1 services ; package_plans 0..1─1 services (the package service)
 roles 1─* admin_profiles
 ```
+
+## Customer self-service (0016)
+
+### `bookings` (+ columns)
+| column | notes |
+| --- | --- |
+| `manage_token_hash` | sha256 of the Manage Booking link token; unique when set; lookup only |
+| `manage_token_nonce` | random 32 bytes (hex); token = HMAC(`BOOKING_MANAGE_SECRET`, booking id + nonce) |
+| `manage_token_issued_at`, `manage_token_revoked_at` | rotation / revocation (`lib/manageToken.ts`) |
+| `policy_version`, `policy_accepted_at` | the policies (`lib/policies.ts → POLICY_VERSION`) the customer agreed to before paying |
+
+The raw token is never stored, logged, sent to Stripe, Sheets or analytics.
+
+### `temporary_holds` (+ columns)
+`kind` (`booking` · `extension`, CHECK) and `booking_id` (the booking an
+extension hold belongs to). An extension hold blocks its range like any hold.
+
+### `booking_extensions` (new)
+| column | notes |
+| --- | --- |
+| `booking_id` → bookings, `purchase_id` → purchases (unique) | the extension's own purchase, `type = 'extension'` |
+| `hold_id` | the hold over the added range while paying |
+| `added_minutes`, `previous_end_time`, `new_end_time`, `previous_duration_minutes`, `new_duration_minutes` | CHECK new = previous + added |
+| `status` | `pending` → `confirmed` (webhook applied it) · `cancelled` (expired) · `failed` · `needs_review` (paid but the time can't be given — refund) |
+| `stripe_checkout_session_id` (unique), `stripe_payment_intent_id`, `review_reason`, `confirmed_at` | |
+
+Money for an extension lives only in its purchase and immutable line items
+(service hours + hourly add-ons). The booking's legacy `subtotal` /
+`total_amount` keep the original booking amount, so the purchase ↔ booking
+reconciliation (`purchase_total_mismatches`) stays 0.
+
+### Widened CHECKs
+`purchases.type` + `extension`; `refunds.source` + `customer`.

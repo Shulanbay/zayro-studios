@@ -13,6 +13,7 @@ lock; a failure fails the build and the previous deployment keeps serving.
 | `0008_booking_overlap_guard` | `btree_gist` + `bookings_no_overlap` | skipped with a NOTICE if the extension is unavailable or overlapping bookings exist |
 | `0009_booking_intake_addons` | `service_addons` (+ 11 seeded add-ons), `bookings.intake`, `temporary_holds.selection`, `addon` / `guest` added to two CHECK constraints, tour length 30 → 15 min | additive; `IF NOT EXISTS` / `ON CONFLICT DO NOTHING`; old code ignores the new columns |
 | `0010_podcast_setups` | four podcast setups (photos in `public/setups/`), placeholder `podcast-set` switched off | `ON CONFLICT DO NOTHING`; nothing deleted |
+| `0016_customer_self_service` | Manage Booking token + policy columns on `bookings`, `kind`/`booking_id` on holds, `booking_extensions`, `purchases.type` + `extension`, `refunds.source` + `customer`, approved package copy | additive; `IF NOT EXISTS`; package copy only replaces untouched seed text, never prices; previous deployment ignores every new column |
 
 The build log prints a **counts-only** report before and after
 (`[migrate] before: {...}` / `after: {...}`) plus any NOTICEs.
@@ -73,3 +74,11 @@ completed bookings, a pre-CRM blocked time) was migrated with the real runner:
 - overlap constraint installed; re-running every CRM migration: no change.
 The same checks run in CI (`src/lib/db/migrations.test.ts`,
 `src/lib/crm/crm.integration.test.ts`).
+
+## Rollback of 0016 (customer self-service)
+Promote the previous deployment; no database change is needed. While rolled
+back: Manage Booking links in emails stop working (the page doesn't exist),
+pending extension holds expire on their own, and the old Stripe webhook code
+would treat a late `booking_extension` Checkout payment as an unknown session
+(it fails and Stripe retries) — re-deploy or refund it from the Stripe
+Dashboard. The new columns/table can stay.

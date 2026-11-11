@@ -23,6 +23,62 @@ export function normalizeUnits(value: unknown, service: { category: string; dura
   return n;
 }
 
+// ---------------------------------------------------------------------------
+// Camera limit
+// ---------------------------------------------------------------------------
+
+/** The studio runs at most this many cameras in one session. */
+export const MAX_CAMERAS_PER_SESSION = 3;
+export const ADDITIONAL_CAMERA_SLUG = 'additional-camera';
+
+export type CameraConfig = { ok: true; included: number } | { ok: false; reason: string };
+
+/**
+ * The cameras a service includes, from `services.metadata.includedCameras`
+ * (migration 0017). Strict: only a JSON integer from 1 to
+ * MAX_CAMERAS_PER_SESSION is valid. Anything else is a configuration error,
+ * and every caller then fails closed (no Additional Camera at all) — it
+ * never guesses, so a mis-configured 3-camera package can't be sold extra
+ * cameras and nothing is undercharged.
+ */
+export function cameraConfig(service: { metadata?: unknown }): CameraConfig {
+  const meta = service.metadata;
+  const raw = meta && typeof meta === 'object' && !Array.isArray(meta) ? (meta as { includedCameras?: unknown }).includedCameras : undefined;
+  if (raw === undefined) return { ok: false, reason: 'includedCameras is missing' };
+  if (typeof raw !== 'number' || !Number.isInteger(raw)) return { ok: false, reason: 'includedCameras is not an integer' };
+  if (raw < 1) return { ok: false, reason: 'includedCameras is less than 1' };
+  if (raw > MAX_CAMERAS_PER_SESSION) return { ok: false, reason: `includedCameras is more than the studio maximum of ${MAX_CAMERAS_PER_SESSION}` };
+  return { ok: true, included: raw };
+}
+
+/** Cameras a service includes, or null when its configuration is invalid. */
+export function includedCameras(service: { metadata?: unknown }): number | null {
+  const c = cameraConfig(service);
+  return c.ok ? c.included : null;
+}
+
+export type AddonAvailability = { limit: number; configError: string | null };
+
+/**
+ * The single rule for how many of `addon` a booking of `service` may have —
+ * used by the public add-on list, the server quote (hold + Checkout),
+ * Manage Booking extensions and their tests. Additional cameras keep a
+ * session at or under MAX_CAMERAS_PER_SESSION: Single Podcaster (1
+ * included) may add 2; Podcast Pro and the Full Podcast Package (3
+ * included) none. An invalid camera configuration allows none.
+ */
+export function addonAvailability(service: { metadata?: unknown }, addon: { slug: string; max_quantity: number }): AddonAvailability {
+  if (addon.slug !== ADDITIONAL_CAMERA_SLUG) return { limit: addon.max_quantity, configError: null };
+  const config = cameraConfig(service);
+  if (!config.ok) return { limit: 0, configError: config.reason };
+  return { limit: Math.max(0, Math.min(addon.max_quantity, MAX_CAMERAS_PER_SESSION - config.included)), configError: null };
+}
+
+/** How many of `addon` are allowed (0 = not offered). See addonAvailability. */
+export function addonLimit(service: { metadata?: unknown }, addon: { slug: string; max_quantity: number }): number {
+  return addonAvailability(service, addon).limit;
+}
+
 export interface AddonChoice {
   id: number;
   quantity: number;

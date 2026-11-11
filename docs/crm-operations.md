@@ -19,6 +19,32 @@ All times in the CRM are New York time. Everything below is in `/admin`.
 | Refund | Purchase or Session → Refund… | Full or partial; two-step confirmation; optional "also cancel". Stripe refunds use the refund's id as idempotency key. |
 | Record cash/terminal payment | Purchase → Mark as paid | Only for non-Stripe purchases. |
 
+## Customer self-service (Manage Booking)
+Every confirmation email has a private *Manage Your Booking* link. Customers can:
+- **Reschedule** at least 24 h before the start (same service, length, setup, extras). Calendar event and sheet row are updated in place; the customer and guests get an email (guests with an updated calendar file).
+- **Cancel** at least 24 h before the start: the booking is cancelled and everything paid for it (booking + any extension) is refunded to the original card through the same refund code as the CRM (`source = customer`). A failed refund flags the booking/purchase for review and emails the owner.
+- **Add more time** right after the session when the next slot is free (bookings, holds, blocked time, opening hours, 9-hour maximum). They pay through Stripe Checkout; only the webhook extends the booking. Paid-but-unavailable extensions appear as *needs refund review*.
+Inside 24 h the link shows the policy and *Contact Studio*.
+A customer who lost the link (or booked before Manage Booking existed) uses
+*Request a new link* (`/booking/manage/request-link`): booking reference + the
+email on the booking; a new link is emailed to that address only.
+
+### Google Sheets — extra-time columns (one-time manual step)
+The app never changes the sheet's layout itself. To see extra-time payments,
+type these four headers into **Paid Bookings → U1:X1**, exactly:
+`Extension Payments (net)` · `Total Paid (net of refunds)` · `Current Duration (min)` · `Current End Time`.
+Column O "Total" keeps the original booking total. Until the headers exist the
+sheet keeps working as before (Integrations → Test connection says
+"Upgrade recommended"). Existing rows fill in the next time each booking syncs
+(or use *Retry Calendar + Sheets* on a session).
+
+### Camera configuration
+Each podcast package needs `services.metadata.includedCameras` (integer 1–3;
+migration 0017 sets Single Podcaster 1, Podcast Pro 3, Full Podcast Package 3).
+If it is missing or invalid, Additional Camera is switched off for that
+package (and online extra time for bookings that have extra cameras) until it
+is fixed; Integrations → Configuration shows the problem. Audit operations: `booking.cancel_by_customer`, `booking.reschedule_by_customer`, `booking.extension_started`, `booking.extend`.
+
 ## Studio setup
 - **Availability** — weekly hours, booking rules (interval, cutoff, buffers,
   horizon), holidays / special hours (refused if it would strand bookings),

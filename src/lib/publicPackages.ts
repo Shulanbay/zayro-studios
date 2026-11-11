@@ -1,3 +1,4 @@
+import { POLICY_VERSION } from './policies';
 import type Stripe from 'stripe';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
@@ -205,7 +206,7 @@ export async function packageDashboard(purchaseId: string) {
 }
 
 /** Consume one credit and convert one held slot in a single, locked transaction. */
-export async function bookPackageSession(purchaseId: string, body: { packageId?: string; holdId: string; intake?: unknown; notes?: string }) {
+export async function bookPackageSession(purchaseId: string, body: { packageId?: string; holdId: string; intake?: unknown; notes?: string; policyAccepted?: boolean }) {
   const outcome = await db.transaction(async (tx) => {
     await lockHold(tx, body.holdId);
     const hold = await tx.query.temporaryHolds.findFirst({ where: eq(temporaryHolds.id, body.holdId) });
@@ -243,6 +244,7 @@ export async function bookPackageSession(purchaseId: string, body: { packageId?:
       customer_phone: customer.phone || '', company_name: customer.company, notes: body.notes || null,
       status: 'confirmed', payment_status: 'succeeded', subtotal: '0.00', tax_amount: '0.00', total_amount: '0.00', source: 'package',
       setup_id: setup.setupId, intake: { ...answers.intake, packageHoldId: hold.id, ...(setup.setupName ? { setupName: setup.setupName } : {}) },
+      ...(body.policyAccepted ? { policy_version: POLICY_VERSION, policy_accepted_at: new Date() } : {}),
     }).returning();
     await redeemCredit(tx, { customerPackageId: pkg.id, customerId: customer.id, bookingId: booking.id, serviceId: service.id, sessionStart, actor: null });
     await tx.update(temporaryHolds).set({ status: 'converted_to_booking' }).where(eq(temporaryHolds.id, hold.id));

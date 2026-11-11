@@ -1,9 +1,9 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { desc, eq, inArray, sql } from 'drizzle-orm';
+import { desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { jsonObject } from '@/lib/db/json';
-import { bookings, customerPackages, customers, integrationLogs, purchaseItems, purchases, refunds, services, webhookEvents } from '@/lib/db/schema';
+import { bookingExtensions, bookings, customerPackages, customers, integrationLogs, purchaseItems, purchases, refunds, services, webhookEvents } from '@/lib/db/schema';
 import { getAdminContext } from '@/lib/crm/auth';
 import { auditFor } from '@/lib/crm/queries';
 import { refundableCents } from '@/lib/crm/refunds';
@@ -31,7 +31,13 @@ export default async function PurchasePage({ params }: { params: { id: string } 
       .select({ id: bookings.id, code: bookings.booking_id, date: bookings.booking_date, start: bookings.start_time, status: bookings.status, service: services.name })
       .from(bookings)
       .innerJoin(services, eq(services.id, bookings.service_id))
-      .where(eq(bookings.purchase_id, purchase.id)),
+      // The booking this purchase paid for, or (extra-time purchases) the booking it extended.
+      .where(
+        or(
+          eq(bookings.purchase_id, purchase.id),
+          inArray(bookings.id, db.select({ id: bookingExtensions.booking_id }).from(bookingExtensions).where(eq(bookingExtensions.purchase_id, purchase.id)))
+        )
+      ),
     db.query.refunds.findMany({ where: eq(refunds.purchase_id, purchase.id), orderBy: [desc(refunds.created_at)] }),
     purchase.customer_id ? db.query.customers.findFirst({ where: eq(customers.id, purchase.customer_id) }) : null,
     db.query.customerPackages.findFirst({ where: eq(customerPackages.purchase_id, purchase.id) }),

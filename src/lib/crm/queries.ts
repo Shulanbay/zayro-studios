@@ -191,7 +191,7 @@ function purchaseWhere(f: PurchaseFilters): SQL | undefined {
   if (f.status && ['pending', 'paid', 'partially_refunded', 'refunded', 'cancelled', 'failed', 'approved'].includes(f.status)) {
     c.push(eq(purchases.status, f.status as 'paid'));
   }
-  if (f.type && ['individual', 'package', 'studio_tour', 'manual'].includes(f.type)) c.push(eq(purchases.type, f.type as 'manual'));
+  if (f.type && ['individual', 'package', 'studio_tour', 'manual', 'extension'].includes(f.type)) c.push(eq(purchases.type, f.type as 'manual'));
   if (f.review === '1') c.push(eq(purchases.needs_refund_review, true));
   const { start, end } = dateBounds(f.from, f.to);
   if (start) c.push(gte(purchases.created_at, start));
