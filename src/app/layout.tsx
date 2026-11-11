@@ -48,10 +48,10 @@ const localBusinessJsonLd = {
   ...(BUSINESS_PHONE ? { telephone: BUSINESS_PHONE } : {}),
   priceRange: '$$',
   image: [
-    'https://zayro.studio/setups/cream-lounge.webp',
     'https://zayro.studio/setups/sofa-lounge.webp',
-    'https://zayro.studio/setups/library-table.webp',
-    'https://zayro.studio/setups/garden-lounge.webp',
+    'https://zayro.studio/setups/conversation-corner.webp',
+    'https://zayro.studio/setups/conference-table.webp',
+    'https://zayro.studio/setups/bookshelf.webp',
   ],
   address: {
     '@type': 'PostalAddress',

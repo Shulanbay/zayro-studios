@@ -4,28 +4,28 @@ import Reveal from '@/components/ui/Reveal';
 
 const setups = [
   {
-    name: 'Cream Lounge',
-    description: 'Soft boucle seating, warm oak and an intimate two-person frame.',
-    capacity: '2 guests',
-    image: '/setups/cream-lounge.webp',
-  },
-  {
     name: 'Sofa Lounge',
-    description: 'A relaxed three-person setup with sculptural seating and warm niches.',
-    capacity: 'Up to 3 guests',
+    description: 'Curved cream sofa and two armchairs around a round oak table. Room for up to 4 voices.',
+    capacity: 'Up to 4 guests',
     image: '/setups/sofa-lounge.webp',
   },
   {
-    name: 'Library Table',
-    description: 'A polished editorial backdrop for interviews and business conversations.',
+    name: 'Conversation Corner',
+    description: 'Two terracotta armchairs face to face, with warm wood slats and olive trees.',
     capacity: '2 guests',
-    image: '/setups/library-table.webp',
+    image: '/setups/conversation-corner.webp',
   },
   {
-    name: 'Garden Lounge',
-    description: 'A fresh, light-filled look with greenery and a signature textured wall.',
+    name: 'Conference Table Setup',
+    description: 'An oak table for up to 4, with lit shelves behind. Built for panels and business talks.',
+    capacity: 'Up to 4 guests',
+    image: '/setups/conference-table.webp',
+  },
+  {
+    name: 'Bookshelf Setup',
+    description: 'Two armchairs between tall styled bookshelves. A classic interview backdrop.',
     capacity: '2 guests',
-    image: '/setups/garden-lounge.webp',
+    image: '/setups/bookshelf.webp',
   },
 ] as const;
 

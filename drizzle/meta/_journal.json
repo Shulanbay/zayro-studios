@@ -99,6 +99,20 @@
       "when": 1791280000000,
       "tag": "0013_additional_camera_price",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1791290000000,
+      "tag": "0014_new_podcast_setups",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "5",
+      "when": 1791300000000,
+      "tag": "0015_full_editing_price",
+      "breakpoints": true
     }
   ]
 }

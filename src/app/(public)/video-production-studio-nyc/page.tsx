@@ -32,7 +32,7 @@ export default function VideoProductionStudioNycPage() {
       eyebrow="Video recording and filming · Midtown Manhattan"
       title="Video Production Studio in NYC"
       intro="Rent a professional Midtown Manhattan filming studio for interviews, YouTube videos, courses and branded content. Record with 4K cameras, broadcast audio, flexible sets and studio lighting."
-      image="/setups/library-table.webp"
+      image="/setups/conference-table.webp"
       imageAlt="Professional interview and video filming set at ZAYRO Studios in Manhattan"
       serviceName="Video Production and Filming Studio Rental in New York City"
       serviceDescription="ZAYRO Studios provides a practical video recording and filming space in central Manhattan for creator, business and educational content. The studio offers 4K cameras, professional audio and lighting, furnished sets, backdrop options and green-screen capability."
