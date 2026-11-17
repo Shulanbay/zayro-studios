@@ -7,6 +7,7 @@ import { formatBookingDateUTC } from '@/lib/utils';
 import { formatDuration } from '@/lib/catalog';
 import { formatTimeLabel } from '@/lib/crm/time';
 import { POLICY_COPY } from '@/lib/policies';
+import { trackConversion } from '@/lib/analytics/browser/tracker';
 
 interface BookingSummary {
   bookingId: string;
@@ -62,6 +63,9 @@ function SuccessContent() {
           } catch {
             // ignore
           }
+          // Only a database-confirmed (and, if paid, webhook-confirmed) booking carries a conversion; the
+          // event ID equals the server's, and it fires once per tab, so a refresh never double-counts.
+          trackConversion(data.conversion);
           return setView({ kind: 'confirmed', booking: data.booking });
         }
         if (data.status === 'needs_review') return setView({ kind: 'needs_review', bookingId: data.bookingId });

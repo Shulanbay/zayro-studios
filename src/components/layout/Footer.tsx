@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { BUSINESS_ADDRESS, BUSINESS_PHONE, BUSINESS_EMAIL } from '@/lib/constants';
+import CookiePreferencesButton from '@/components/analytics/CookiePreferencesButton';
 
 export default function Footer() {
   const currentYear = new Date().getFullYear();
@@ -103,13 +104,14 @@ export default function Footer() {
         {/* Bottom Section */}
         <div className="flex flex-col md:flex-row justify-between items-center text-xs text-gray-500 gap-8">
           <p>&copy; {currentYear} ZAYRO Studios. All rights reserved.</p>
-          <div className="flex gap-6">
+          <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
             <Link href="/privacy" className="hover:text-white transition-colors">
               Privacy Policy
             </Link>
             <Link href="/terms" className="hover:text-white transition-colors">
               Terms of Service
             </Link>
+            <CookiePreferencesButton className="hover:text-white transition-colors underline-offset-2 hover:underline" />
           </div>
         </div>
       </div>

@@ -5,6 +5,7 @@ import { db } from '@/lib/db';
 import { bookings, services } from '@/lib/db/schema';
 import { enforceRateLimit } from '@/lib/crm/rateLimit';
 import { publicBookingSummary, publicStatus } from '@/lib/publicBooking';
+import { conversionForConfirmedBooking } from '@/lib/analytics/server/hooks';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,7 +40,9 @@ export async function POST(request: NextRequest) {
     const service = await db.query.services.findFirst({ where: eq(services.id, booking.service_id) });
     if (!service) return NextResponse.json({ status: 'not_found' });
 
-    return NextResponse.json({ status: 'confirmed', booking: publicBookingSummary(booking, service) });
+    // Same deterministic event ID as the server conversion, so browser pixels deduplicate against it.
+    const conversion = await conversionForConfirmedBooking(booking.id);
+    return NextResponse.json({ status: 'confirmed', booking: publicBookingSummary(booking, service), conversion });
   } catch (error) {
     console.error('Error verifying booking:', (error as Error)?.message || error);
     return NextResponse.json({ error: 'Please try again in a moment.' }, { status: 503 });

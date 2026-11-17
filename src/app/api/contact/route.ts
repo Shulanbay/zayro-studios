@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { isValidEmail } from '@/lib/utils';
+import { enforceRateLimit, isHoneypotTripped } from '@/lib/crm/rateLimit';
+import { analyticsContactSubmitted } from '@/lib/analytics/server/hooks';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,8 +15,13 @@ function oneLine(value: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  // Spam protection: per-IP rate limit (salted hash, fail-open) and a honeypot field.
+  const limited = await enforceRateLimit(request, 'contact', 10, 600);
+  if (limited) return limited;
   try {
-    const { name, email, message, topic } = await request.json();
+    const body = await request.json();
+    if (isHoneypotTripped(body)) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+    const { name, email, message, topic } = body;
 
     if (!name?.trim() || !email?.trim() || !message?.trim()) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -66,7 +73,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to send message' }, { status: 502 });
     }
 
-    return NextResponse.json({ success: true });
+    // Accepted and delivered: the authoritative contact lead (no message, name or email is recorded).
+    const conversion = await analyticsContactSubmitted(request, crypto.randomUUID(), topicText || null);
+    return NextResponse.json({ success: true, conversion });
   } catch (error: any) {
     console.error('Error sending contact form email:', error?.message || error);
     return NextResponse.json({ error: 'Failed to send message' }, { status: 500 });

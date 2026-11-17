@@ -7,6 +7,8 @@ import { CATEGORY_LABELS, bookingCategories, formatDuration, formatPrice, isBook
 import { addDays, formatTimeLabel, todayInTz, wallTimeToUtc } from '@/lib/crm/time';
 import { EDITING_CHOICES, EDITING_LABELS, MAX_GUESTS, MAX_PEOPLE, RECORDING_TYPES, intakeFields, parseIntake } from '@/lib/bookingOptions';
 import { POLICY_COPY, POLICY_VERSION } from '@/lib/policies';
+import { trackConversion, trackEvent } from '@/lib/analytics/browser/tracker';
+import { ANALYTICS_CATEGORIES, TOUR_FUNNEL_NAME, type BrowserEventName } from '@/lib/analytics/catalog';
 
 interface TimeSlot {
   start: string;
@@ -271,6 +273,38 @@ function StepHeader({
   );
 }
 
+
+/**
+ * Booking-funnel analytics (no personal data: ids, category, step only).
+ * Studio tours report their own funnel names and skip the paid-booking steps.
+ */
+const startedFunnels = new Set<string>();
+function trackFunnel(name: BrowserEventName, service: Pick<Service, 'id' | 'name' | 'category'> | null | undefined, props: Record<string, unknown> = {}) {
+  if (!service) return;
+  const category = (ANALYTICS_CATEGORIES as readonly string[]).includes(service.category) ? service.category : 'other';
+  if (category === 'tour') {
+    const tourName = TOUR_FUNNEL_NAME[name];
+    if (!tourName) return;
+    trackEvent(tourName, name === 'date_selected' && typeof props.days_ahead === 'number' ? { days_ahead: props.days_ahead } : {});
+    return;
+  }
+  const base: Record<string, unknown> = { service_id: service.id };
+  if (name === 'service_selected') Object.assign(base, { service_name: service.name.replace(/[^A-Za-z0-9 _.:/&+()'-]/g, '').slice(0, 80), category });
+  if (name === 'booking_started' || name === 'hold_created') {
+    delete base.service_id;
+    base.category = category;
+    if (name === 'hold_created') base.service_id = service.id;
+  }
+  trackEvent(name, { ...base, ...props });
+}
+
+function trackFunnelStart(service: Pick<Service, 'id' | 'name' | 'category'>, entry: 'booking_page' | 'deep_link') {
+  const key = service.category === 'tour' ? 'tour' : 'booking';
+  if (startedFunnels.has(key)) return;
+  startedFunnels.add(key);
+  trackFunnel('booking_started', service, service.category === 'tour' ? {} : { entry });
+}
+
 export interface PackageBooking {
   id: string;
   name: string;
@@ -384,6 +418,18 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
     })();
   }, [packageServiceId]);
 
+  // Funnel steps reached (extras, contact details): once per service per page.
+  const reachedSteps = useRef(new Set<string>());
+  useEffect(() => {
+    if (!hydrated || isPackage || !state.selectedService) return;
+    const name = state.step === 4 ? 'extras_reached' : state.step === 5 ? 'details_started' : null;
+    if (!name) return;
+    const key = `${name}:${state.selectedService.id}`;
+    if (reachedSteps.current.has(key)) return;
+    reachedSteps.current.add(key);
+    trackFunnel(name, state.selectedService, name === 'details_started' ? { step: 5 } : {});
+  }, [state.step, state.selectedService, hydrated, isPackage]);
+
   // Move keyboard/screen-reader focus to the new step's heading (not on the
   // first render, so opening the page doesn't jump).
   const shownStep = useRef<number | null>(null);
@@ -397,6 +443,10 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
   }, [state.step, hydrated]);
 
   const selectService = useCallback((service: Service) => {
+    if (!packageServiceId) {
+      trackFunnelStart(service, 'booking_page');
+      trackFunnel('service_selected', service);
+    }
     setState((s) => {
       releaseHoldQuietly(s.holdId);
       return {
@@ -411,7 +461,7 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
     setSetups(null);
     setSlots(null);
     setDates(null);
-  }, []);
+  }, [packageServiceId]);
 
   // Deep links from the pricing page: /booking?service=ID preselects that
   // service (and jumps to the date step); /booking?category=photography
@@ -583,9 +633,18 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
 
   const goTo = (step: number, extra: Partial<BookingState> = {}) => setState((s) => ({ ...s, step, error: null, ...extra }));
 
-  const selectDate = (date: string) => goTo(3, { selectedDate: date, selectedSlot: null });
+  const selectDate = (date: string) => {
+    if (!isPackage) {
+      const daysAhead = Math.round((Date.parse(`${date}T12:00:00Z`) - Date.parse(`${todayInTz()}T12:00:00Z`)) / 86400000);
+      trackFunnel('date_selected', state.selectedService, Number.isFinite(daysAhead) && daysAhead >= 0 && daysAhead <= 400 ? { days_ahead: daysAhead } : {});
+    }
+    goTo(3, { selectedDate: date, selectedSlot: null });
+  };
 
-  const selectSlot = (slot: TimeSlot) => goTo(hasExtras ? 4 : 5, { selectedSlot: { start: slot.start, end: slot.end } });
+  const selectSlot = (slot: TimeSlot) => {
+    if (!isPackage) trackFunnel('time_selected', state.selectedService, { hour: Number(slot.start.slice(0, 2)), hours });
+    goTo(hasExtras ? 4 : 5, { selectedSlot: { start: slot.start, end: slot.end } });
+  };
 
   const updateCustomerInfo = (field: keyof BookingState['customerInfo'], value: string) => {
     setState((s) => ({ ...s, customerInfo: { ...s.customerInfo, [field]: value } }));
@@ -614,6 +673,7 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
   };
 
   const setAddonQuantity = (id: number, quantity: number) => {
+    if (!isPackage && quantity > (state.addons[id] ?? 0)) trackFunnel('extra_added', state.selectedService, { addon_id: id, quantity });
     setState((s) => {
       const next = { ...s.addons };
       if (quantity > 0) next[id] = quantity;
@@ -666,6 +726,7 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
         return;
       }
       if (!response.ok) throw new Error(data.error || 'We could not reserve that time. Please try again.');
+      if (!packageBooking) trackFunnel('hold_created', service);
       setState((s) => ({
         ...s,
         loading: false,
@@ -751,6 +812,16 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
         return;
       }
       if (!res.ok || !data.checkoutUrl) throw new Error(data.error || 'We could not start the payment. Please try again.');
+      // The server created Checkout: mirror InitiateCheckout to consented pixels with the server's event ID.
+      // Analytics can never block the redirect (fire-and-forget, short grace period only).
+      if (data.conversion) {
+        try {
+          trackConversion(data.conversion);
+        } catch {
+          // ignore
+        }
+        await new Promise((r) => setTimeout(r, 250));
+      }
       // Stripe Checkout carries everything the webhook needs to confirm the
       // booking on the server; keep the local state so "back" still works.
       window.location.assign(data.checkoutUrl);
@@ -899,6 +970,7 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
                   type="button"
                   onClick={() => {
                     setSetupLinkError(null);
+                    if (!isPackage) trackFunnel('setup_selected', state.selectedService, setup.slug && /^[a-z0-9-]{1,80}$/.test(setup.slug) ? { setup_slug: setup.slug } : {});
                     goTo(2, { setupId: setup.id });
                   }}
                   aria-pressed={state.setupId === setup.id}

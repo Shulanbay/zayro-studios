@@ -1,8 +1,8 @@
 /**
  * Permission catalogue and the system role matrix. Pure — used by the
  * server (enforcement) and by the admin UI (hiding controls, the matrix on
- * Team & Roles). Keep SYSTEM_ROLE_PERMISSIONS in sync with the seed in
- * drizzle/0007_crm_backfill.sql.
+ * Team & Roles). Keep SYSTEM_ROLE_PERMISSIONS in sync with the seeds in
+ * drizzle/0007_crm_backfill.sql and drizzle/0018_marketing_analytics.sql.
  */
 
 export const PERMISSIONS = {
@@ -28,6 +28,8 @@ export const PERMISSIONS = {
   'team.manage': 'Invite admins and change roles',
   'audit.read': 'View the audit log',
   'settings.manage': 'Change business settings',
+  'analytics.read': 'View aggregated marketing analytics (no customer data)',
+  'analytics.export': 'Export aggregated marketing analytics as CSV',
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -39,11 +41,12 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
   { label: 'Money', permissions: ['purchases.read', 'purchases.create', 'packages.read', 'packages.manage'] },
   { label: 'Studio', permissions: ['services.manage', 'availability.manage'] },
   { label: 'Reports', permissions: ['reports.read', 'reports.export'] },
+  { label: 'Marketing', permissions: ['analytics.read', 'analytics.export'] },
   { label: 'Operations', permissions: ['integrations.read', 'integrations.retry'] },
   { label: 'Security', permissions: ['team.manage', 'audit.read', 'settings.manage'] },
 ];
 
-export const SYSTEM_ROLE_NAMES = ['Owner', 'Studio Manager', 'Producer', 'Operator'] as const;
+export const SYSTEM_ROLE_NAMES = ['Owner', 'Studio Manager', 'Producer', 'Operator', 'Marketing Analyst'] as const;
 export type SystemRoleName = (typeof SYSTEM_ROLE_NAMES)[number];
 
 export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, ('*' | Permission)[]> = {
@@ -71,6 +74,9 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, ('*' | Permission)[
   ],
   Producer: ['bookings.read', 'bookings.create', 'bookings.update', 'customers.read', 'notes.write', 'packages.read'],
   Operator: ['bookings.read', 'customers.read'],
+  // Aggregate analytics only: no customer, booking, purchase, price, refund,
+  // integration, team, audit or settings permission (see docs/crm-security.md).
+  'Marketing Analyst': ['analytics.read', 'analytics.export'],
 };
 
 export const OWNER_ROLE = 'Owner';

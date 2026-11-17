@@ -6,6 +6,7 @@ import { bookings, services } from '@/lib/db/schema';
 import { enforceRateLimit } from '@/lib/crm/rateLimit';
 import { getStripe } from '@/lib/crm/refunds';
 import { publicBookingSummary, publicStatus } from '@/lib/publicBooking';
+import { conversionForConfirmedBooking } from '@/lib/analytics/server/hooks';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,7 +47,9 @@ export async function POST(request: NextRequest) {
 
     const service = await db.query.services.findFirst({ where: eq(services.id, booking.service_id) });
     if (!service) return NextResponse.json({ status: 'not_found' });
-    return NextResponse.json({ status: 'confirmed', booking: publicBookingSummary(booking, service) });
+    // Only after the webhook confirmed the payment; same event ID as the server purchase event.
+    const conversion = await conversionForConfirmedBooking(booking.id);
+    return NextResponse.json({ status: 'confirmed', booking: publicBookingSummary(booking, service), conversion });
   } catch (error) {
     console.error('Error verifying session:', (error as Error)?.message || error);
     return NextResponse.json({ error: 'Please try again in a moment.' }, { status: 503 });

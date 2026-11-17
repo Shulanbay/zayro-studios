@@ -13,6 +13,7 @@ import { checkBookable } from '@/lib/catalogData';
 import { generateBookingId, isValidEmail, isValidPhone, toDateOnly } from '@/lib/utils';
 import { runPostConfirmationSideEffects } from '@/lib/postConfirmation';
 import { POLICY_VERSION } from '@/lib/policies';
+import { analyticsFreeBookingConfirmed } from '@/lib/analytics/server/hooks';
 
 export const dynamic = 'force-dynamic';
 
@@ -245,9 +246,13 @@ export async function POST(request: NextRequest) {
       console.error('Post-confirmation side effects failed:', err)
     );
 
+    // After the booking, emails, Calendar and Sheets: never affects them.
+    const conversion = await analyticsFreeBookingConfirmed(request, { bookingId: confirmed.id, purchaseId: confirmed.purchase_id, isTour });
+
     return NextResponse.json({
       status: 'confirmed',
       bookingId: confirmed.booking_id,
+      conversion,
     });
   } catch (error: any) {
     console.error('Error confirming free booking:', error?.message || error);

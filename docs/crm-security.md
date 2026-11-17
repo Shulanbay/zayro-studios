@@ -24,33 +24,47 @@
 
 ### Permission matrix (system roles)
 
-| Permission | Owner | Studio Manager | Producer | Operator |
-| --- | :-: | :-: | :-: | :-: |
-| bookings.read | ✓ | ✓ | ✓ | ✓ |
-| bookings.create | ✓ | ✓ | ✓ | |
-| bookings.update | ✓ | ✓ | ✓ | |
-| bookings.cancel | ✓ | ✓ | | |
-| bookings.refund | ✓ | ✓ | | |
-| customers.read | ✓ | ✓ | ✓ | ✓ |
-| customers.update | ✓ | ✓ | | |
-| customers.merge | ✓ | ✓ | | |
-| notes.write | ✓ | ✓ | ✓ | |
-| purchases.read | ✓ | ✓ | | |
-| purchases.create | ✓ | ✓ | | |
-| packages.read | ✓ | ✓ | ✓ | |
-| packages.manage | ✓ | ✓ | | |
-| services.manage | ✓ | ✓ | | |
-| availability.manage | ✓ | ✓ | | |
-| reports.read | ✓ | ✓ | | |
-| reports.export | ✓ | ✓ | | |
-| integrations.read | ✓ | ✓ | | |
-| integrations.retry | ✓ | ✓ | | |
-| team.manage | ✓ | | | |
-| audit.read | ✓ | | | |
-| settings.manage | ✓ | | | |
+| Permission | Owner | Studio Manager | Producer | Operator | Marketing Analyst |
+| --- | :-: | :-: | :-: | :-: | :-: |
+| bookings.read | ✓ | ✓ | ✓ | ✓ | |
+| bookings.create | ✓ | ✓ | ✓ | | |
+| bookings.update | ✓ | ✓ | ✓ | | |
+| bookings.cancel | ✓ | ✓ | | | |
+| bookings.refund | ✓ | ✓ | | | |
+| customers.read | ✓ | ✓ | ✓ | ✓ | |
+| customers.update | ✓ | ✓ | | | |
+| customers.merge | ✓ | ✓ | | | |
+| notes.write | ✓ | ✓ | ✓ | | |
+| purchases.read | ✓ | ✓ | | | |
+| purchases.create | ✓ | ✓ | | | |
+| packages.read | ✓ | ✓ | ✓ | | |
+| packages.manage | ✓ | ✓ | | | |
+| services.manage | ✓ | ✓ | | | |
+| availability.manage | ✓ | ✓ | | | |
+| reports.read | ✓ | ✓ | | | |
+| reports.export | ✓ | ✓ | | | |
+| integrations.read | ✓ | ✓ | | | |
+| integrations.retry | ✓ | ✓ | | | |
+| team.manage | ✓ | | | | |
+| audit.read | ✓ | | | | |
+| settings.manage | ✓ | | | | |
+| analytics.read | ✓ | | | | ✓ |
+| analytics.export | ✓ | | | | ✓ |
 
-A unit test keeps this matrix, `src/lib/crm/permissions.ts` and the SQL seed
-in `drizzle/0007_crm_backfill.sql` identical.
+A unit test keeps this matrix, `src/lib/crm/permissions.ts` and the SQL seeds
+in `drizzle/0007_crm_backfill.sql` and `drizzle/0018_marketing_analytics.sql`
+identical.
+
+### Marketing Analyst
+For an external targetologist: `analytics.read` (+ `analytics.export`) only —
+aggregated traffic, funnel, revenue and campaign attribution at
+`/admin/analytics`, and an aggregate CSV. No customers, bookings, purchases,
+notes, contact or guest data, Stripe / Calendar / Sheets IDs, Manage Booking
+tokens, click IDs, prices, services, refunds, integrations, team, audit or
+settings — every one of those pages and APIs checks its own permission on the
+server (tested with direct URL/API calls). Delivery health shows configured /
+not configured and counts, never secrets or error details. The role grants
+no GTM, GA4 or ad-account access; see docs/analytics.md.
 
 ## CSRF
 Session cookie is `SameSite=Lax` (not sent on cross-site POST/PATCH/DELETE)

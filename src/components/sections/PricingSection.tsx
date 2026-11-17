@@ -91,7 +91,7 @@ export default function PricingSection({ services: allServices }: { services: Se
             <span className="block text-base text-zayro-gray">Prepaid sessions for regular shows, at a discount</span>
           </Link>
           {tour ? (
-            <Link href={bookingHref(tour)} className="card card-interactive block">
+            <Link href={bookingHref(tour)} className="card card-interactive block" data-analytics-event="tour_cta_clicked" data-analytics-placement="pricing">
               <span className="block text-lg font-black text-zayro-dark">{tour.name}</span>
               <span className="block text-base text-zayro-gray">{formatDuration(tour.duration_minutes)} · no payment required</span>
             </Link>

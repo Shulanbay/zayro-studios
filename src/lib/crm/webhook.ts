@@ -19,6 +19,7 @@ import { getStripe, resyncSheetsForPurchase, upsertRefundFromStripe } from './re
 import { confirmExtensionSession, releaseExtensionSession } from '@/lib/manageBooking';
 import { refunds as refundsTable } from '@/lib/db/schema';
 import { sendRefundEmail } from '@/lib/email';
+import { analyticsExtensionPurchased, analyticsPurchaseConfirmed, analyticsRefundsSucceeded } from '@/lib/analytics/server/hooks';
 
 const isExtension = (session: Stripe.Checkout.Session) => session.metadata?.kind === 'booking_extension';
 
@@ -127,12 +128,12 @@ async function dispatch(event: Stripe.Event): Promise<Result> {
       const session = event.data.object as Stripe.Checkout.Session;
       // Delayed payment methods complete Checkout before the money arrives.
       if (session.payment_status === 'unpaid') return { status: 'awaiting_async_payment' };
-      if (isExtension(session)) return confirmExtensionSession(session);
+      if (isExtension(session)) return confirmExtensionSession(session).then((r) => trackExtension(r, session));
       return session.metadata?.kind === 'monthly_package' ? fulfillPackageSession(session).then(() => ({ status: 'package_activated' })) : confirmPaidSession(session);
     }
     case 'checkout.session.async_payment_succeeded': {
       const session = event.data.object as Stripe.Checkout.Session;
-      if (isExtension(session)) return confirmExtensionSession(session);
+      if (isExtension(session)) return confirmExtensionSession(session).then((r) => trackExtension(r, session));
       return session.metadata?.kind === 'monthly_package' ? fulfillPackageSession(session).then(() => ({ status: 'package_activated' })) : confirmPaidSession(session);
     }
     case 'checkout.session.async_payment_failed':
@@ -149,6 +150,15 @@ async function dispatch(event: Stripe.Event): Promise<Result> {
     default:
       return { status: 'ignored' };
   }
+}
+
+/** After an applied extension: its revenue event (inherits the booking's attribution). Never throws. */
+async function trackExtension(result: { status: string; bookingId?: string }, session: Stripe.Checkout.Session): Promise<Result> {
+  if (result.bookingId && result.status === 'extension_applied') {
+    const ext = await db.query.bookingExtensions.findFirst({ where: (e, { eq: q }) => q(e.stripe_checkout_session_id, session.id) }).catch(() => undefined);
+    if (ext) await analyticsExtensionPurchased(result.bookingId, ext.purchase_id);
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +327,8 @@ async function confirmPaidSession(session: Stripe.Checkout.Session): Promise<Res
       console.error('Post-confirmation side effects failed:', (err as Error)?.message || err)
     );
   }
+  // Last, and fail-safe: the authoritative purchase conversion (idempotent per purchase).
+  await analyticsPurchaseConfirmed(booking.id);
   return { status: 'booking_confirmed', bookingId: booking.id };
 }
 
@@ -430,6 +442,7 @@ async function syncChargeRefunds(charge: Stripe.Charge): Promise<Result> {
   });
   for (const id of Array.from(purchaseIds)) await resyncSheetsForPurchase(id);
   for (const id of Array.from(purchaseIds)) await notifyCustomerRefunds(id);
+  for (const id of Array.from(purchaseIds)) await analyticsRefundsSucceeded(id);
   return { status: purchaseIds.size ? 'refunds_synced' : 'no_matching_purchase' };
 }
 
@@ -455,6 +468,7 @@ async function syncRefund(refund: Stripe.Refund): Promise<Result> {
   if (purchaseId) {
     await resyncSheetsForPurchase(purchaseId);
     await notifyCustomerRefunds(purchaseId);
+    await analyticsRefundsSucceeded(purchaseId);
   }
   return { status: purchaseId ? 'refund_synced' : 'no_matching_purchase' };
 }

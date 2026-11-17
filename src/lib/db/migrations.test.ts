@@ -49,8 +49,8 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
   it('adds photography, packages and the tour without touching existing prices', async () => {
     const db = await productionLikeDb();
     const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
-    // 0002, 0003, 0004 (admin audit log enum value), the CRM migrations 0005-0008, 0009 (intake + add-ons) and 0010 (setups), 0011 (add-on prices), 0012 (photoshoot length), 0013 (camera price), 0014 (new setups), 0015 (editing price).
-    expect(applied).toHaveLength(16);
+    // 0002, 0003, 0004 (admin audit log enum value), the CRM migrations 0005-0008, 0009 (intake + add-ons) and 0010 (setups), 0011 (add-on prices), 0012 (photoshoot length), 0013 (camera price), 0014 (new setups), 0015 (editing price), 0016-0017 and 0018 (marketing analytics).
+    expect(applied).toHaveLength(17);
 
     const rows = await services(db);
     const byName = Object.fromEntries(rows.map((r) => [r.name, r]));
@@ -153,7 +153,7 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
     await db.exec(`UPDATE services SET metadata = '{"note": "keep"}' WHERE name = 'Podcast Pro'`);
     await db.exec(`UPDATE services SET features = '["custom full copy"]' WHERE name = 'Full Podcast Package'`);
     const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
-    expect(applied).toHaveLength(1);
+    expect(applied).toHaveLength(2); // 0017 + 0018 (analytics tables only)
     const rows = Object.fromEntries((await db.query<any>("SELECT name, metadata, features FROM services WHERE category = 'podcast'")).rows.map((r) => [r.name, r]));
     expect(rows['Single Podcaster'].metadata).toEqual({ includedCameras: 2, note: 'crm' });
     expect(rows['Podcast Pro'].metadata).toEqual({ note: 'keep', includedCameras: 3 });
@@ -167,7 +167,7 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
   it('works on an empty database (packages simply have no base service yet)', async () => {
     const db = new PGlite();
     const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
-    expect(applied).toHaveLength(18);
+    expect(applied).toHaveLength(19);
     const rows = await services(db);
     expect(rows.filter((r) => r.category === 'package').every((r) => r.package_base_service_id === null)).toBe(true);
     expect(rows.filter((r) => r.category === 'photography')).toHaveLength(3);

@@ -14,6 +14,7 @@ import { GoogleConnectionTest, StripeWebhookStatus } from '@/components/admin/Ad
 import { cameraConfig } from '@/lib/bookingOptions';
 import { isManageSecretConfigured } from '@/lib/manageToken';
 import { PAID_BOOKINGS_EXTENSION_HEADERS } from '@/lib/googleSheets';
+import { analyticsOperationalStatus } from '@/lib/analytics/server/config';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +27,8 @@ export default async function IntegrationsPage() {
   if (!admin) redirect('/admin/login');
   if (!admin.can('integrations.read')) return <Forbidden what="integrations" />;
 
+  // Booleans only; the switch is changed in Vercel, never from the CRM.
+  const analytics = analyticsOperationalStatus();
   const since = new Date(Date.now() - 30 * 86400000);
   const [health, events, emailStats, emailProblems, googleFailures, missingSync, lastCal, lastSheet] = await Promise.all([
     db
@@ -196,6 +199,15 @@ export default async function IntegrationsPage() {
                 `Cameras: ${r.name}`,
                 r.config.ok ? `${r.config.included} included · up to ${Math.max(0, 3 - r.config.included)} extra` : <span key={r.id} className="text-red-700 font-medium">Invalid ({r.config.reason}) — Additional Camera off</span>,
               ]),
+              [
+                'Marketing analytics vendors (ANALYTICS_VENDORS_ENABLED)',
+                <span key="av">
+                  <YesNo ok={analytics.vendorSwitch} yes="ON" no="OFF — no tag or vendor API is used" />
+                  {analytics.vendorSwitch && !analytics.activeInThisEnvironment ? ` · inactive in ${analytics.environment}` : ''}
+                </span>,
+              ],
+              ['Analytics click-ID encryption (ANALYTICS_ENCRYPTION_SECRET)', <YesNo key="ae" ok={analytics.encryptionSecretConfigured} yes="configured" no="missing — click IDs not stored" />],
+              ['Analytics delivery/retention cron (CRON_SECRET)', <YesNo key="ac" ok={analytics.cronSecretConfigured} yes="configured" no="missing — cron job refused" />],
               ['Sheets “Paid Bookings” extra-time columns', `Optional U1:X1 headers: ${PAID_BOOKINGS_EXTENSION_HEADERS.join(' · ')} (use “Test connection” to check)`],
             ]}
           />

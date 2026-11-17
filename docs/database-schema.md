@@ -122,3 +122,21 @@ reconciliation (`purchase_total_mismatches`) stays 0.
 
 ### Widened CHECKs
 `purchases.type` + `extension`; `refunds.source` + `customer`.
+
+## Marketing analytics (migration 0018)
+
+Six additive tables, no change to existing ones (details and retention in
+`docs/analytics.md`):
+
+| table | key points |
+| --- | --- |
+| `analytics_visitors` | `anonymous_id_hash` (unique HMAC of the random `zayro_vid` cookie), first touch, encrypted first click IDs, `consent_state` |
+| `analytics_sessions` | `session_key_hash` (unique), `visitor_id` → visitors (cascade), source/medium/campaign/content/term, `channel`, `platform`, device category, encrypted click/vendor IDs, page views, engaged, converted |
+| `analytics_events` | `external_event_id` (unique — idempotency + cross-platform dedup), `source` browser/server, optional `booking_id` / `purchase_id`, allowlisted `properties`, server-only `value_cents` |
+| `analytics_attributions` | `booking_id` (unique, written once), first / last-non-direct / conversion touch JSON, encrypted click/vendor IDs, consent |
+| `analytics_deliveries` | unique (`analytics_event_id`, `destination`), channel server/browser, status pending/delivered/failed/dead/skipped, attempts, sanitised error, next retry |
+| `analytics_consents` | hashed random consent ID, version, categories, action |
+
+No raw IP, full User-Agent, name, email, phone, notes or Stripe ID is stored
+in any analytics table. The `roles` seed gains **Marketing Analyst**
+(`analytics.read`, `analytics.export`).

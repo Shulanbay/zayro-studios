@@ -15,6 +15,7 @@ import { getStripe } from '@/lib/crm/refunds';
 import { formatTimeLabel } from '@/lib/crm/time';
 import { lockHold, pendingCheckoutsForHold } from '@/lib/holds';
 import { POLICY_VERSION } from '@/lib/policies';
+import { analyticsCheckoutCreated } from '@/lib/analytics/server/hooks';
 
 /** Checkout session lifetime: Stripe's minimum is 30 minutes, plus a minute of clock slack. */
 const CHECKOUT_MINUTES = 31;
@@ -126,6 +127,7 @@ export async function POST(request: NextRequest) {
             kind: 'ok' as const,
             reused: true,
             bookingId: prior.id,
+            purchaseId: prior.purchase_id,
             session: existing,
             pricing: {
               subtotal: decimalToCents(prior.subtotal),
@@ -276,7 +278,7 @@ export async function POST(request: NextRequest) {
         status: 'pending',
         metadata: { holdId: hold.id, serviceId: service.id, checkoutSessionId: session.id },
       });
-      return { kind: 'ok' as const, reused: false, bookingId: bookingUuid, session, pricing };
+      return { kind: 'ok' as const, reused: false, bookingId: bookingUuid, purchaseId: purchase.id as string | null, session, pricing };
     });
 
     if (outcome.kind === 'error') {
@@ -293,7 +295,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Post-commit and fail-safe: a Checkout start is a funnel step, never a purchase.
+    const conversion = outcome.purchaseId
+      ? await analyticsCheckoutCreated(request, {
+          bookingId: outcome.bookingId,
+          purchaseId: outcome.purchaseId,
+          totalCents: outcome.pricing.total,
+          taxCents: outcome.pricing.taxAmount,
+        })
+      : null;
+
     return NextResponse.json({
+      conversion,
       checkoutUrl: outcome.session.url,
       sessionId: outcome.session.id,
       expiresAt: outcome.session.expires_at ? new Date(outcome.session.expires_at * 1000).toISOString() : null,

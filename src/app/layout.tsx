@@ -5,6 +5,9 @@ import Footer from '@/components/layout/Footer';
 import SiteChrome from '@/components/layout/SiteChrome';
 import JsonLd from '@/components/seo/JsonLd';
 import { BUSINESS_EMAIL, BUSINESS_NAME, BUSINESS_PHONE } from '@/lib/constants';
+import AnalyticsHead from '@/components/analytics/AnalyticsHead';
+import AnalyticsProvider from '@/components/analytics/AnalyticsProvider';
+import { publicAnalyticsConfig } from '@/lib/analytics/server/config';
 
 export const metadata: Metadata = {
   title: 'ZAYRO Studios | Premium Podcast & Video Studio in NYC',
@@ -82,7 +85,8 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const gaId = process.env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID;
+  // Public IDs only (container / measurement / pixel IDs); secrets stay on the server.
+  const analytics = publicAnalyticsConfig();
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -90,6 +94,8 @@ export default function RootLayout({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        {/* Consent Mode v2 defaults must run before any tag. */}
+        <AnalyticsHead config={analytics} />
         <JsonLd data={localBusinessJsonLd} />
       </head>
       <body className="bg-zayro-bg text-zayro-dark">
@@ -106,18 +112,7 @@ export default function RootLayout({
           <Footer />
         </SiteChrome>
 
-        {gaId && (
-          <>
-            <script async src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`} />
-            <script
-              // eslint-disable-next-line react/no-danger
-              dangerouslySetInnerHTML={{
-                // Never on Manage Booking: that page's URL carries a private link token.
-                __html: `window.dataLayer = window.dataLayer || [];function gtag(){dataLayer.push(arguments);}if(location.pathname.indexOf('/booking/manage')!==0){gtag('js', new Date());gtag('config', '${gaId}');}`,
-              }}
-            />
-          </>
-        )}
+        <AnalyticsProvider config={analytics} />
       </body>
     </html>
   );

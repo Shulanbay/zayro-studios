@@ -20,6 +20,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/admin/blocked-time', label: 'Blocked Time', icon: '⊘', permission: 'bookings.read' },
   { href: '/admin/integrations', label: 'Integrations', icon: '⇄', permission: 'integrations.read' },
   { href: '/admin/reports', label: 'Reports', icon: '⤓', permission: 'reports.export' },
+  { href: '/admin/analytics', label: 'Analytics', icon: '↗', permission: 'analytics.read' },
   { href: '/admin/team', label: 'Team & Roles', icon: '☺', permission: 'team.manage' },
   { href: '/admin/audit', label: 'Audit Log', icon: '≣', permission: 'audit.read' },
   { href: '/admin/settings', label: 'Settings', icon: '⚙', permission: 'settings.manage' },

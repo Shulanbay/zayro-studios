@@ -160,6 +160,8 @@ export default async function PricingPage() {
               </div>
               <Link
                 href={bookingHref(tour)}
+                data-analytics-event="tour_cta_clicked"
+                data-analytics-placement="pricing"
                 className="button button-primary md:w-auto w-full"
                 aria-label={`Book: ${tour.name}`}
               >

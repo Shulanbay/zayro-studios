@@ -134,8 +134,8 @@ describe('audit payloads', () => {
 });
 
 describe('permissions', () => {
-  it('matches the roles seeded by migration 0007', () => {
-    const sql = readFileSync('drizzle/0007_crm_backfill.sql', 'utf8');
+  it('matches the roles seeded by migrations 0007 and 0018', () => {
+    const sql = readFileSync('drizzle/0007_crm_backfill.sql', 'utf8') + readFileSync('drizzle/0018_marketing_analytics.sql', 'utf8');
     for (const [role, perms] of Object.entries(SYSTEM_ROLE_PERMISSIONS)) {
       const match = new RegExp(`\\('${role}', '[^']*', true,\\s*'(\\[[^\\]]*\\])'`).exec(sql);
       expect(match, role).not.toBeNull();

@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { trackConversion, trackEvent } from '@/lib/analytics/browser/tracker';
 
 export default function ContactForm() {
   const [form, setForm] = useState({ name: '', email: '', message: '', topic: '' });
@@ -22,6 +23,13 @@ export default function ContactForm() {
     }
   }, []);
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const started = useRef(false);
+  // First interaction only; the field contents are never sent anywhere but the studio inbox.
+  const markStarted = () => {
+    if (started.current) return;
+    started.current = true;
+    trackEvent('contact_started', form.topic ? { topic: form.topic.toLowerCase().startsWith('monthly package') ? 'package' : 'general' } : {});
+  };
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -33,13 +41,12 @@ export default function ContactForm() {
       const response = await fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, website: (document.getElementById('contact-website') as HTMLInputElement | null)?.value || undefined }),
       });
 
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to send message');
-      }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to send message');
+      trackConversion(data.conversion);
 
       setStatus('sent');
       setForm({ name: '', email: '', message: '', topic: '' });
@@ -62,7 +69,12 @@ export default function ContactForm() {
     <div className="max-w-xl mx-auto card">
       <h2 className="text-2xl font-bold mb-6 text-center text-zayro-dark">Send us a Message</h2>
 
-      <form className="space-y-5" onSubmit={handleSubmit}>
+      <form className="space-y-5" onSubmit={handleSubmit} onFocus={markStarted}>
+        {/* Honeypot: hidden from people and assistive tech; bots that fill it are rejected. */}
+        <div aria-hidden="true" className="absolute -left-[9999px] w-px h-px overflow-hidden">
+          <label htmlFor="contact-website">Website</label>
+          <input id="contact-website" name="website" type="text" tabIndex={-1} autoComplete="off" />
+        </div>
         {form.topic && (
           <div>
             <label htmlFor="contact-topic" className="field-label">Regarding</label>
