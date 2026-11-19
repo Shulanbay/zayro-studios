@@ -223,15 +223,12 @@ export default async function PricingPage() {
             <div key={group.type} className="mb-14 last:mb-0">
               <h3 className="text-2xl md:text-3xl font-black text-zayro-dark mb-2">{PACKAGE_TYPE_LABELS[group.type]}</h3>
               {group.base && (
-                <p className="text-base text-zayro-gray mb-8">
-                  Priced from {group.base.name} at {formatPrice(group.base.base_price)} per session.
-                </p>
+                <p className="text-base text-zayro-gray mb-8">Sessions are {group.base.name} sessions, scheduled at your convenience.</p>
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch">
                 {group.items.map((pkg) => {
                   const base = baseServices.get(pkg.package_base_service_id ?? -1) ?? null;
                   const p = computePackagePricing(pkg, base);
-                  const hasDiscount = p.regularPrice !== null && p.savings !== null && p.savings > 0;
                   return (
                     <PriceCard
                       key={pkg.id}
@@ -241,8 +238,7 @@ export default async function PricingPage() {
                       featured={pkg.is_featured}
                       price={formatPrice(p.packagePrice)}
                       priceSuffix="package price"
-                      regularPrice={hasDiscount ? formatPrice(p.regularPrice!) : null}
-                      savings={hasDiscount ? `Save ${formatPrice(p.savings!)} · ${p.discountPercent}% off` : null}
+                      // Owner decision (2026-11-19): no "regular price / save X%" on packages.
                       meta={[
                         `${p.sessions} session${p.sessions === 1 ? '' : 's'}`,
                         `${formatPrice(p.perSession)} per session`,
