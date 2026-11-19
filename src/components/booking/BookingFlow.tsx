@@ -507,7 +507,7 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
   // Dates with free time in the visible month (studio time, ET).
   const serviceId = state.selectedService?.id;
   const maxHours = packageBooking ? 1 : Math.max(1, state.selectedService?.max_hours ?? 1);
-  // The 2-hour minimum (Solo Session, Podcast Pro) is enforced again on the server.
+  // Minimum hours (services.metadata.minHours; 1 by default) are enforced again on the server.
   const minHours = packageBooking ? 1 : Math.min(maxHours, Math.max(1, state.selectedService?.min_hours ?? 1));
   const hours = Math.min(Math.max(minHours, state.hours || minHours), maxHours);
   // A package session keeps the length it was sold with.

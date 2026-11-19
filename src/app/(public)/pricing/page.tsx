@@ -21,7 +21,7 @@ import type { Service } from '@/lib/db/schema';
 export const metadata: Metadata = pageMetadata({
   title: 'Pricing | ZAYRO Studios',
   description:
-    'Premium podcast recording and cinematic video production in Midtown Manhattan: Solo Session $200/hour, Podcast Pro $250/hour (2-hour minimum) and Full Production $550 per edited episode.',
+    'Premium podcast recording and cinematic video production in Midtown Manhattan: Solo Session $200/hour, Podcast Pro $250/hour and Full Production $550 per edited episode.',
   path: '/pricing',
 });
 
@@ -142,7 +142,7 @@ export default async function PricingPage() {
           <SectionHeading
             id="podcast"
             title="Podcast Sessions"
-            intro="Cinema cameras, professional audio and dedicated production support. Solo Session and Podcast Pro are booked by the hour with a 2-hour minimum; Full Production is one price per finished episode."
+            intro="Cinema cameras, professional audio and dedicated production support. Solo Session and Podcast Pro are booked by the hour; Full Production is one price per finished episode."
           />
           {podcast.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch">

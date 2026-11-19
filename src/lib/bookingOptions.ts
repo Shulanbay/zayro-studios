@@ -27,7 +27,7 @@ export function maxUnits(service: UnitService): number {
 /**
  * The fewest hours a customer may book (services.metadata.minHours, an
  * integer; 1 when unset or not an hourly service). Solo Session and
- * Podcast Pro have a 2-hour minimum (migration 0019).
+ * Podcast Pro had a 2-hour minimum in 0019; removed again in 0020 (1 hour).
  */
 export function minUnits(service: UnitService): number {
   const max = maxUnits(service);

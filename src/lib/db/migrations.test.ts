@@ -167,7 +167,7 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
     expect((await db.query<any>('SELECT id, metadata, features FROM services ORDER BY id')).rows).toEqual(before);
   });
 
-  it('0019 reprices and renames the three podcast packages, keeps camera counts, and is idempotent', async () => {
+  it('0019 reprices and renames the three podcast packages, 0020 restores the 1-hour minimum; both idempotent', async () => {
     const db = await productionLikeDb();
     await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
     const rows = Object.fromEntries(
@@ -175,9 +175,12 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
     );
     expect(Object.keys(rows).sort()).toEqual(['Full Production', 'Podcast Pro', 'Solo Session']);
     expect(rows['Solo Session']).toMatchObject({ price: 200, duration_minutes: 60, badge: null });
-    expect(rows['Solo Session'].metadata).toMatchObject({ minHours: 2, pricingUnit: 'hour', includedCameras: 1 });
+    // 0019 added a 2-hour minimum; 0020 removed it again (1 hour).
+    expect(rows['Solo Session'].metadata).toMatchObject({ pricingUnit: 'hour', includedCameras: 1 });
+    expect(rows['Solo Session'].metadata.minHours).toBeUndefined();
     expect(rows['Podcast Pro']).toMatchObject({ price: 250, duration_minutes: 60, badge: 'Most Popular' });
-    expect(rows['Podcast Pro'].metadata).toMatchObject({ minHours: 2, includedCameras: 3 });
+    expect(rows['Podcast Pro'].metadata).toMatchObject({ includedCameras: 3 });
+    expect(rows['Podcast Pro'].metadata.minHours).toBeUndefined();
     expect(rows['Full Production']).toMatchObject({ price: 550, duration_minutes: 120, badge: 'Premium Experience' });
     expect(rows['Full Production'].metadata).toMatchObject({ pricingUnit: 'episode', includesEditing: true, includedCameras: 3 });
     expect(rows['Full Production'].metadata.minHours).toBeUndefined();
@@ -185,7 +188,8 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
     expect(rows['Podcast Pro'].features).toContain('Dedicated camera/audio operator');
     // Running it again changes nothing.
     const before = (await db.query<any>('SELECT id, name, base_price, duration_minutes, badge, metadata, features FROM services ORDER BY id')).rows;
-    for (const stmt of readFileSync('drizzle/0019_premium_podcast_pricing.sql', 'utf8').split('--> statement-breakpoint')) if (stmt.trim()) await db.exec(stmt);
+    for (const file of ['drizzle/0019_premium_podcast_pricing.sql', 'drizzle/0020_one_hour_minimum.sql'])
+      for (const stmt of readFileSync(file, 'utf8').split('--> statement-breakpoint')) if (stmt.trim()) await db.exec(stmt);
     const after = (await db.query<any>('SELECT id, name, base_price, duration_minutes, badge, metadata, features FROM services ORDER BY id')).rows;
     expect(after).toEqual(before);
   });
@@ -193,7 +197,7 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
   it('works on an empty database (packages simply have no base service yet)', async () => {
     const db = new PGlite();
     const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
-    expect(applied).toHaveLength(20);
+    expect(applied).toHaveLength(21);
     const rows = await services(db);
     expect(rows.filter((r) => r.category === 'package').every((r) => r.package_base_service_id === null)).toBe(true);
     expect(rows.filter((r) => r.category === 'photography')).toHaveLength(3);

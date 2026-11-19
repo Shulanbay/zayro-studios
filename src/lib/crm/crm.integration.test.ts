@@ -764,8 +764,8 @@ describe('migrations on a populated database', () => {
           (SELECT coalesce(sum(extract(epoch FROM start_datetime)), 0)::bigint::text FROM blocked_times) blocks`)
       ).rows[0];
     const migrations = readMigrationFiles({ migrationsFolder: './drizzle' }).slice(5);
-    // 0005-0008 (CRM), 0009 (intake + add-ons), 0010 (setups), 0011-0017, 0018 (analytics) and 0019 (premium pricing): all safe to re-run.
-    expect(migrations).toHaveLength(15);
+    // 0005-0008 (CRM), 0009 (intake + add-ons), 0010 (setups), 0011-0017, 0018 (analytics), 0019 (premium pricing) and 0020 (1-hour minimum): all safe to re-run.
+    expect(migrations).toHaveLength(16);
     const run = async () => {
       for (const m of migrations) for (const stmt of m.sql) if (stmt.trim()) await pg.exec(stmt);
     };

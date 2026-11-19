@@ -606,9 +606,9 @@ describe('studio setups', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Runs last: applies the real 0019 repricing to this file's catalog.
+// Runs last: applies the real 0019 repricing (and 0020, back to a 1-hour minimum) to this file's catalog.
 
-describe('premium pricing (0019): 2-hour minimum and per-episode Full Production', () => {
+describe('premium pricing (0019 + 0020): hourly from 1 hour and per-episode Full Production', () => {
   const staff = { id: null, email: 'staff@zayro.test' };
 
   async function hold(serviceName: string, date: string, start: string, email: string, hours: number | undefined, extra: Record<string, unknown> = {}) {
@@ -631,19 +631,22 @@ describe('premium pricing (0019): 2-hour minimum and per-episode Full Production
   }
 
   beforeAll(async () => {
-    const sql = (await import('node:fs')).readFileSync('drizzle/0019_premium_podcast_pricing.sql', 'utf8');
-    for (const stmt of sql.split('--> statement-breakpoint')) if (stmt.trim()) await pg.exec(stmt);
+    const fs = await import('node:fs');
+    for (const file of ['drizzle/0019_premium_podcast_pricing.sql', 'drizzle/0020_one_hour_minimum.sql']) {
+      for (const stmt of fs.readFileSync(file, 'utf8').split('--> statement-breakpoint')) if (stmt.trim()) await pg.exec(stmt);
+    }
   });
 
-  it('Solo Session and Podcast Pro cannot be booked for less than 2 hours', async () => {
+  it('Solo Session and Podcast Pro can be booked from 1 hour, priced per hour', async () => {
     const one = await hold('Podcast Pro', '2030-09-02', '10:00', 'min1@example.com', 1);
-    expect(one.status).toBe(400);
-    expect(one.body.error).toMatch(/2-hour minimum/);
-    expect((await hold('Single Podcaster', '2030-09-02', '14:00', 'min2@example.com', 1)).status).toBe(400);
-
+    expect(one.status, JSON.stringify(one.body)).toBe(200);
+    expect(one.body.pricing).toMatchObject({ subtotal: '250.00', units: 1, durationMinutes: 60 });
     const solo = await hold('Single Podcaster', '2030-09-03', '10:00', 'solo@example.com', 2);
     expect(solo.status, JSON.stringify(solo.body)).toBe(200);
     expect(solo.body.pricing).toMatchObject({ subtotal: '400.00', units: 2, durationMinutes: 120 });
+    // No hours sent: one hour.
+    const dflt = await hold('Single Podcaster', '2030-09-03', '14:00', 'solo2@example.com', undefined);
+    expect(dflt.body.pricing).toMatchObject({ subtotal: '200.00', units: 1 });
   });
 
   it('Podcast Pro 2 hours: the Stripe amount is exactly the server quote ($500 + tax)', async () => {
@@ -677,16 +680,15 @@ describe('premium pricing (0019): 2-hour minimum and per-episode Full Production
     expect(pkg.status).toBe(403);
   });
 
-  it('staff bookings follow the same minimum and price × hours', async () => {
+  it('staff bookings are priced × hours, from 1 hour', async () => {
     const { createManualBooking } = await import('./bookings');
     const base = { serviceId: ids['Podcast Pro'], date: '2030-09-11', customer: { email: 'crm-min@example.com', firstName: 'C' }, payment: { mode: 'unpaid' as const } };
-    await expect(createManualBooking({ ...base, startTime: '10:00', hours: 1 }, staff)).rejects.toMatchObject({ message: expect.stringMatching(/2-hour minimum/) });
     const { booking } = await createManualBooking({ ...base, startTime: '10:00', hours: 3 }, staff);
     expect(booking).toMatchObject({ duration_minutes: 180, end_time: '13:00', subtotal: '750.00' });
     const items = await pg.query<any>('SELECT quantity, unit_price_cents, total_cents FROM purchase_items WHERE purchase_id = $1', [booking.purchase_id]);
     expect(items.rows).toEqual([{ quantity: 3, unit_price_cents: 25000, total_cents: 75000 }]);
-    // Default length is the minimum.
+    // Default length is one hour.
     const { booking: dflt } = await createManualBooking({ ...base, startTime: '15:00' }, staff);
-    expect(dflt.duration_minutes).toBe(120);
+    expect(dflt.duration_minutes).toBe(60);
   });
 });
