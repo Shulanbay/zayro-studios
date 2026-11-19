@@ -40,7 +40,7 @@ sheet keeps working as before (Integrations → Test connection says
 
 ### Camera configuration
 Each podcast package needs `services.metadata.includedCameras` (integer 1–3;
-migration 0017 sets Single Podcaster 1, Podcast Pro 3, Full Podcast Package 3).
+migration 0017 sets Solo Session 1, Podcast Pro 3, Full Production 3).
 If it is missing or invalid, Additional Camera is switched off for that
 package (and online extra time for bookings that have extra cameras) until it
 is fixed; Integrations → Configuration shows the problem. Audit operations: `booking.cancel_by_customer`, `booking.reschedule_by_customer`, `booking.extension_started`, `booking.extend`.

@@ -25,5 +25,5 @@ visible on the page.
 ## Facts to confirm
 Resolved 2026-11-11: edited episodes are delivered within 3 business days;
 "Open 7 Days" stays database-driven; at most 3 cameras per session
-(Single Podcaster +2 Additional Camera, Podcast Pro / Full Podcast Package
+(Solo Session +2 Additional Camera, Podcast Pro / Full Production
 none), enforced on the server via `services.metadata.includedCameras`.

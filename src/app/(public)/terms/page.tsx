@@ -47,7 +47,7 @@ export default function TermsPage() {
             <li>• {POLICY_COPY.setupChange}</li>
             <li>• {POLICY_COPY.lateArrival}</li>
             <li>• {POLICY_COPY.extension}</li>
-            <li>• Full Podcast Package: {POLICY_COPY.editedDelivery}</li>
+            <li>• Full Production: {POLICY_COPY.editedDelivery}</li>
             <li>• Sessions use at most 3 cameras. Additional cameras can be added only to packages that include fewer than 3.</li>
             <li>
               • Cancel, reschedule or add time with the secure Manage Your Booking link in your confirmation email. Changes

@@ -12,11 +12,11 @@ import { publicAnalyticsConfig } from '@/lib/analytics/server/config';
 export const metadata: Metadata = {
   title: 'ZAYRO Studios | Premium Podcast & Video Studio in NYC',
   description:
-    'Professional podcast and video recording studio in Midtown Manhattan. Book your studio session today.',
+    'Premium podcast recording and cinematic video production in Midtown Manhattan. Designed for founders, executives, entrepreneurs, and creators who expect exceptional quality.',
   metadataBase: new URL('https://zayro.studio'),
   openGraph: {
     title: 'ZAYRO Studios | Podcast & Video Studio NYC',
-    description: 'Premium podcast and video recording studio in Midtown Manhattan',
+    description: 'Premium podcast recording and cinematic video production in Midtown Manhattan. Designed for founders, executives, entrepreneurs, and creators who expect exceptional quality.',
     url: '/',
     siteName: 'ZAYRO Studios',
     type: 'website',
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'ZAYRO Studios | Podcast & Video Studio NYC',
-    description: 'Professional podcast and video recording studio in Midtown Manhattan',
+    description: 'Premium podcast recording and cinematic video production in Midtown Manhattan. Designed for founders, executives, entrepreneurs, and creators who expect exceptional quality.',
   },
   robots: {
     index: true,
@@ -46,10 +46,10 @@ const localBusinessJsonLd = {
   '@id': 'https://zayro.studio/#business',
   name: BUSINESS_NAME,
   url: 'https://zayro.studio',
-  description: 'Podcast, video recording, filming and photography studio in Midtown Manhattan, New York City.',
+  description: 'Premium podcast recording and cinematic video production studio in Midtown Manhattan, New York City.',
   email: BUSINESS_EMAIL,
   ...(BUSINESS_PHONE ? { telephone: BUSINESS_PHONE } : {}),
-  priceRange: '$$',
+  priceRange: '$$$',
   image: [
     'https://zayro.studio/setups/sofa-lounge.webp',
     'https://zayro.studio/setups/conversation-corner.webp',

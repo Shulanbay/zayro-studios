@@ -45,10 +45,13 @@ async function services(db: PGlite) {
   return res.rows;
 }
 
+/** Journal timestamp of 0019 (premium repricing): earlier tests check the catalog as it was before it. */
+const BEFORE_0019 = 1791340000000;
+
 describe('migrations 0002 + 0003 on a production-like database', () => {
   it('adds photography, packages and the tour without touching existing prices', async () => {
     const db = await productionLikeDb();
-    const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
+    const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle', before: BEFORE_0019 });
     // 0002, 0003, 0004 (admin audit log enum value), the CRM migrations 0005-0008, 0009 (intake + add-ons) and 0010 (setups), 0011 (add-on prices), 0012 (photoshoot length), 0013 (camera price), 0014 (new setups), 0015 (editing price), 0016-0017 and 0018 (marketing analytics).
     expect(applied).toHaveLength(17);
 
@@ -126,7 +129,7 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
   it('0016 keeps package copy edited in the CRM and never touches prices', async () => {
     const db = await productionLikeDb();
     await db.exec(`UPDATE services SET features = '["custom copy"]', base_price = 185 WHERE name = 'Single Podcaster'`);
-    await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
+    await applyMigrations(clientFor(db), { migrationsFolder: './drizzle', before: BEFORE_0019 });
     const byName = Object.fromEntries((await services(db)).map((r) => [r.name, r]));
     expect(byName['Single Podcaster']).toMatchObject({ price: 185, features: ['custom copy'] });
     // Re-running 0016 by hand changes nothing.
@@ -152,7 +155,7 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
     await db.exec(`UPDATE services SET metadata = '{"includedCameras": 2, "note": "crm"}' WHERE name = 'Single Podcaster'`);
     await db.exec(`UPDATE services SET metadata = '{"note": "keep"}' WHERE name = 'Podcast Pro'`);
     await db.exec(`UPDATE services SET features = '["custom full copy"]' WHERE name = 'Full Podcast Package'`);
-    const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
+    const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle', before: BEFORE_0019 });
     expect(applied).toHaveLength(2); // 0017 + 0018 (analytics tables only)
     const rows = Object.fromEntries((await db.query<any>("SELECT name, metadata, features FROM services WHERE category = 'podcast'")).rows.map((r) => [r.name, r]));
     expect(rows['Single Podcaster'].metadata).toEqual({ includedCameras: 2, note: 'crm' });
@@ -164,10 +167,33 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
     expect((await db.query<any>('SELECT id, metadata, features FROM services ORDER BY id')).rows).toEqual(before);
   });
 
+  it('0019 reprices and renames the three podcast packages, keeps camera counts, and is idempotent', async () => {
+    const db = await productionLikeDb();
+    await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
+    const rows = Object.fromEntries(
+      (await db.query<any>("SELECT name, base_price::float AS price, duration_minutes, badge, metadata, features FROM services WHERE category = 'podcast'")).rows.map((r) => [r.name, r])
+    );
+    expect(Object.keys(rows).sort()).toEqual(['Full Production', 'Podcast Pro', 'Solo Session']);
+    expect(rows['Solo Session']).toMatchObject({ price: 200, duration_minutes: 60, badge: null });
+    expect(rows['Solo Session'].metadata).toMatchObject({ minHours: 2, pricingUnit: 'hour', includedCameras: 1 });
+    expect(rows['Podcast Pro']).toMatchObject({ price: 250, duration_minutes: 60, badge: 'Most Popular' });
+    expect(rows['Podcast Pro'].metadata).toMatchObject({ minHours: 2, includedCameras: 3 });
+    expect(rows['Full Production']).toMatchObject({ price: 550, duration_minutes: 120, badge: 'Premium Experience' });
+    expect(rows['Full Production'].metadata).toMatchObject({ pricingUnit: 'episode', includesEditing: true, includedCameras: 3 });
+    expect(rows['Full Production'].metadata.minHours).toBeUndefined();
+    expect(rows['Full Production'].features).toContain('Up to 2 hours of recording');
+    expect(rows['Podcast Pro'].features).toContain('Dedicated camera/audio operator');
+    // Running it again changes nothing.
+    const before = (await db.query<any>('SELECT id, name, base_price, duration_minutes, badge, metadata, features FROM services ORDER BY id')).rows;
+    for (const stmt of readFileSync('drizzle/0019_premium_podcast_pricing.sql', 'utf8').split('--> statement-breakpoint')) if (stmt.trim()) await db.exec(stmt);
+    const after = (await db.query<any>('SELECT id, name, base_price, duration_minutes, badge, metadata, features FROM services ORDER BY id')).rows;
+    expect(after).toEqual(before);
+  });
+
   it('works on an empty database (packages simply have no base service yet)', async () => {
     const db = new PGlite();
     const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
-    expect(applied).toHaveLength(19);
+    expect(applied).toHaveLength(20);
     const rows = await services(db);
     expect(rows.filter((r) => r.category === 'package').every((r) => r.package_base_service_id === null)).toBe(true);
     expect(rows.filter((r) => r.category === 'photography')).toHaveLength(3);

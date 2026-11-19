@@ -297,3 +297,20 @@ describe('booking summary emails', () => {
     expect(email.html).not.toContain('<b>Lee</b>');
   });
 });
+
+describe('premium price labels', () => {
+  it('hourly with a 2-hour minimum, per episode, and fixed-length sessions', async () => {
+    const { priceTerms } = await import('@/lib/catalog');
+    const { minUnits, normalizeUnits } = await import('@/lib/bookingOptions');
+    const pro = { base_price: '250.00', duration_minutes: 60, category: 'podcast', metadata: { minHours: 2, pricingUnit: 'hour' } };
+    expect(priceTerms(pro)).toEqual({ unit: 'hour', suffix: '/ hour', note: '2-hour minimum · $500 minimum booking' });
+    expect(minUnits(pro)).toBe(2);
+    expect(normalizeUnits(undefined, pro)).toBe(2);
+    expect(normalizeUnits(1, pro)).toBeNull();
+    expect(normalizeUnits(1, pro, { enforceMinimum: false })).toBe(1);
+    const full = { base_price: '550.00', duration_minutes: 120, category: 'podcast', metadata: { pricingUnit: 'episode', includesEditing: true } };
+    expect(priceTerms(full)).toEqual({ unit: 'episode', suffix: '/ episode', note: 'Includes up to 2 hours of recording' });
+    expect(normalizeUnits(2, full)).toBeNull();
+    expect(priceTerms({ base_price: '250.00', duration_minutes: 45, category: 'photography', metadata: {} })).toEqual({ unit: 'session', suffix: '/ 45 min', note: null });
+  });
+});

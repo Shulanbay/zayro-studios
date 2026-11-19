@@ -10,7 +10,7 @@ import HeroWaves from './HeroWaves';
  * `media` is the slot for it once it exists.
  */
 export default function HeroSection({ podcastFrom = null, media = null }: { podcastFrom?: number | null; media?: React.ReactNode }) {
-  const supporting = [podcastFrom !== null ? `Podcast sessions from ${formatPrice(podcastFrom)}` : null, 'Live availability', 'Raw files delivered within 24 hours'].filter(Boolean);
+  const supporting = [podcastFrom !== null ? `Sessions from ${formatPrice(podcastFrom)}/hour` : null, 'Sony FX30 cinema cameras', 'Dedicated production support'].filter(Boolean);
   return (
     <section className="relative overflow-hidden bg-[#f0f6fd] pt-16 pb-16 md:pt-28 md:pb-24">
       <HeroWaves />
@@ -24,20 +24,18 @@ export default function HeroSection({ podcastFrom = null, media = null }: { podc
         <div className="text-center">
           <span className="chip mb-6">
             <span className="chip-dot" aria-hidden="true" />
-            Midtown Manhattan, NYC
+            Podcast &amp; Video Studio · Midtown Manhattan
           </span>
 
           <h1 className="text-[clamp(2.75rem,14vw,4.5rem)] md:text-8xl font-black leading-none tracking-tight mb-6 md:mb-8 text-zayro-dark">
-            PODCAST &amp; VIDEO
+            YOUR VOICE.
             <br />
-            <span className="bg-gradient-cta bg-clip-text text-transparent">STUDIO</span>
-            <br />
-            NYC
+            <span className="bg-gradient-cta bg-clip-text text-transparent">ELEVATED.</span>
           </h1>
 
           <p className="text-lg md:text-2xl text-zayro-gray font-light mb-8 md:mb-10 max-w-3xl mx-auto leading-relaxed">
-            Record professional podcasts, interviews and branded content in a fully equipped Midtown Manhattan studio — with 4K
-            cameras, broadcast audio, professional lighting and on-site technical support.
+            Premium podcast recording and cinematic video production in Midtown Manhattan. Designed for founders, executives,
+            entrepreneurs, and creators who expect exceptional quality.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center mb-5">

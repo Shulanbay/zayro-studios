@@ -42,7 +42,7 @@ export interface BookingEmailData {
   details?: [string, string][];
   /** Full booking details for the summary emails (see bookingSummary). */
   summary?: BookingSummaryData;
-  /** The service includes professional editing (Full Podcast Package): mention the delivery time. */
+  /** The service includes professional editing (Full Production): mention the delivery time. */
   includesEditing?: boolean;
 }
 

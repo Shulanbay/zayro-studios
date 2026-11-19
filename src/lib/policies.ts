@@ -43,7 +43,7 @@ export const POLICY_COPY = {
   lateArrival:
     'Your booking ends at the scheduled time. Additional time may be purchased only when availability allows.',
   acknowledgment: 'I agree to the cancellation, rescheduling and studio-time policies.',
-  /** Full Podcast Package post-production turnaround (owner decision 2026-11-11: business days). */
+  /** Full Production post-production turnaround (owner decision 2026-11-11: business days). */
   editedDelivery: 'Your edited episode will be delivered within 3 business days.',
 } as const;
 
@@ -89,14 +89,14 @@ export const POLICY_FAQ: PolicyItem[] = [
     id: 'cameras',
     question: 'How many cameras can I use?',
     answer:
-      'Up to 3 cameras per session. Single Podcaster includes 1 camera and you can add up to 2 more; Podcast Pro and the Full Podcast Package already include up to 3 cameras.',
+      'Up to 3 cameras per session. Solo Session includes 1 camera and you can add up to 2 more; Podcast Pro and Full Production already include up to 3 cameras.',
   },
   { id: 'late-arrival', question: 'Does late arrival extend my session?', answer: 'No. Your booking ends at the scheduled time. Additional time may be purchased only when availability allows.' },
   {
     id: 'editing',
     question: 'Is editing included?',
     answer:
-      'Editing is included with the Full Podcast Package. It is not included with Single Podcaster or Podcast Pro, but it may be added separately. Your edited episode will be delivered within 3 business days.',
+      'Editing is included with Full Production. It is not included with Solo Session or Podcast Pro, but it may be added separately. Your edited episode will be delivered within 3 business days.',
   },
 ];
 

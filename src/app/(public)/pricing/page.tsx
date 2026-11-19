@@ -12,14 +12,16 @@ import {
   formatDuration,
   formatPrice,
   isBookable,
+  priceTerms,
   servicesInCategory,
 } from '@/lib/catalog';
+import CorporateSection from '@/components/sections/CorporateSection';
 import type { Service } from '@/lib/db/schema';
 
 export const metadata: Metadata = pageMetadata({
   title: 'Pricing | ZAYRO Studios',
   description:
-    'Podcast sessions, studio photography and prepaid monthly podcast packages at ZAYRO Studios in Midtown Manhattan.',
+    'Premium podcast recording and cinematic video production in Midtown Manhattan: Solo Session $200/hour, Podcast Pro $250/hour (2-hour minimum) and Full Production $550 per edited episode.',
   path: '/pricing',
 });
 
@@ -59,7 +61,8 @@ function singleSessionCard(service: Service, ctaLabel: string) {
       badge={service.badge}
       featured={service.is_featured}
       price={formatPrice(service.base_price)}
-      priceSuffix={`/ ${formatDuration(service.duration_minutes)}`}
+      priceSuffix={priceTerms(service).suffix}
+      priceNote={priceTerms(service).note}
       features={service.features}
       cta={cta}
     />
@@ -139,7 +142,7 @@ export default async function PricingPage() {
           <SectionHeading
             id="podcast"
             title="Podcast Sessions"
-            intro="Single recording sessions, booked by the hour. Pick a time that works and pay securely online."
+            intro="Cinema cameras, professional audio and dedicated production support. Solo Session and Podcast Pro are booked by the hour with a 2-hour minimum; Full Production is one price per finished episode."
           />
           {podcast.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch">
@@ -277,6 +280,8 @@ export default async function PricingPage() {
           )}
         </div>
       </section>
+
+      <CorporateSection className="section-padding surface-soft" />
 
       <section className="section-padding surface-dark text-center">
         <div className="container">

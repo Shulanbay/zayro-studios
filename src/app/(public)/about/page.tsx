@@ -40,7 +40,7 @@ export default function AboutPage() {
               videographer / studio technician on site.
             </p>
             <p className="text-zayro-gray leading-relaxed">
-              Need a finished episode? Professional editing is included in the Full Podcast Package
+              Need a finished episode? Professional editing is included in Full Production
               and can be added to any other podcast session.
             </p>
           </div>

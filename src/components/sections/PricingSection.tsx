@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import Reveal from '@/components/ui/Reveal';
-import { bookingHref, formatDuration, formatPrice, priceNumber, servicesInCategory, type CatalogService } from '@/lib/catalog';
+import { bookingHref, formatDuration, formatPrice, priceNumber, priceTerms, servicesInCategory, type CatalogService } from '@/lib/catalog';
 
-type Service = Pick<CatalogService, 'id' | 'name' | 'description' | 'base_price' | 'duration_minutes' | 'features' | 'category' | 'badge' | 'is_featured' | 'display_order'>;
+type Service = Pick<CatalogService, 'id' | 'name' | 'description' | 'base_price' | 'duration_minutes' | 'features' | 'category' | 'badge' | 'is_featured' | 'display_order' | 'metadata'>;
 
 /**
  * Package comparison, server-rendered from the services table (prices,
@@ -24,7 +24,8 @@ export default function PricingSection({ services: allServices }: { services: Se
         <Reveal>
           <h2 className="text-[clamp(2.25rem,10.5vw,3rem)] md:text-7xl font-black mb-4 text-zayro-dark">PRICING</h2>
           <p className="text-xl text-zayro-gray font-light mb-16 max-w-xl">
-            Simple and transparent podcast sessions. Photography and monthly packages are on the full pricing page.
+            Premium podcast production with cinema cameras and dedicated support. Photography and monthly packages are on the
+            full pricing page.
           </p>
         </Reveal>
 
@@ -43,12 +44,13 @@ export default function PricingSection({ services: allServices }: { services: Se
                 )}
                 <h3 className="text-2xl font-black text-zayro-dark mb-2">{service.name}</h3>
                 <p className="text-sm text-zayro-gray mb-6">{service.description}</p>
-                <div className="flex items-baseline gap-2 mb-6">
+                <div className={`flex items-baseline gap-2 ${priceTerms(service).note ? 'mb-1' : 'mb-6'}`}>
                   <span className="text-4xl font-black text-zayro-dark">
                     {formatPrice(service.base_price)}
                   </span>
-                  <span className="text-sm text-zayro-gray">/ {formatDuration(service.duration_minutes)}</span>
+                  <span className="text-sm text-zayro-gray">{priceTerms(service).suffix}</span>
                 </div>
+                {priceTerms(service).note && <p className="text-sm font-semibold text-zayro-dark mb-6">{priceTerms(service).note}</p>}
                 {service.features && service.features.length > 0 && (
                   <ul className="space-y-2 mb-8 flex-1">
                     {service.features.map((feature, fidx) => (
@@ -73,8 +75,7 @@ export default function PricingSection({ services: allServices }: { services: Se
 
         {services && services.length > 0 && (
           <p className="mt-8 text-sm text-zayro-gray max-w-3xl">
-            Professional editing is included only with the Full Podcast Package; it can be added to the other packages as an
-            extra. Your reserved time includes preparation and setup changes — overtime is not free, but extra time can be
+            Professional editing is included with Full Production; it can be added to the other sessions as an extra. Your reserved time includes preparation and setup changes — overtime is not free, but extra time can be
             purchased when the schedule allows. Additional microphones and cameras are paid extras.
           </p>
         )}
@@ -88,7 +89,7 @@ export default function PricingSection({ services: allServices }: { services: Se
           </Link>
           <Link href="/pricing#monthly" className="card card-interactive block">
             <span className="block text-lg font-black text-zayro-dark">Monthly Podcast Packages</span>
-            <span className="block text-base text-zayro-gray">Prepaid sessions for regular shows, at a discount</span>
+            <span className="block text-base text-zayro-gray">Prepaid sessions for shows that record every month</span>
           </Link>
           {tour ? (
             <Link href={bookingHref(tour)} className="card card-interactive block" data-analytics-event="tour_cta_clicked" data-analytics-placement="pricing">

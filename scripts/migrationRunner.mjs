@@ -16,18 +16,19 @@ const LOCK_KEY = 72_107_311; // arbitrary, identifies "zayro migrations"
  *   exec: (text: string, params?: unknown[]) => Promise<any[]>,
  *   transaction: (fn: (exec: (text: string, params?: unknown[]) => Promise<any[]>) => Promise<void>) => Promise<void>,
  * }} client
- * @param {{ migrationsFolder?: string, log?: (msg: string) => void }} [options]
+ * @param {{ migrationsFolder?: string, log?: (msg: string) => void, before?: number }} [options]
+ *   `before` (tests only): apply only migrations created before this journal timestamp.
  * @returns {Promise<string[]>} tags of the migrations applied by this run
  */
 export async function applyMigrations(client, options = {}) {
-  const { migrationsFolder = './drizzle', log = () => {} } = options;
+  const { migrationsFolder = './drizzle', log = () => {}, before } = options;
 
   await client.exec('CREATE SCHEMA IF NOT EXISTS "drizzle"');
   await client.exec(
     'CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)'
   );
 
-  const migrations = readMigrationFiles({ migrationsFolder });
+  const migrations = readMigrationFiles({ migrationsFolder }).filter((m) => before === undefined || m.folderMillis < before);
   const applied = [];
 
   for (const migration of migrations) {

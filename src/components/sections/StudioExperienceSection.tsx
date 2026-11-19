@@ -7,7 +7,7 @@ export default function StudioExperienceSection() {
     { title: 'Ready when you arrive', description: 'Your chosen setup, cameras, sound and lighting are prepared before your session starts.' },
     { title: 'A technician runs the room', description: 'A videographer / studio technician handles the technical side, so you can focus on the conversation.' },
     { title: 'Raw files within 24 hours', description: 'Raw camera files and separate audio tracks are delivered through Google Drive within 24 hours.' },
-    { title: 'Editing when you want it', description: 'Included with the Full Podcast Package, or added to any podcast session as an extra.' },
+    { title: 'Editing when you want it', description: 'Included with Full Production, or added to any podcast session as an extra.' },
     { title: 'Several looks, one room', description: 'Switch setups mid-session if you like — changes typically take 10–20 minutes of your booked time.' },
     { title: 'Easy to reach', description: 'Steps from Herald Square, Bryant Park and Times Square, with a free tour before you book.' },
   ];

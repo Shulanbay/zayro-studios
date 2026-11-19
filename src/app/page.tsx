@@ -9,6 +9,7 @@ import AvailableSetupsSection from '@/components/sections/AvailableSetupsSection
 import StudioExperienceSection from '@/components/sections/StudioExperienceSection';
 import HowBookingWorksSection from '@/components/sections/HowBookingWorksSection';
 import PricingSection from '@/components/sections/PricingSection';
+import CorporateSection from '@/components/sections/CorporateSection';
 import FAQSection from '@/components/sections/FAQSection';
 import ProjectsSection from '@/components/sections/ProjectsSection';
 import TestimonialsSection from '@/components/sections/TestimonialsSection';
@@ -22,9 +23,9 @@ import Reveal from '@/components/ui/Reveal';
 
 export const metadata: Metadata = {
   ...pageMetadata({
-    title: 'Podcast & Video Studio NYC | ZAYRO Studios Manhattan',
+    title: 'Premium Podcast & Video Studio NYC | ZAYRO Studios',
     description:
-      'Book a Midtown Manhattan podcast and video recording studio with 4K cameras, broadcast audio, professional lighting and camera-ready sets.',
+      'Premium podcast recording and cinematic video production in Midtown Manhattan. Designed for founders, executives, entrepreneurs, and creators who expect exceptional quality.',
     path: '/',
   }),
 };
@@ -45,6 +46,7 @@ export default async function Home() {
       <WhatYouCanBookSection tourMinutes={tourMinutes} />
       <AvailableSetupsSection setups={setups} />
       <PricingSection services={services} />
+      <CorporateSection />
       <HowBookingWorksSection />
       <StudioExperienceSection />
       {/* Hidden until there is approved, real work to show (lib/showcase.ts). */}

@@ -7,6 +7,8 @@ export interface PriceCardProps {
   featured?: boolean;
   price: string;
   priceSuffix?: string;
+  /** e.g. "2-hour minimum · $500 minimum booking" */
+  priceNote?: string | null;
   /** Crossed-out regular price, e.g. for packages. */
   regularPrice?: string | null;
   /** e.g. "Save $40 · 10% off" */
@@ -27,6 +29,7 @@ export default function PriceCard({
   featured,
   price,
   priceSuffix,
+  priceNote,
   regularPrice,
   savings,
   meta,
@@ -50,6 +53,7 @@ export default function PriceCard({
         <span className="text-4xl font-black text-zayro-dark">{price}</span>
         {priceSuffix && <span className="text-base text-zayro-gray">{priceSuffix}</span>}
       </div>
+      {priceNote && <p className="text-sm font-semibold text-zayro-dark">{priceNote}</p>}
       {regularPrice && (
         <p className="text-base text-zayro-gray">
           Regular price: <span className="line-through">{regularPrice}</span>
