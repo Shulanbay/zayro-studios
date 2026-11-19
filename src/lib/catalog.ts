@@ -1,3 +1,5 @@
+import { minUnits, pricingUnit } from './bookingOptions';
+
 /**
  * Service catalog rules shared by the pricing page, booking flow, public
  * API and admin. Pure functions only — safe to import from client
@@ -52,6 +54,8 @@ export interface CatalogService {
   visible_in_booking?: boolean;
   quote_only?: boolean;
   archived_at?: Date | string | null;
+  /** services.metadata (minHours, pricingUnit, includedCameras…). */
+  metadata?: unknown;
 }
 
 export function isServiceCategory(value: unknown): value is ServiceCategory {
@@ -174,4 +178,27 @@ export function contactHref(topic: string): string {
 
 export function bookingHref(service: Pick<CatalogService, 'id'>): string {
   return `/booking?service=${service.id}`;
+}
+
+/**
+ * How a service's price is presented everywhere (pricing cards, booking
+ * flow): "$250 / hour · 2-hour minimum ($500)", "$550 / episode · up to 2
+ * hours of recording", or "/ 45 min" for fixed-length sessions.
+ */
+export function priceTerms(service: Pick<CatalogService, 'base_price' | 'duration_minutes' | 'category' | 'metadata'>): {
+  suffix: string;
+  note: string | null;
+  unit: 'hour' | 'episode' | 'session';
+} {
+  const unit = pricingUnit(service);
+  if (unit === 'hour') {
+    const min = minUnits(service);
+    return {
+      unit,
+      suffix: '/ hour',
+      note: min > 1 ? `${min}-hour minimum · ${formatPrice(priceNumber(service.base_price) * min)} minimum booking` : null,
+    };
+  }
+  if (unit === 'episode') return { unit, suffix: '/ episode', note: `Includes up to ${formatDuration(service.duration_minutes)} of recording` };
+  return { unit, suffix: `/ ${formatDuration(service.duration_minutes)}`, note: null };
 }

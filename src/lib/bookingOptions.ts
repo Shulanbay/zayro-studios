@@ -11,15 +11,58 @@ export const MAX_SESSION_HOURS = 9;
 /** Categories sold by the hour: the customer picks how many hours. */
 const HOURLY_CATEGORIES = ['podcast', 'video', 'livestream'];
 
+type UnitService = { category: string; duration_minutes: number; metadata?: unknown };
+
+function metaOf(service: { metadata?: unknown }): Record<string, unknown> {
+  const m = service.metadata;
+  return m && typeof m === 'object' && !Array.isArray(m) ? (m as Record<string, unknown>) : {};
+}
+
 /** How many units (hours) of this service one booking may contain. */
-export function maxUnits(service: { category: string; duration_minutes: number }): number {
+export function maxUnits(service: UnitService): number {
   if (!HOURLY_CATEGORIES.includes(service.category) || service.duration_minutes !== 60) return 1;
   return MAX_SESSION_HOURS;
 }
 
-export function normalizeUnits(value: unknown, service: { category: string; duration_minutes: number }): number | null {
-  const n = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? parseInt(value, 10) : value === undefined || value === null ? 1 : NaN;
-  if (!Number.isInteger(n) || n < 1 || n > maxUnits(service)) return null;
+/**
+ * The fewest hours a customer may book (services.metadata.minHours, an
+ * integer; 1 when unset or not an hourly service). Solo Session and
+ * Podcast Pro have a 2-hour minimum (migration 0019).
+ */
+export function minUnits(service: UnitService): number {
+  const max = maxUnits(service);
+  if (max <= 1) return 1;
+  const raw = metaOf(service).minHours;
+  return typeof raw === 'number' && Number.isInteger(raw) && raw >= 1 ? Math.min(raw, max) : 1;
+}
+
+/** How the price is quoted: per booked hour, per episode (fixed length), or per session. */
+export function pricingUnit(service: UnitService): 'hour' | 'episode' | 'session' {
+  if (maxUnits(service) > 1) return 'hour';
+  return metaOf(service).pricingUnit === 'episode' ? 'episode' : 'session';
+}
+
+/** True when the service includes a professionally edited episode (services.metadata.includesEditing). */
+export function serviceIncludesEditing(service: { metadata?: unknown }): boolean {
+  return metaOf(service).includesEditing === true;
+}
+
+/**
+ * Validates the number of hours for a booking. Missing means the service's
+ * minimum. `enforceMinimum: false` only for read-only availability lookups
+ * and prepaid package sessions (one standard session per credit).
+ */
+export function normalizeUnits(value: unknown, service: UnitService, options: { enforceMinimum?: boolean } = {}): number | null {
+  const min = options.enforceMinimum === false ? 1 : minUnits(service);
+  const n =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && /^\d+$/.test(value)
+        ? parseInt(value, 10)
+        : value === undefined || value === null
+          ? minUnits(service)
+          : NaN;
+  if (!Number.isInteger(n) || n < min || n > maxUnits(service)) return null;
   return n;
 }
 
@@ -63,9 +106,9 @@ export type AddonAvailability = { limit: number; configError: string | null };
  * The single rule for how many of `addon` a booking of `service` may have —
  * used by the public add-on list, the server quote (hold + Checkout),
  * Manage Booking extensions and their tests. Additional cameras keep a
- * session at or under MAX_CAMERAS_PER_SESSION: Single Podcaster (1
- * included) may add 2; Podcast Pro and the Full Podcast Package (3
- * included) none. An invalid camera configuration allows none.
+ * session at or under MAX_CAMERAS_PER_SESSION: Solo Session (1
+ * included) may add 2; Podcast Pro and Full Production (3 included)
+ * none. An invalid camera configuration allows none.
  */
 export function addonAvailability(service: { metadata?: unknown }, addon: { slug: string; max_quantity: number }): AddonAvailability {
   if (addon.slug !== ADDITIONAL_CAMERA_SLUG) return { limit: addon.max_quantity, configError: null };

@@ -10,6 +10,8 @@ export interface ServiceOption {
   category: string;
   duration: number;
   priceCents: number;
+  minHours?: number;
+  maxHours?: number;
 }
 
 interface Slot {
@@ -32,9 +34,12 @@ export function SlotPicker({
   value,
   onChange,
   excludeBookingId,
+  hours,
 }: {
   date: string;
   serviceId: number | null;
+  /** Hours for hourly services (the grid then shows slots of that length). */
+  hours?: number;
   value: string;
   onChange: (start: string) => void;
   excludeBookingId?: string;
@@ -50,7 +55,7 @@ export function SlotPicker({
     if (!date || !serviceId) return;
     let cancelled = false;
     setState((s) => ({ ...s, loading: true, error: null }));
-    const q = new URLSearchParams({ date, serviceId: String(serviceId) });
+    const q = new URLSearchParams({ date, serviceId: String(serviceId), ...(hours && hours > 1 ? { hours: String(hours) } : {}) });
     if (excludeBookingId) q.set('excludeBookingId', excludeBookingId);
     callApi<{ slots: Slot[]; closedReason: string | null; open: unknown }>(`/api/admin/slots?${q}`, 'GET').then((res) => {
       if (cancelled) return;
@@ -60,7 +65,7 @@ export function SlotPicker({
     return () => {
       cancelled = true;
     };
-  }, [date, serviceId, excludeBookingId]);
+  }, [date, serviceId, excludeBookingId, hours]);
 
   if (!date || !serviceId) return <p className="text-sm text-zayro-gray">Choose a service and a date to see open times.</p>;
   if (state.loading) return <p className="text-sm text-zayro-gray" aria-live="polite">Loading times…</p>;
@@ -120,6 +125,7 @@ export function ManualBookingForm({
   const [date, setDate] = useState(defaultDate);
   const [time, setTime] = useState(defaultTime ?? '');
   const [override, setOverride] = useState(false);
+  const [hours, setHours] = useState<number>(services[0]?.minHours ?? 1);
   const [customer, setCustomer] = useState<CustomerHit | null>(defaultCustomer ?? null);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<CustomerHit[]>([]);
@@ -189,6 +195,7 @@ export function ManualBookingForm({
       ...(mode === 'package' ? { customerPackageId: packageId || null } : {}),
       overrideHours: override,
       sendConfirmation,
+      ...(mode !== 'package' && (service.maxHours ?? 1) > 1 ? { hours } : {}),
     });
     setBusy(false);
     if (!res.ok) {
@@ -215,12 +222,21 @@ export function ManualBookingForm({
               <label className="field-label" htmlFor="svc">
                 Service
               </label>
-              <select id="svc" value={serviceId ?? ''} onChange={(e) => { setServiceId(Number(e.target.value)); setTime(''); }}>
+              <select
+                id="svc"
+                value={serviceId ?? ''}
+                onChange={(e) => {
+                  const next = services.find((s) => s.id === Number(e.target.value));
+                  setServiceId(Number(e.target.value));
+                  setHours(next?.minHours ?? 1);
+                  setTime('');
+                }}
+              >
                 {grouped.map(([cat, list]) => (
                   <optgroup key={cat} label={cat[0].toUpperCase() + cat.slice(1)}>
                     {list.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {s.name} · {s.duration} min · {money(s.priceCents)}
+                        {s.name} · {(s.maxHours ?? 1) > 1 ? `${money(s.priceCents)}/hour` : `${s.duration} min · ${money(s.priceCents)}`}
                       </option>
                     ))}
                   </optgroup>
@@ -242,7 +258,22 @@ export function ManualBookingForm({
               <input id="time" type="time" step={300} value={time} onChange={(e) => setTime(e.target.value)} required />
             </div>
           ) : (
-            <SlotPicker date={date} serviceId={serviceId} value={time} onChange={setTime} />
+            <SlotPicker date={date} serviceId={serviceId} value={time} onChange={setTime} hours={mode === 'package' ? 1 : hours} />
+          )}
+          {service && (service.maxHours ?? 1) > 1 && mode !== 'package' && (
+            <div className="max-w-[260px] mt-3">
+              <label className="field-label" htmlFor="hours">
+                Length
+              </label>
+              <select id="hours" value={hours} onChange={(e) => { setHours(Number(e.target.value)); setTime(''); }}>
+                {Array.from({ length: (service.maxHours ?? 1) - (service.minHours ?? 1) + 1 }, (_, i) => i + (service.minHours ?? 1)).map((h) => (
+                  <option key={h} value={h}>
+                    {h} hour{h === 1 ? '' : 's'} · {money(service.priceCents * h)}
+                  </option>
+                ))}
+              </select>
+              {(service.minHours ?? 1) > 1 && <p className="text-xs text-zayro-gray mt-1">{service.minHours}-hour minimum, same as the website.</p>}
+            </div>
           )}
           <label className="flex items-center gap-2 mt-3 text-sm">
             <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} />

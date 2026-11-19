@@ -6,10 +6,12 @@ import { temporaryHolds } from '@/lib/db/schema';
 import { checkTimeSlotConflict, isSlotActuallyAvailable, lockStudioDates, timeToMinutes } from '@/lib/availability';
 import { findBookableService } from '@/lib/catalogData';
 import { quoteBooking, quoteForClient, resolveSetup } from '@/lib/bookingQuote';
-import { normalizeAddonChoices, normalizeUnits } from '@/lib/bookingOptions';
+import { minUnits, normalizeAddonChoices, normalizeUnits } from '@/lib/bookingOptions';
 import { enforceRateLimit, isHoneypotTripped } from '@/lib/crm/rateLimit';
 import { isDateString, isTimeString } from '@/lib/crm/time';
 import { HOLD_MINUTES, releaseHold } from '@/lib/holds';
+import { PACKAGE_COOKIE, purchaseIdFromToken } from '@/lib/packageAccess';
+import { packageForAccess } from '@/lib/publicPackages';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +26,13 @@ const bodySchema = z.object({
   previous_hold_id: z.string().uuid().optional().nullable(),
   /** Chosen studio setup (required when the service has several). */
   setup_id: z.number().int().positive().optional().nullable(),
-  /** Hours for services sold by the hour (default 1). */
+  /**
+   * A prepaid package session: one standard session per credit, exempt from
+   * the hourly minimum. Only honoured with a valid package access cookie
+   * for this customer and service.
+   */
+  package_session: z.boolean().optional(),
+  /** Hours for services sold by the hour (default: the service's minimum). */
   hours: z.number().int().min(1).max(24).optional(),
   /** Chosen extras: [{ id, quantity }]. Prices always come from the database. */
   addons: z.array(z.object({ id: z.number().int().positive(), quantity: z.number().int().min(0).max(20) })).max(30).optional(),
@@ -77,11 +85,36 @@ export async function POST(request: NextRequest) {
     }
     const service = lookup.service;
 
-    const units = normalizeUnits(body.hours, service);
-    if (units === null) {
-      return NextResponse.json({ error: 'That session length is not available for this service.' }, { status: 400 });
+    // Prepaid package session: the package (not the hourly minimum) decides
+    // the length — the one it was sold with — and it has no paid extras.
+    let packageMinutes: number | null = null;
+    if (body.package_session) {
+      const purchaseId = purchaseIdFromToken(request.cookies.get(PACKAGE_COOKIE)?.value);
+      if (!purchaseId) return NextResponse.json({ error: 'Open the private package link from your confirmation email.' }, { status: 403 });
+      const access = await packageForAccess(purchaseId).catch(() => null);
+      if (
+        !access ||
+        access.customer.email.trim().toLowerCase() !== email.toLowerCase() ||
+        !access.snapshot.eligibleServiceIds.includes(service.id) ||
+        access.pkg.remaining_credits < 1
+      ) {
+        return NextResponse.json({ error: 'This package cannot be used for that session.' }, { status: 403 });
+      }
+      if ((body.addons ?? []).some((a) => a.quantity > 0) || (body.hours ?? 1) !== 1) {
+        return NextResponse.json({ error: 'Package sessions do not include extra hours or add-ons.' }, { status: 400 });
+      }
+      packageMinutes = access.snapshot.durationMinutes;
     }
-    const totalMinutes = service.duration_minutes * units;
+
+    const units = packageMinutes !== null ? 1 : normalizeUnits(body.hours, service);
+    if (units === null) {
+      const min = minUnits(service);
+      return NextResponse.json(
+        { error: min > 1 ? `${service.name} has a ${min}-hour minimum. Please choose ${min} hours or more.` : 'That session length is not available for this service.' },
+        { status: 400 }
+      );
+    }
+    const totalMinutes = packageMinutes ?? service.duration_minutes * units;
     if (totalMinutes !== duration_minutes) {
       return NextResponse.json({ error: 'Duration does not match service' }, { status: 400 });
     }

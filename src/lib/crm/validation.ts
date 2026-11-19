@@ -24,6 +24,8 @@ export const manualBookingSchema = z
     customerPackageId: uuid.optional().nullable(),
     overrideHours: z.boolean().optional(),
     sendConfirmation: z.boolean().optional(),
+    /** Hours for services sold by the hour (default: the service's minimum). */
+    hours: z.coerce.number().int().min(1).max(24).optional(),
   })
   .strict()
   .refine((v) => !!v.customerId || !!v.email, { message: 'Choose a customer or enter an email', path: ['email'] })

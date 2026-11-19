@@ -36,7 +36,7 @@ export default function PackageManager() {
     finally { setBusy(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
-  if (booking && pkg) return <BookingFlow packageBooking={{ id: pkg.id, name: pkg.name, serviceId: pkg.serviceId, expiresOn: pkg.expiresOn, expiresAt: pkg.expiresAt, customer: pkg.customer }} onPackageBooked={(id) => { setBooking(false); setConfirmation(`Session confirmed — ${id}`); void load(); }} onPackageExit={() => setBooking(false)} />;
+  if (booking && pkg) return <BookingFlow packageBooking={{ id: pkg.id, name: pkg.name, serviceId: pkg.serviceId, durationMinutes: pkg.durationMinutes, expiresOn: pkg.expiresOn, expiresAt: pkg.expiresAt, customer: pkg.customer }} onPackageBooked={(id) => { setBooking(false); setConfirmation(`Session confirmed — ${id}`); void load(); }} onPackageExit={() => setBooking(false)} />;
   return <div className="container py-12 md:py-20 max-w-4xl">
     <h1 className="text-4xl md:text-5xl font-black text-zayro-dark mb-6">Your monthly package</h1>
     {busy && <p role="status">Checking your package…</p>}

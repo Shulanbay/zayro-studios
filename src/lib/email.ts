@@ -8,7 +8,7 @@ import { sendLoggedEmail, type EmailOutcome } from './crm/emailLog';
 import * as T from './crm/emailTemplates';
 import { decimalToCents } from './crm/money';
 import { utcToWall } from './crm/time';
-import { EDITING_LABELS, guestList, type Intake } from './bookingOptions';
+import { serviceIncludesEditing, EDITING_LABELS, guestList, type Intake } from './bookingOptions';
 import { setups } from './db/schema';
 import { formatDuration } from './catalog';
 import { SITE_URL } from './seo';
@@ -88,7 +88,7 @@ function bookingData(booking: Booking, service: Service): T.BookingEmailData {
     address: BUSINESS_ADDRESS,
     contactEmail: contactEmail(),
     // The package copy (services.features) is the source: only packages that promise an edited episode mention its delivery time.
-    includesEditing: Array.isArray(service.features) && service.features.includes(POLICY_COPY.editedDelivery),
+    includesEditing: serviceIncludesEditing(service) || (Array.isArray(service.features) && service.features.includes(POLICY_COPY.editedDelivery)),
   };
 }
 

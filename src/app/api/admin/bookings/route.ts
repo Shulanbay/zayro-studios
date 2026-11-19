@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
         payment,
         overrideHours: v.overrideHours,
         sendConfirmation: v.sendConfirmation,
+        hours: v.hours,
       },
       actorOf(guard.admin)
     );

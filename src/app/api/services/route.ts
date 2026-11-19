@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getActiveServices } from '@/lib/catalogData';
 import { bookableServices } from '@/lib/catalog';
-import { maxUnits } from '@/lib/bookingOptions';
+import { maxUnits, minUnits, pricingUnit } from '@/lib/bookingOptions';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +25,11 @@ export async function GET() {
         badge: s.badge,
         // Services sold by the hour can be booked for several hours in one go.
         max_hours: maxUnits(s),
+        // Solo Session and Podcast Pro: 2-hour minimum. Full Production: one price per episode.
+        min_hours: minUnits(s),
+        pricing_unit: pricingUnit(s),
+        // Only the public, price-related part of services.metadata (lib/catalog.ts → priceTerms).
+        metadata: { minHours: minUnits(s), pricingUnit: pricingUnit(s) },
       })),
       { headers: { 'Cache-Control': 'no-store' } }
     );

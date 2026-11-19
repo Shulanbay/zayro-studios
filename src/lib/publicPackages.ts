@@ -227,7 +227,7 @@ export async function bookPackageSession(purchaseId: string, body: { packageId?:
     const selection = hold.selection as { addons?: unknown[]; units?: number; setupId?: number };
     if (selection?.addons?.length || (selection?.units ?? 1) !== 1) throw new CrmError('Package sessions do not include extra hours or add-ons', 400);
     const service = await tx.query.services.findFirst({ where: eq(services.id, hold.service_id) });
-    if (!service || !checkBookable(service).ok || service.duration_minutes !== snapshot.durationMinutes) throw new CrmError('This session is temporarily unavailable. Please contact the studio.', 409);
+    if (!service || !checkBookable(service).ok) throw new CrmError('This session is temporarily unavailable. Please contact the studio.', 409);
     const setupValid = await resolveSetup(service.category, selection?.setupId, tx);
     if (!setupValid.ok) throw new CrmError(setupValid.error);
     const sessionStart = wallTimeToUtc(date, hold.start_time);

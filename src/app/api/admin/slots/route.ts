@@ -25,7 +25,9 @@ export async function GET(request: NextRequest) {
   if (Number.isInteger(serviceId)) {
     const service = await db.query.services.findFirst({ where: eq(services.id, serviceId) });
     if (!service) return NextResponse.json({ error: 'Service not found' }, { status: 404 });
-    duration = service.duration_minutes;
+    // ?hours= for services sold by the hour (staff pick the length).
+    const hours = parseInt(sp.get('hours') ?? '', 10);
+    duration = service.duration_minutes * (Number.isInteger(hours) && hours >= 1 && hours <= 24 ? hours : 1);
   }
   if (!Number.isInteger(duration) || duration < 5 || duration > 16 * 60) duration = 60;
 

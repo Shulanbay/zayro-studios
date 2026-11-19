@@ -26,9 +26,15 @@ export async function GET(request: NextRequest) {
 
     // The slot length always comes from the service itself, so a 45-minute
     // headshot and a 2-hour brand shoot see different availability.
-    const units = normalizeUnits(searchParams.get('hours') ?? undefined, lookup.service);
+    const units = normalizeUnits(searchParams.get('hours') ?? undefined, lookup.service, { enforceMinimum: false });
     if (units === null) return NextResponse.json({ error: 'That session length is not available for this service.' }, { status: 400 });
-    const durationMinutes = lookup.service.duration_minutes * units;
+    // Read-only: prepaid package sessions ask for their own sold length
+    // (?minutes=). Holds and checkout enforce the real rules.
+    const minutesParam = Number(searchParams.get('minutes'));
+    const durationMinutes =
+      Number.isInteger(minutesParam) && minutesParam >= 15 && minutesParam <= 540 && minutesParam % 15 === 0
+        ? minutesParam
+        : lookup.service.duration_minutes * units;
     const slots = await getAvailableTimeSlotsForDate(date, durationMinutes);
 
     return NextResponse.json(

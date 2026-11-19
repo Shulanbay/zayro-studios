@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { CATEGORY_LABELS, bookingCategories, formatDuration, formatPrice, isBookable, servicesInCategory, type CatalogService } from '@/lib/catalog';
+import { priceTerms, CATEGORY_LABELS, bookingCategories, formatDuration, formatPrice, isBookable, servicesInCategory, type CatalogService } from '@/lib/catalog';
 import { addDays, formatTimeLabel, todayInTz, wallTimeToUtc } from '@/lib/crm/time';
 import { EDITING_CHOICES, EDITING_LABELS, MAX_GUESTS, MAX_PEOPLE, RECORDING_TYPES, intakeFields, parseIntake } from '@/lib/bookingOptions';
 import { POLICY_COPY, POLICY_VERSION } from '@/lib/policies';
@@ -28,6 +28,10 @@ interface Service {
   badge?: string | null;
   display_order?: number;
   max_hours?: number;
+  /** Fewest hours a booking may have (2 for Solo Session and Podcast Pro). */
+  min_hours?: number;
+  pricing_unit?: 'hour' | 'episode' | 'session';
+  metadata?: { minHours?: number; pricingUnit?: string };
 }
 
 interface Addon {
@@ -309,6 +313,8 @@ export interface PackageBooking {
   id: string;
   name: string;
   serviceId: number;
+  /** Length of one package session, as sold (one credit = one session of this length). */
+  durationMinutes?: number;
   expiresOn: string;
   expiresAt: string;
   customer: BookingState['customerInfo'];
@@ -316,6 +322,7 @@ export interface PackageBooking {
 
 export default function BookingFlow({ packageBooking, onPackageBooked, onPackageExit }: { packageBooking?: PackageBooking; onPackageBooked?: (bookingId: string) => void; onPackageExit?: () => void } = {}) {
   const packageServiceId = packageBooking?.serviceId;
+  const packageMinutesRef = useRef<number | null>(packageBooking?.durationMinutes ?? null);
   const packageExpiresOn = packageBooking?.expiresOn;
   const packageExpiresAt = packageBooking?.expiresAt;
   const isPackage = !!packageBooking;
@@ -455,6 +462,8 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
         // Answers carry over when switching between services; extras and hours start fresh.
         intake: s.intake,
         selectedService: service,
+        // Start at the service's minimum length (2 hours for Solo Session and Podcast Pro).
+        hours: Math.max(1, service.min_hours ?? 1),
         step: SETUP_STEP,
       };
     });
@@ -498,8 +507,12 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
   // Dates with free time in the visible month (studio time, ET).
   const serviceId = state.selectedService?.id;
   const maxHours = packageBooking ? 1 : Math.max(1, state.selectedService?.max_hours ?? 1);
-  const hours = Math.min(Math.max(1, state.hours || 1), maxHours);
-  const totalMinutes = (state.selectedService?.duration_minutes ?? 0) * hours;
+  // The 2-hour minimum (Solo Session, Podcast Pro) is enforced again on the server.
+  const minHours = packageBooking ? 1 : Math.min(maxHours, Math.max(1, state.selectedService?.min_hours ?? 1));
+  const hours = Math.min(Math.max(minHours, state.hours || minHours), maxHours);
+  // A package session keeps the length it was sold with.
+  const unitMinutes = packageBooking?.durationMinutes ?? state.selectedService?.duration_minutes ?? 0;
+  const totalMinutes = unitMinutes * hours;
   const sessionLength = formatDuration(totalMinutes);
   const hasExtras = addons.length > 0;
   const hasSetups = (setups?.length ?? 0) > 1;
@@ -579,7 +592,7 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
     const to = monthEnd(month);
     setDatesLoading(true);
     setDatesError(null);
-    fetch(`/api/booking/available-dates?service_id=${serviceId}&from_date=${from}&to_date=${to}&hours=${hours}`)
+    fetch(`/api/booking/available-dates?service_id=${serviceId}&from_date=${from}&to_date=${to}&hours=${hours}${packageMinutesRef.current ? `&minutes=${packageMinutesRef.current}` : ''}`)
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Could not load dates');
@@ -600,7 +613,7 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
     setSlotsLoading(true);
     setSlotsError(null);
     try {
-      const res = await fetch(`/api/booking/available-times?service_id=${service.id}&date=${date}&hours=${hrs}`);
+      const res = await fetch(`/api/booking/available-times?service_id=${service.id}&date=${date}&hours=${hrs}${packageMinutesRef.current ? `&minutes=${packageMinutesRef.current}` : ''}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not load times');
       setSlots((data.time_slots as TimeSlot[]).filter((s) => s.available && (!packageExpiresAt || wallTimeToUtc(date, s.end).getTime() <= Date.parse(packageExpiresAt))));
@@ -704,8 +717,9 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
           booking_date: state.selectedDate,
           start_time: slot.start,
           end_time: slot.end,
-          duration_minutes: service.duration_minutes * hours,
+          duration_minutes: totalMinutes,
           hours,
+          ...(packageBooking ? { package_session: true } : {}),
           setup_id: state.setupId,
           addons: chosenAddons,
           previous_hold_id: state.holdId,
@@ -925,21 +939,24 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
               )}
               <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mt-auto">
                 <span className="text-4xl font-black text-zayro-dark">{packageBooking ? '1 package session' : formatPrice(s.base_price)}</span>
-                <span className="text-base text-zayro-gray">{formatDuration(s.duration_minutes)}</span>
+                <span className="text-base text-zayro-gray">
+                  {packageBooking ? formatDuration(packageBooking.durationMinutes ?? s.duration_minutes) : priceTerms(s).suffix}
+                </span>
               </span>
+              {!packageBooking && priceTerms(s).note && <span className="block text-sm text-zayro-gray mt-1">{priceTerms(s).note}</span>}
             </button>
           ))}
         </div>
 
         <div className="card mt-10 flex flex-col sm:flex-row sm:items-center gap-6 bg-white">
           <div className="flex-1">
-            <h2 className="text-2xl font-black text-zayro-dark mb-2">Record more. Save more.</h2>
+            <h2 className="text-2xl font-black text-zayro-dark mb-2">Recording every month?</h2>
             <p className="text-base text-zayro-gray">
-              Recording regularly? Explore prepaid monthly podcast packages with savings on your sessions.
+              Prepaid monthly podcast packages keep your sessions scheduled and your production consistent.
             </p>
           </div>
-          <Link href="/pricing#monthly" className="button button-primary w-full sm:w-auto text-center">
-            Save with Monthly Packages
+          <Link href="/pricing#monthly" className="button button-secondary w-full sm:w-auto text-center">
+            View Monthly Packages
           </Link>
         </div>
       </>
@@ -1026,14 +1043,14 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
           <fieldset className="mb-8 max-w-xl">
             <legend className="field-label mb-3">Session duration</legend>
             <div className="flex flex-wrap gap-2">
-              {Array.from({ length: maxHours }, (_, i) => i + 1).map((h) => (
+              {Array.from({ length: maxHours - minHours + 1 }, (_, i) => i + minHours).map((h) => (
                 <button
                   key={h}
                   type="button"
-                  aria-pressed={state.hours === h}
+                  aria-pressed={hours === h}
                   onClick={() => setState((st) => ({ ...st, hours: h, selectedSlot: null }))}
                   className={`min-w-[3.25rem] rounded-full border-2 border-solid px-4 py-2 text-sm font-semibold transition-colors ${
-                    state.hours === h ? 'border-zayro-primary bg-zayro-primary text-white' : 'border-zayro-border bg-white text-zayro-dark hover:border-zayro-primary'
+                    hours === h ? 'border-zayro-primary bg-zayro-primary text-white' : 'border-zayro-border bg-white text-zayro-dark hover:border-zayro-primary'
                   }`}
                 >
                   {h} h
@@ -1041,9 +1058,9 @@ export default function BookingFlow({ packageBooking, onPackageBooked, onPackage
               ))}
             </div>
             <p className="text-sm text-zayro-gray mt-3">
-              {formatPrice(service.base_price)} per hour · {state.hours} hour{state.hours === 1 ? '' : 's'} ={' '}
-              <span className="font-semibold text-zayro-dark">{money(parseFloat(service.base_price) * state.hours)}</span>
-              {' '}before extras
+              {formatPrice(service.base_price)} per hour · {hours} hour{hours === 1 ? '' : 's'} ={' '}
+              <span className="font-semibold text-zayro-dark">{money(parseFloat(service.base_price) * hours)}</span>
+              {' '}before extras{minHours > 1 ? ` · ${minHours}-hour minimum` : ''}
             </p>
             <p className="text-sm text-zayro-gray mt-3">
               {POLICY_COPY.studioTime} {POLICY_COPY.earlyArrival}

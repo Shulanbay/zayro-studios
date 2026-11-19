@@ -14,6 +14,7 @@ import { writeAudit, type AuditActor } from './audit';
 import { upsertCustomer, refreshCustomerStats, type CustomerInput } from './customers';
 import { createPurchase, orderNumberForBooking } from './purchases';
 import { redeemCredit } from './packages';
+import { minUnits, normalizeUnits } from '@/lib/bookingOptions';
 import { CrmError, conflict, notFound } from './errors';
 import { releasePendingExtensions } from '@/lib/extensions';
 import { centsToDecimal, decimalToCents, taxCents } from './money';
@@ -86,6 +87,8 @@ export interface ManualBookingInput {
   payment: ManualPayment;
   overrideHours?: boolean;
   sendConfirmation?: boolean;
+  /** Hours for hourly services; the website's minimum applies (package credits are one standard session). */
+  hours?: number;
 }
 
 export interface BookingSideEffects {
@@ -103,7 +106,13 @@ export async function createManualBooking(
   const bookable = checkBookable(service);
   if (!bookable.ok) throw new CrmError(bookable.error, bookable.status);
 
-  const endTime = endTimeFor(input.startTime, service.duration_minutes);
+  const units = input.payment.mode === 'package' ? 1 : normalizeUnits(input.hours, service);
+  if (units === null) {
+    const min = minUnits(service);
+    throw new CrmError(min > 1 ? `${service.name} has a ${min}-hour minimum` : 'That length is not available for this service');
+  }
+  const durationMinutes = service.duration_minutes * units;
+  const endTime = endTimeFor(input.startTime, durationMinutes);
   const sessionStart = wallTimeToUtc(input.date, input.startTime);
 
   const booking = await db
@@ -113,7 +122,7 @@ export async function createManualBooking(
         date: input.date,
         start: input.startTime,
         end: endTime,
-        duration: service.duration_minutes,
+        duration: durationMinutes,
         overrideHours: !!input.overrideHours,
       });
 
@@ -141,7 +150,7 @@ export async function createManualBooking(
       let paymentStatus: Booking['payment_status'] = 'succeeded';
 
       if (pay.mode !== 'package') {
-        const charged = pay.mode === 'comp' || listCents === 0 ? 0 : listCents;
+        const charged = pay.mode === 'comp' || listCents === 0 ? 0 : listCents * units;
         subtotal = charged;
         tax = charged > 0 ? taxCents(charged, await getTaxRate(tx)) : 0;
         paymentStatus = pay.mode === 'unpaid' && charged > 0 ? 'pending' : 'succeeded';
@@ -159,8 +168,9 @@ export async function createManualBooking(
               itemType: 'service',
               referenceId: service.id,
               description: `${service.name} — ${input.date} ${input.startTime}–${endTime} ET`,
-              unitPriceCents: charged,
-              metadata: { bookingId, listPriceCents: listCents, category: service.category, durationMinutes: service.duration_minutes, mode: pay.mode },
+              quantity: charged > 0 ? units : 1,
+              unitPriceCents: charged > 0 ? listCents : 0,
+              metadata: { bookingId, listPriceCents: listCents, category: service.category, durationMinutes, mode: pay.mode },
             },
           ],
         });
@@ -177,7 +187,7 @@ export async function createManualBooking(
           booking_date: input.date,
           start_time: input.startTime,
           end_time: endTime,
-          duration_minutes: service.duration_minutes,
+          duration_minutes: durationMinutes,
           customer_first_name: first,
           customer_last_name: last,
           customer_email: customer.email,
@@ -295,7 +305,7 @@ export async function rescheduleBooking(
 
   // Same service: keep the booked length (a 3-hour session stays 3 hours).
   // A different service takes that service's own length.
-  const durationMinutes = serviceId === before.service_id ? before.duration_minutes : service.duration_minutes;
+  const durationMinutes = serviceId === before.service_id ? before.duration_minutes : service.duration_minutes * minUnits(service);
   const endTime = endTimeFor(input.startTime, durationMinutes);
   const oldDate = toDateOnly(before.booking_date);
   if (oldDate === input.date && before.start_time === input.startTime && serviceId === before.service_id) {
