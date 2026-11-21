@@ -3,8 +3,8 @@
  * site, and after the matching consent:
  *   - Google tag (gtag.js) only when there is no GTM container — GTM and a
  *     separate gtag.js are never both loaded, so nothing is counted twice;
- *   - Meta Pixel, Reddit Pixel, Pinterest Tag, TikTok Pixel: Advertising
- *     consent only.
+ *   - Meta Pixel, Reddit Pixel, Pinterest Tag, TikTok Pixel, X Pixel:
+ *     Advertising consent only.
  * Each loader runs once per page load. None of them fires a PageView on
  * init; the tracker sends page views itself on every App Router navigation,
  * so a route change is counted exactly once.
@@ -21,6 +21,7 @@ type W = Window & {
   pintrk?: AnyFn & { queue?: unknown[]; version?: string };
   ttq?: Record<string, any> & unknown[];
   TiktokAnalyticsObject?: string;
+  twq?: AnyFn & { exe?: AnyFn; queue?: unknown[]; version?: string };
 };
 
 const loaded = new Set<string>();
@@ -83,14 +84,15 @@ export function loadRedditPixel(id: string) {
   if (loaded.has('reddit')) return;
   loaded.add('reddit');
   const w = window as W;
-  if (!w.rdt) {
-    const p: any = function (...args: unknown[]) {
-      // eslint-disable-next-line prefer-spread
-      p.sendEvent ? p.sendEvent.apply(p, args) : p.callQueue.push(args);
-    };
-    p.callQueue = [];
-    w.rdt = p;
-  }
+  // A Reddit pixel already installed by another tag (e.g. GTM) is reused,
+  // never loaded or initialised a second time.
+  if (w.rdt) return;
+  const p: any = function (...args: unknown[]) {
+    // eslint-disable-next-line prefer-spread
+    p.sendEvent ? p.sendEvent.apply(p, args) : p.callQueue.push(args);
+  };
+  p.callQueue = [];
+  w.rdt = p;
   addScript('https://www.redditstatic.com/ads/pixel.js', 'zayro-reddit');
   w.rdt!('init', id, { optOut: false, useDecimalCurrencyValues: true });
 }
@@ -132,11 +134,30 @@ export function loadTikTokPixel(id: string) {
   ttq.load(id);
 }
 
+/** X (Twitter) Pixel — base code from X's official sample (static.ads-twitter.com/uwt.js). */
+export function loadXPixel(id: string) {
+  if (loaded.has('x')) return;
+  loaded.add('x');
+  const w = window as W;
+  if (!w.twq) {
+    const s: any = function (...args: unknown[]) {
+      // eslint-disable-next-line prefer-spread
+      s.exe ? s.exe.apply(s, args) : s.queue.push(args);
+    };
+    s.version = '1.1';
+    s.queue = [];
+    w.twq = s;
+  }
+  addScript('https://static.ads-twitter.com/uwt.js', 'zayro-x');
+  w.twq!('config', id);
+}
+
 export function loadAdvertisingTags(config: PublicAnalyticsConfig) {
   if (config.metaPixelId) loadMetaPixel(config.metaPixelId);
   if (config.redditPixelId) loadRedditPixel(config.redditPixelId);
   if (config.pinterestTagId) loadPinterestTag(config.pinterestTagId);
   if (config.tiktokPixelId) loadTikTokPixel(config.tiktokPixelId);
+  if (config.xPixelId) loadXPixel(config.xPixelId);
 }
 
 export function vendorWindow(): W {

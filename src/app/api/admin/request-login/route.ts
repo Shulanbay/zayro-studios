@@ -3,6 +3,7 @@ import { Resend } from 'resend';
 import { createLoginToken } from '@/lib/adminAuth';
 import { canRequestLogin } from '@/lib/crm/auth';
 import { enforceRateLimit } from '@/lib/crm/rateLimit';
+import { writeAudit } from '@/lib/crm/audit';
 import { isValidEmail, getBaseUrl } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -32,6 +33,9 @@ export async function POST(request: NextRequest) {
       console.error('Admin login requested but RESEND_API_KEY / EMAIL_FROM not configured');
       return generic;
     }
+
+    // Audited only for allowed admin emails (unknown addresses are never stored).
+    await writeAudit({ actor: { email: String(email).trim().toLowerCase() }, operation: 'auth.login_requested', entityType: 'admin' }).catch(() => undefined);
 
     const token = createLoginToken(email);
     const baseUrl = getBaseUrl(request);

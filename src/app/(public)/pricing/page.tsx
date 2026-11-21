@@ -232,6 +232,7 @@ export default async function PricingPage() {
                   return (
                     <PriceCard
                       key={pkg.id}
+                      analyticsPackage={{ id: pkg.id, name: pkg.name }}
                       title={pkg.name}
                       description={pkg.description}
                       badge={pkg.badge}

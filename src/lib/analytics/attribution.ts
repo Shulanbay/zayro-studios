@@ -17,10 +17,12 @@ export const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_conten
 export type UtmKey = (typeof UTM_KEYS)[number];
 
 /** Platform-native click identifiers, accepted only from these exact query parameters. */
-export const CLICK_ID_KEYS = ['gclid', 'fbclid', 'rdt_cid', 'epik', 'ttclid'] as const;
+// gbraid / wbraid: Google Ads click IDs on iOS app / web-to-app traffic (used instead of gclid).
+// twclid: X (Twitter) Ads click ID.
+export const CLICK_ID_KEYS = ['gclid', 'gbraid', 'wbraid', 'fbclid', 'rdt_cid', 'epik', 'ttclid', 'twclid'] as const;
 export type ClickIdKey = (typeof CLICK_ID_KEYS)[number];
 
-export const CLICK_ID_MAX_LENGTH: Record<ClickIdKey, number> = { gclid: 200, fbclid: 500, rdt_cid: 200, epik: 300, ttclid: 500 };
+export const CLICK_ID_MAX_LENGTH: Record<ClickIdKey, number> = { gclid: 200, gbraid: 200, wbraid: 200, fbclid: 500, rdt_cid: 200, epik: 300, ttclid: 500, twclid: 300 };
 const CLICK_ID_RE = /^[A-Za-z0-9._~-]+$/;
 
 export const UTM_MAX_LENGTH = 150;
@@ -176,7 +178,7 @@ export function stripClickIds(href: string): string | null {
 // ---------------------------------------------------------------------------
 
 export type Channel = 'paid_search' | 'paid_social' | 'organic_search' | 'organic_social' | 'email' | 'referral' | 'display' | 'affiliate' | 'direct' | 'other';
-export type Platform = 'google' | 'meta' | 'instagram' | 'reddit' | 'pinterest' | 'tiktok' | 'organic' | 'direct' | 'referral' | 'other';
+export type Platform = 'google' | 'meta' | 'instagram' | 'reddit' | 'pinterest' | 'tiktok' | 'x' | 'organic' | 'direct' | 'referral' | 'other';
 
 export const PLATFORM_LABELS: Record<Platform, string> = {
   google: 'Google Ads',
@@ -185,6 +187,7 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
   reddit: 'Reddit',
   pinterest: 'Pinterest',
   tiktok: 'TikTok',
+  x: 'X (Twitter)',
   organic: 'Organic (search & social)',
   direct: 'Direct',
   referral: 'Referral',
@@ -205,7 +208,7 @@ const SOCIAL_HOSTS: [RegExp, string][] = [
 ];
 
 const PAID_MEDIUM = /^(cpc|ppc|paid|paid_?search|paidsearch|sem|cpm|cpv|paid_?social|paidsocial|social_?paid|paid-social|ads?|display|banner|retargeting|remarketing)$/;
-const SOCIAL_PLATFORMS: Record<string, Platform> = { facebook: 'meta', fb: 'meta', meta: 'meta', instagram: 'instagram', ig: 'instagram', reddit: 'reddit', pinterest: 'pinterest', tiktok: 'tiktok' };
+const SOCIAL_PLATFORMS: Record<string, Platform> = { facebook: 'meta', fb: 'meta', meta: 'meta', instagram: 'instagram', ig: 'instagram', reddit: 'reddit', pinterest: 'pinterest', tiktok: 'tiktok', x: 'x', twitter: 'x' };
 
 export interface TouchInput {
   utm: CampaignParams;
@@ -245,18 +248,20 @@ export function classifyTouch(input: TouchInput): ClassifiedTouch {
 
   // Normalise known paid-social sources.
   const srcKey = source?.replace(/\.com$/, '') ?? '';
-  if (srcKey in SOCIAL_PLATFORMS) source = srcKey === 'fb' || srcKey === 'meta' ? 'facebook' : srcKey === 'ig' ? 'instagram' : srcKey;
+  if (srcKey in SOCIAL_PLATFORMS) source = srcKey === 'fb' || srcKey === 'meta' ? 'facebook' : srcKey === 'ig' ? 'instagram' : srcKey === 'twitter' ? 'x' : srcKey;
 
   // Click IDs fill in missing campaign tagging.
   if (!source) {
-    if (has('gclid')) source = 'google';
+    if (has('gclid') || has('gbraid') || has('wbraid')) source = 'google';
     else if (has('fbclid')) source = socialSourceFromHost(host) === 'instagram' ? 'instagram' : 'facebook';
     else if (has('rdt_cid')) source = 'reddit';
     else if (has('epik')) source = 'pinterest';
     else if (has('ttclid')) source = 'tiktok';
+    else if (has('twclid')) source = 'x';
   }
-  const paidClick = has('gclid') || has('rdt_cid') || has('epik') || has('ttclid') || (has('fbclid') && !!utm.utm_medium && PAID_MEDIUM.test(utm.utm_medium));
-  if (!medium && (has('gclid') || has('rdt_cid') || has('epik') || has('ttclid'))) medium = has('gclid') ? 'cpc' : 'paid_social';
+  const googleClick = has('gclid') || has('gbraid') || has('wbraid');
+  const paidClick = googleClick || has('rdt_cid') || has('epik') || has('ttclid') || has('twclid') || (has('fbclid') && !!utm.utm_medium && PAID_MEDIUM.test(utm.utm_medium));
+  if (!medium && (googleClick || has('rdt_cid') || has('epik') || has('ttclid') || has('twclid'))) medium = googleClick ? 'cpc' : 'paid_social';
 
   if (source) {
     const m = medium ?? 'referral';

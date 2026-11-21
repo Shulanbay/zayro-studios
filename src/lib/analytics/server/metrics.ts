@@ -402,12 +402,14 @@ export async function deliveryHealth(range: DateRange) {
                bool_or(d.destination = 'meta_capi' AND d.status = 'delivered') AS meta_s, bool_or(d.destination = 'meta_pixel' AND d.status = 'delivered') AS meta_b,
                bool_or(d.destination = 'reddit_capi' AND d.status = 'delivered') AS reddit_s, bool_or(d.destination = 'reddit_pixel' AND d.status = 'delivered') AS reddit_b,
                bool_or(d.destination = 'pinterest_capi' AND d.status = 'delivered') AS pin_s, bool_or(d.destination = 'pinterest_tag' AND d.status = 'delivered') AS pin_b,
-               bool_or(d.destination = 'tiktok_events_api' AND d.status = 'delivered') AS tt_s, bool_or(d.destination = 'tiktok_pixel' AND d.status = 'delivered') AS tt_b
+               bool_or(d.destination = 'tiktok_events_api' AND d.status = 'delivered') AS tt_s, bool_or(d.destination = 'tiktok_pixel' AND d.status = 'delivered') AS tt_b,
+               bool_or(d.destination = 'x_capi' AND d.status = 'delivered') AS x_s, bool_or(d.destination = 'x_pixel' AND d.status = 'delivered') AS x_b
           FROM analytics_deliveries d WHERE d.created_at >= ${start} AND d.created_at < ${end} GROUP BY 1)
       SELECT 'meta' AS platform, count(*) FILTER (WHERE meta_s AND meta_b)::int AS both, count(*) FILTER (WHERE meta_s)::int AS server FROM ev
       UNION ALL SELECT 'reddit', count(*) FILTER (WHERE reddit_s AND reddit_b)::int, count(*) FILTER (WHERE reddit_s)::int FROM ev
       UNION ALL SELECT 'pinterest', count(*) FILTER (WHERE pin_s AND pin_b)::int, count(*) FILTER (WHERE pin_s)::int FROM ev
-      UNION ALL SELECT 'tiktok', count(*) FILTER (WHERE tt_s AND tt_b)::int, count(*) FILTER (WHERE tt_s)::int FROM ev`)
+      UNION ALL SELECT 'tiktok', count(*) FILTER (WHERE tt_s AND tt_b)::int, count(*) FILTER (WHERE tt_s)::int FROM ev
+      UNION ALL SELECT 'x', count(*) FILTER (WHERE x_s AND x_b)::int, count(*) FILTER (WHERE x_s)::int FROM ev`)
   );
   const [epik] = rowsOf<{ conv: number; with_epik: number }>(
     await db.execute(sql`

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { enforceRateLimit } from '@/lib/crm/rateLimit';
-import { CONSENT_COOKIE, currentConsent } from '@/lib/analytics/consent';
+import { CONSENT_COOKIE, applyGpc, currentConsent, gpcFromHeaders } from '@/lib/analytics/consent';
 import { applyConsentToVisitor, recordConsent, SESSION_COOKIE, VISITOR_COOKIE } from '@/lib/analytics/server/store';
 
 export const dynamic = 'force-dynamic';
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
   }
-  const consent = currentConsent(request.cookies.get(CONSENT_COOKIE)?.value);
+  const consent = applyGpc(currentConsent(request.cookies.get(CONSENT_COOKIE)?.value), gpcFromHeaders(request.headers));
   if (!consent) return NextResponse.json({ error: 'No consent choice found' }, { status: 400 });
 
   const response = NextResponse.json({ recorded: true, analytics: consent.analytics, advertising: consent.advertising });

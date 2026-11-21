@@ -17,7 +17,7 @@ function capacityLabel(capacity: number | null): string | null {
 export default function AvailableSetupsSection({ setups }: { setups: PublicSetup[] }) {
   if (setups.length === 0) return null;
   return (
-    <section className="section-padding bg-white" aria-labelledby="available-setups-title">
+    <section data-analytics-gallery="studio-setups" className="section-padding bg-white" aria-labelledby="available-setups-title">
       <div className="container max-w-6xl">
         <Reveal>
           <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between mb-10 md:mb-14">

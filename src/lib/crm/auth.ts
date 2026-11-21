@@ -3,8 +3,11 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { adminProfiles, roles } from '@/lib/db/schema';
 import type { AdminProfile, Role } from '@/lib/db/schema';
-import { getSessionEmail, isAdminEmail, normalizeEmail } from '@/lib/adminAuth';
+import { getSessionEmail, isAdminEmail, isAnalyticsViewerEmail, normalizeEmail } from '@/lib/adminAuth';
 import { hasPermission, normalizePermissions, OWNER_ROLE, type Permission } from './permissions';
+
+/** Role given to ANALYTICS_VIEWER_EMAILS on first sign-in (seeded by migration 0018). */
+export const ANALYTICS_VIEWER_ROLE = 'Marketing Analyst';
 import { writeAudit } from './audit';
 
 /**
@@ -66,6 +69,25 @@ export async function resolveAdminProfile(email: string): Promise<{ profile: Adm
     row = await loadProfile(normalized);
   }
 
+  if (!row && isAnalyticsViewerEmail(normalized)) {
+    const analyst = await db.query.roles.findFirst({ where: eq(roles.name, ANALYTICS_VIEWER_ROLE) });
+    if (!analyst) return null;
+    await db
+      .insert(adminProfiles)
+      .values({ email: normalized, normalized_email: normalized, role_id: analyst.id, status: 'active', created_by: 'ANALYTICS_VIEWER_EMAILS' })
+      .onConflictDoNothing();
+    row = await loadProfile(normalized);
+    if (row) {
+      await writeAudit({
+        actor: { email: 'ANALYTICS_VIEWER_EMAILS' },
+        operation: 'team.invite',
+        entityType: 'admin',
+        entityId: row.profile.id,
+        after: { email: normalized, role: ANALYTICS_VIEWER_ROLE, source: 'environment bootstrap' },
+      });
+    }
+  }
+
   if (!row || row.profile.status === 'disabled') return null;
   return row;
 }
@@ -75,6 +97,7 @@ export async function canRequestLogin(email: string): Promise<boolean> {
   const normalized = normalizeEmail(email);
   if (isAdminEmail(normalized)) return true;
   const row = await loadProfile(normalized);
+  if (!row && isAnalyticsViewerEmail(normalized)) return true;
   return !!row && row.profile.status !== 'disabled';
 }
 

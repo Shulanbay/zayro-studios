@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import { sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { rowsOf } from '@/lib/db/types';
-import { CONSENT_COOKIE, currentConsent } from '../consent';
+import { CONSENT_COOKIE, applyGpc, currentConsent, gpcFromHeaders } from '../consent';
 import type { ServerEventName } from '../catalog';
 import { deterministicEventId } from './crypto';
 import { enqueueDeliveries, processDueDeliveries } from './deliveries';
@@ -39,6 +39,7 @@ export const eventIds = {
   extension: (purchaseId: string) => deterministicEventId('extension_purchased', purchaseId),
   refund: (refundId: string) => deterministicEventId('refund_succeeded', refundId),
   contact: (submissionId: string) => deterministicEventId('contact_submitted', submissionId),
+  abandoned: (bookingId: string) => deterministicEventId('booking_abandoned', bookingId),
 };
 
 async function safely<T>(label: string, fn: () => Promise<T>): Promise<T | null> {
@@ -60,7 +61,7 @@ async function deliverSoon(eventRowId: string) {
 }
 
 async function requestVisit(request: NextRequest): Promise<ServerVisitContext> {
-  const consent = currentConsent(request.cookies.get(CONSENT_COOKIE)?.value);
+  const consent = applyGpc(currentConsent(request.cookies.get(CONSENT_COOKIE)?.value), gpcFromHeaders(request.headers));
   return visitFromCookies(request.cookies, consent);
 }
 
@@ -239,6 +240,27 @@ export async function analyticsRefundsSucceeded(purchaseId: string): Promise<voi
       });
       if (ev.inserted) await deliverSoon(ev.id);
     }
+  });
+}
+
+/**
+ * A started Checkout ended without payment (Stripe said expired / failed,
+ * or the customer left Checkout and the slot was released). Once per
+ * booking; no value is reported (nothing was charged).
+ */
+export async function analyticsBookingAbandoned(bookingId: string, reason: 'expired' | 'failed' | 'left_checkout'): Promise<void> {
+  await safely('booking_abandoned', async () => {
+    const attribution = await attributionForBooking(bookingId);
+    const ev = await insertServerEvent({
+      name: 'booking_abandoned',
+      eventId: eventIds.abandoned(bookingId),
+      bookingId,
+      visitorId: attribution?.visitor_id ?? null,
+      sessionId: attribution?.session_id ?? null,
+      properties: { reason },
+      consent: { analytics: !!attribution?.consent_analytics, advertising: !!attribution?.consent_advertising },
+    });
+    if (ev.inserted) await deliverSoon(ev.id);
   });
 }
 

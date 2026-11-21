@@ -19,7 +19,7 @@ import { getStripe, resyncSheetsForPurchase, upsertRefundFromStripe } from './re
 import { confirmExtensionSession, releaseExtensionSession } from '@/lib/manageBooking';
 import { refunds as refundsTable } from '@/lib/db/schema';
 import { sendRefundEmail } from '@/lib/email';
-import { analyticsExtensionPurchased, analyticsPurchaseConfirmed, analyticsRefundsSucceeded } from '@/lib/analytics/server/hooks';
+import { analyticsBookingAbandoned, analyticsExtensionPurchased, analyticsPurchaseConfirmed, analyticsRefundsSucceeded } from '@/lib/analytics/server/hooks';
 
 const isExtension = (session: Stripe.Checkout.Session) => session.metadata?.kind === 'booking_extension';
 
@@ -408,6 +408,7 @@ export async function releaseUnpaidSession(session: Stripe.Checkout.Session, pur
   await logIntegration('stripe', booking.id, released ? 'success' : 'failed', released ? reason : `${reason}; booking was already ${booking.status}`, {
     sessionId: session.id,
   });
+  if (released) await analyticsBookingAbandoned(booking.id, purchaseStatus === 'failed' ? 'failed' : reason.toLowerCase().includes('expired') ? 'expired' : 'left_checkout');
   return { status: released ? 'released' : 'unchanged', bookingId: booking.id };
 }
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { clientIp, enforceRateLimit } from '@/lib/crm/rateLimit';
 import { isBotUserAgent } from '@/lib/analytics/attribution';
-import { CONSENT_COOKIE, currentConsent } from '@/lib/analytics/consent';
+import { CONSENT_COOKIE, applyGpc, currentConsent, gpcFromHeaders } from '@/lib/analytics/consent';
 import { cleanDispatchDestinations, cleanTouch, cleanVendorIds, collectBodySchema, MAX_BODY_BYTES, validateEvent, type ValidEvent } from '@/lib/analytics/validation';
 import { isInternalIp } from '@/lib/analytics/server/config';
 import { recordBrowserDispatch } from '@/lib/analytics/server/deliveries';
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
   }
   if (body.automated) return new NextResponse(null, { status: 204 });
 
-  const consent = currentConsent(request.cookies.get(CONSENT_COOKIE)?.value);
+  const consent = applyGpc(currentConsent(request.cookies.get(CONSENT_COOKIE)?.value), gpcFromHeaders(request.headers));
   const valid: ValidEvent[] = [];
   const rejected: Record<string, number> = {};
   for (const raw of body.events) {

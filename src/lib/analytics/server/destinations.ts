@@ -1,3 +1,4 @@
+import { createHmac, randomBytes } from 'crypto';
 import { PLATFORM_EVENTS, type Destination, type ServerEventName } from '../catalog';
 import { serverCredentials } from './config';
 import type { TransportRequest } from './runtime';
@@ -16,6 +17,8 @@ import type { TransportRequest } from './runtime';
  *   Reddit   POST https://ads-api.reddit.com/api/v3/pixels/{pixel}/conversion_events
  *   Pinterest POST https://api.pinterest.com/v5/ad_accounts/{id}/events
  *   TikTok   POST https://business-api.tiktok.com/open_api/v1.3/event/track/
+ *   X        POST https://ads-api.x.com/{X_ADS_API_VERSION, default 12}/measurement/conversions/{pixel}
+ *            (OAuth 1.0a user context; docs.x.com/x-ads-api/measurement/web-conversions)
  */
 
 export interface DeliveryItem {
@@ -195,18 +198,86 @@ function tiktok(ctx: DeliveryContext): Built {
   return { request: json('tiktok_events_api', 'https://business-api.tiktok.com/open_api/v1.3/event/track/', body, { 'Access-Token': c.token }), testMode: !!c.testEventCode };
 }
 
+/** RFC 3986 percent-encoding, as OAuth 1.0a requires. */
+function pct(v: string): string {
+  return encodeURIComponent(v).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+/**
+ * OAuth 1.0a (HMAC-SHA1) Authorization header for a JSON POST. A JSON body
+ * is not part of the signature base string; only the oauth_* parameters
+ * (and query parameters, none here) are.
+ */
+export function oauth1Header(
+  url: string,
+  creds: { consumerKey: string; consumerSecret: string; accessToken: string; accessTokenSecret: string },
+  nonce = randomBytes(16).toString('hex'),
+  timestamp = Math.floor(Date.now() / 1000).toString()
+): string {
+  const params: Record<string, string> = {
+    oauth_consumer_key: creds.consumerKey,
+    oauth_nonce: nonce,
+    oauth_signature_method: 'HMAC-SHA1',
+    oauth_timestamp: timestamp,
+    oauth_token: creds.accessToken,
+    oauth_version: '1.0',
+  };
+  const paramString = Object.keys(params)
+    .sort()
+    .map((k) => `${pct(k)}=${pct(params[k])}`)
+    .join('&');
+  const base = ['POST', pct(url), pct(paramString)].join('&');
+  const signature = createHmac('sha1', `${pct(creds.consumerSecret)}&${pct(creds.accessTokenSecret)}`).update(base).digest('base64');
+  return (
+    'OAuth ' +
+    Object.entries({ ...params, oauth_signature: signature })
+      .map(([k, v]) => `${pct(k)}="${pct(v)}"`)
+      .join(', ')
+  );
+}
+
+function x(ctx: DeliveryContext): Built {
+  const c = serverCredentials().x;
+  if (!c.pixelId || !c.consumerKey || !c.consumerSecret || !c.accessToken || !c.accessTokenSecret) return { skip: 'not_configured' };
+  const key = PLATFORM_EVENTS[ctx.name]?.x;
+  const eventId = key ? c.eventIds[key] : undefined;
+  if (!key || !eventId) return { skip: 'no_mapping' };
+  // Match key: the consented X click ID only (no hashed email / phone — advanced matching stays off).
+  const twclid = ctx.clickIds.twclid;
+  if (!twclid) return { skip: 'no_match_keys' };
+  const conversion: Record<string, unknown> = {
+    conversion_time: ctx.occurredAt.toISOString(),
+    event_id: eventId,
+    identifiers: [{ twclid }],
+    // Same key as the pixel's conversion_id, so X deduplicates browser + server.
+    conversion_id: ctx.eventId,
+  };
+  if (ctx.valueCents !== null) {
+    conversion.value = (Math.round(ctx.valueCents) / 100).toFixed(2);
+    conversion.price_currency = ctx.currency;
+  }
+  if (ctx.items.length) {
+    conversion.number_items = ctx.items.reduce((n, i) => n + i.quantity, 0);
+    conversion.contents = ctx.items.map((i) => ({ content_id: i.id, content_name: i.name, content_type: i.category, content_price: dollars(i.priceCents), num_items: i.quantity }));
+  }
+  const url = `https://ads-api.x.com/${encodeURIComponent(c.apiVersion)}/measurement/conversions/${encodeURIComponent(c.pixelId)}`;
+  return { request: json('x_capi', url, { conversions: [conversion] }, { Authorization: oauth1Header(url, c) }), testMode: false };
+}
+
 export const SERVER_ADAPTERS: Partial<Record<Destination, (ctx: DeliveryContext) => Built>> = {
   ga4,
   meta_capi: meta,
   reddit_capi: reddit,
   pinterest_capi: pinterest,
   tiktok_events_api: tiktok,
+  x_capi: x,
 };
 
 /** Error text safe to store: no tokens, secrets, emails or long payloads. */
 export function sanitizeError(message: string): string {
   return message
     .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [redacted]')
+    .replace(/OAuth\s+[^\n]+/gi, 'OAuth [redacted]')
     .replace(/(access_token|api_secret|token|secret)\s*[=:]\s*["']?[^\s"'&,}]+/gi, '$1=[redacted]')
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[email]')
     .replace(/https?:\/\/\S+/g, '[url]')

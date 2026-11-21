@@ -17,7 +17,7 @@ const base: PublicAnalyticsConfig = {
   metaPixelId: '111',
   redditPixelId: 't2_x',
   pinterestTagId: '222',
-  tiktokPixelId: 'CTT',
+  tiktokPixelId: 'CTT', xPixelId: null, xEventIds: {},
 };
 
 let scripts: string[];

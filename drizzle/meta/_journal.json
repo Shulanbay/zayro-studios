@@ -148,6 +148,13 @@
       "when": 1791350000000,
       "tag": "0020_one_hour_minimum",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "5",
+      "when": 1791360000000,
+      "tag": "0021_x_ads_destinations",
+      "breakpoints": true
     }
   ]
 }

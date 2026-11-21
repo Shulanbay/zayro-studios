@@ -8,6 +8,8 @@ import { readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import {
   allows,
+  applyGpc,
+  gpcFromHeaders,
   choiceFor,
   consentModeSignals,
   CONSENT_VERSION,
@@ -36,7 +38,7 @@ import {
 import { cleanDispatchDestinations, cleanTouch, collectBodySchema, validateEvent } from './validation';
 import { BROWSER_EVENTS, DESTINATION_CONSENT, DESTINATIONS, PLATFORM_EVENTS, SERVER_EVENTS } from './catalog';
 import { deterministicEventId, decryptJson, encryptJson } from './server/crypto';
-import { SERVER_ADAPTERS, sanitizeError, type DeliveryContext } from './server/destinations';
+import { SERVER_ADAPTERS, sanitizeError, type DeliveryContext, oauth1Header } from './server/destinations';
 import { destinationStatus, publicAnalyticsConfig, serverDestinationActive } from './server/config';
 import { nextRetryDelayMinutes } from './server/deliveries';
 import { hasPermission, SYSTEM_ROLE_PERMISSIONS, ALL_PERMISSIONS } from '@/lib/crm/permissions';
@@ -81,6 +83,17 @@ describe('consent', () => {
     expect(parseConsent('v1~2026-11~short~a1~d1~1')).toBeNull();
     expect(parseConsent('v1~2026-11~abcdefghijklmnopqrstuv~a2~d1~1')).toBeNull();
     expect(parseConsent('<script>')).toBeNull();
+  });
+
+  it('Global Privacy Control keeps advertising denied but leaves analytics to the visitor', () => {
+    const c: ConsentState = { version: CONSENT_VERSION, consentId: 'abcdefghijklmnopqrstuv', analytics: true, advertising: true, decidedAt: 1_800_000_000 };
+    expect(applyGpc(c, true)).toEqual({ ...c, advertising: false });
+    expect(applyGpc(c, false)).toBe(c);
+    expect(applyGpc(null, true)).toBeNull();
+    expect(consentModeSignals(applyGpc(c, true))).toMatchObject({ analytics_storage: 'granted', ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' });
+    expect(gpcFromHeaders(new Headers({ 'Sec-GPC': '1' }))).toBe(true);
+    expect(gpcFromHeaders(new Headers({ 'Sec-GPC': '0' }))).toBe(false);
+    expect(gpcFromHeaders(new Headers())).toBe(false);
   });
 });
 
@@ -280,6 +293,12 @@ describe('destination adapters (fake configuration, no network)', () => {
     TIKTOK_PIXEL_CODE: 'CTEST123',
     TIKTOK_EVENTS_ACCESS_TOKEN: 'tiktok-token-value',
     TIKTOK_TEST_EVENT_CODE: 'TEST999',
+    NEXT_PUBLIC_X_PIXEL_ID: 'o8z6j',
+    X_EVENT_ID_PURCHASE: 'tw-o8z6j-o8z6k',
+    X_ADS_CONSUMER_KEY: 'x-consumer-key',
+    X_ADS_CONSUMER_SECRET: 'x-consumer-secret-value',
+    X_ADS_ACCESS_TOKEN: 'x-access-token-value',
+    X_ADS_ACCESS_TOKEN_SECRET: 'x-access-secret-value',
   };
   beforeEach(() => {
     Object.assign(process.env, env);
@@ -300,7 +319,7 @@ describe('destination adapters (fake configuration, no network)', () => {
     items: [{ id: 'service_102', name: 'Podcast Pro', category: 'podcast', quantity: 1, priceCents: 20000 }],
     transactionId: deterministicEventId('purchase_confirmed', 'purchase-uuid'),
     pageUrl: 'https://zayro.studio/booking/success',
-    clickIds: { fbclid: 'IwAR0', rdt_cid: 'rdt-click', epik: 'epik-click', ttclid: 'tt-click' },
+    clickIds: { fbclid: 'IwAR0', rdt_cid: 'rdt-click', epik: 'epik-click', ttclid: 'tt-click', twclid: 'tw-click' },
     vendorIds: { fbp: 'fb.1.1700000000000.123', ttp: 'ttp-id', rdt: 'rdt-uuid', ga: 'GA1.1.111.222' },
     clickAt: new Date('2026-11-09T15:00:00Z'),
     ...over,
@@ -320,6 +339,25 @@ describe('destination adapters (fake configuration, no network)', () => {
     expect(bodies.tiktok_events_api.data[0]).toMatchObject({ event: 'CompletePayment', event_id: id, user: { ttclid: 'tt-click' }, properties: { value: 217.75, currency: 'USD' } });
     expect(bodies.ga4.events[0]).toMatchObject({ name: 'purchase', params: { transaction_id: id, value: 217.75, tax: 17.75, currency: 'USD', affiliation: 'ZAYRO Studios' } });
     expect(bodies.ga4.client_id).toBe('111.222');
+    expect(bodies.x_capi.conversions[0]).toMatchObject({ event_id: 'tw-o8z6j-o8z6k', identifiers: [{ twclid: 'tw-click' }], conversion_id: id, value: '217.75', price_currency: 'USD', number_items: 1 });
+  });
+
+  it('X Conversion API is signed with OAuth 1.0a and never leaks the secrets', () => {
+    const built = SERVER_ADAPTERS.x_capi!(ctx({ destination: 'x_capi' as any }));
+    expect('request' in built).toBe(true);
+    if (!('request' in built)) return;
+    expect(built.request.url).toBe('https://ads-api.x.com/12/measurement/conversions/o8z6j');
+    const auth = built.request.headers.Authorization;
+    expect(auth).toMatch(/^OAuth oauth_consumer_key="x-consumer-key", oauth_nonce="[0-9a-f]{32}", oauth_signature_method="HMAC-SHA1", oauth_timestamp="\d+", oauth_token="x-access-token-value", oauth_version="1.0", oauth_signature="[^"]+"$/);
+    expect(auth).not.toContain('x-consumer-secret-value');
+    expect(auth).not.toContain('x-access-secret-value');
+    expect(built.request.body).not.toContain('secret');
+    // Deterministic signature for fixed nonce / time (RFC 5849 HMAC-SHA1 over the sorted oauth_* parameters).
+    const fixed = oauth1Header('https://ads-api.x.com/12/measurement/conversions/o8z6j', serverCredentialsForTest(), 'abc', '1700000000');
+    expect(fixed).toBe(oauth1Header('https://ads-api.x.com/12/measurement/conversions/o8z6j', serverCredentialsForTest(), 'abc', '1700000000'));
+    expect(sanitizeError(`401 ${auth}`)).toBe('401 OAuth [redacted]');
+    // Without the X click ID there is no match key: skipped, never sent.
+    expect(SERVER_ADAPTERS.x_capi!(ctx({ destination: 'x_capi' as any, clickIds: {} }))).toEqual({ skip: 'no_match_keys' });
   });
 
   it('uses test modes and never puts customer PII in a payload', () => {
@@ -406,6 +444,10 @@ describe('catalogue', () => {
     expect(t).toEqual({ utm: { utm_source: 'reddit', utm_medium: 'bpaid_social/b' }, clickIds: { rdt_cid: 'ok-1' }, landingPath: null, referrerHost: 'tiktok.com' });
   });
 });
+
+function serverCredentialsForTest() {
+  return { consumerKey: 'k', consumerSecret: 's', accessToken: 't', accessTokenSecret: 'ts' };
+}
 
 describe('Marketing Analyst role', () => {
   const analyst = SYSTEM_ROLE_PERMISSIONS['Marketing Analyst'];
@@ -507,7 +549,7 @@ describe('vendor master switch', () => {
       for (const off of [undefined, '', '0', 'false', 'no']) {
         if (off === undefined) delete env.ANALYTICS_VENDORS_ENABLED;
         else env.ANALYTICS_VENDORS_ENABLED = off;
-        expect(publicAnalyticsConfig(), String(off)).toEqual({ vendorsEnabled: false, gtmId: null, ga4Id: null, ga4ServerSide: false, googleAds: null, metaPixelId: null, redditPixelId: null, pinterestTagId: null, tiktokPixelId: null });
+        expect(publicAnalyticsConfig(), String(off)).toEqual({ vendorsEnabled: false, gtmId: null, ga4Id: null, ga4ServerSide: false, googleAds: null, metaPixelId: null, redditPixelId: null, pinterestTagId: null, tiktokPixelId: null, xPixelId: null, xEventIds: {} });
         expect(serverDestinationActive('meta_capi')).toBe(false);
       }
       env.ANALYTICS_VENDORS_ENABLED = 'true';

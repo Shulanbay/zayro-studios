@@ -110,3 +110,16 @@ export function choiceFor(action: ConsentAction, custom?: { analytics: boolean; 
 export function allows(state: Pick<ConsentState, 'analytics' | 'advertising'> | null | undefined, category: 'analytics' | 'advertising'): boolean {
   return !!state && state[category] === true;
 }
+
+/**
+ * Global Privacy Control (navigator.globalPrivacyControl / `Sec-GPC: 1`) is an
+ * opt-out of sale/sharing: advertising stays denied whatever the banner says.
+ * Analytics remains the visitor's own choice.
+ */
+export function applyGpc<T extends Pick<ConsentState, 'advertising'>>(state: T | null, gpc: boolean): T | null {
+  return state && gpc && state.advertising ? { ...state, advertising: false } : state;
+}
+
+export function gpcFromHeaders(headers: { get(name: string): string | null }): boolean {
+  return headers.get('sec-gpc')?.trim() === '1';
+}

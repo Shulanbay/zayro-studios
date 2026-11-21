@@ -29,6 +29,12 @@ TikTok:
 https://zayro.studio/podcast-studio-nyc?utm_source=tiktok&utm_medium=paid_social&utm_campaign=<campaign>&utm_content=<creative>&utm_term=<audience>
 ```
 
+X (Twitter):
+
+```
+https://zayro.studio/podcast-studio-nyc?utm_source=twitter&utm_medium=paid_social&utm_campaign=<campaign>&utm_content=<creative>&utm_term=<audience>
+```
+
 Meta: `utm_source=facebook` or `utm_source=instagram`, `utm_medium=paid_social`.
 Google Ads: keep auto-tagging (gclid) on; add `utm_source=google&utm_medium=cpc`.
 
@@ -50,8 +56,9 @@ that looks like an email address or phone number is dropped.
 
 ## Platform click IDs
 
-The platforms add their own click IDs to ad links: `gclid` (Google), `fbclid`
-(Meta), `rdt_cid` (Reddit), `epik` (Pinterest), `ttclid` (TikTok). **Never
+The platforms add their own click IDs to ad links: `gclid`, `gbraid`,
+`wbraid` (Google), `fbclid` (Meta), `rdt_cid` (Reddit), `epik` (Pinterest),
+`ttclid` (TikTok), `twclid` (X). **Never
 replace them with UTM values or remove them in the ad setup** — UTM tags and
 native click IDs must coexist. The site:
 

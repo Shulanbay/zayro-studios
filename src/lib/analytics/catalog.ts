@@ -37,6 +37,17 @@ export const BROWSER_EVENTS = [
   'email_clicked',
   'directions_clicked',
   'engaged',
+  // Engagement and interaction events (no money, never conversions).
+  'scroll_depth',
+  'view_section',
+  'click_cta',
+  'click_book_now',
+  'click_instagram',
+  'click_whatsapp',
+  'view_package',
+  'select_package',
+  'view_gallery',
+  'play_video',
 ] as const;
 
 export const SERVER_EVENTS = [
@@ -49,6 +60,8 @@ export const SERVER_EVENTS = [
   'booking_rescheduled',
   'booking_cancelled',
   'refund_succeeded',
+  /** A started Stripe Checkout that expired, failed or was left without paying (server-verified). */
+  'booking_abandoned',
 ] as const;
 
 export type BrowserEventName = (typeof BROWSER_EVENTS)[number];
@@ -101,6 +114,16 @@ export const BROWSER_PROPERTIES: Record<BrowserEventName, z.ZodTypeAny> = {
   email_clicked: z.object({ placement: slug.optional() }).strict(),
   directions_clicked: z.object({ placement: slug.optional() }).strict(),
   engaged: z.object({ seconds: z.number().int().min(0).max(86400).optional() }).strict(),
+  scroll_depth: z.object({ percent: z.union([z.literal(25), z.literal(50), z.literal(75), z.literal(90)]) }).strict(),
+  view_section: z.object({ section_name: slug }).strict(),
+  click_cta: z.object({ button_name: slug, button_location: slug.optional(), target: slug.optional() }).strict(),
+  click_book_now: z.object({ button_location: slug.optional(), service_id: id.optional(), category: category.optional() }).strict(),
+  click_instagram: z.object({ placement: slug.optional() }).strict(),
+  click_whatsapp: z.object({ placement: slug.optional() }).strict(),
+  view_package: z.object({ package_id: id.optional(), package_name: slug.optional() }).strict(),
+  select_package: z.object({ package_id: id.optional(), package_name: slug.optional() }).strict(),
+  view_gallery: z.object({ gallery_name: slug.optional() }).strict(),
+  play_video: z.object({ video_name: slug.optional() }).strict(),
 };
 
 /** Tour bookings use their own funnel names (BookingFlow maps the generic step). */
@@ -167,11 +190,13 @@ export const DESTINATIONS = [
   'pinterest_capi',
   'tiktok_pixel',
   'tiktok_events_api',
+  'x_pixel',
+  'x_capi',
 ] as const;
 export type Destination = (typeof DESTINATIONS)[number];
 
-export const BROWSER_DESTINATIONS: Destination[] = ['google_ads', 'meta_pixel', 'reddit_pixel', 'pinterest_tag', 'tiktok_pixel'];
-export const SERVER_DESTINATIONS: Destination[] = ['ga4', 'meta_capi', 'reddit_capi', 'pinterest_capi', 'tiktok_events_api'];
+export const BROWSER_DESTINATIONS: Destination[] = ['google_ads', 'meta_pixel', 'reddit_pixel', 'pinterest_tag', 'tiktok_pixel', 'x_pixel'];
+export const SERVER_DESTINATIONS: Destination[] = ['ga4', 'meta_capi', 'reddit_capi', 'pinterest_capi', 'tiktok_events_api', 'x_capi'];
 
 /** Consent each destination needs. GA4 is analytics; every ad platform is advertising. */
 export const DESTINATION_CONSENT: Record<Destination, 'analytics' | 'advertising'> = {
@@ -185,6 +210,8 @@ export const DESTINATION_CONSENT: Record<Destination, 'analytics' | 'advertising
   pinterest_capi: 'advertising',
   tiktok_pixel: 'advertising',
   tiktok_events_api: 'advertising',
+  x_pixel: 'advertising',
+  x_capi: 'advertising',
 };
 
 export interface PlatformMapping {
@@ -194,7 +221,13 @@ export interface PlatformMapping {
   reddit?: string;
   pinterest?: string;
   tiktok?: string;
+  /** X Ads: which Events Manager event (its ID comes from X_EVENT_ID_<KEY>). */
+  x?: XEventKey;
 }
+
+/** X Ads events are created per account in Events Manager; their IDs (tw-xxxxx-yyyyy) live in env vars. */
+export const X_EVENT_KEYS = ['page_view', 'view_content', 'lead', 'checkout', 'purchase', 'tour'] as const;
+export type XEventKey = (typeof X_EVENT_KEYS)[number];
 
 /**
  * Internal event → each platform's standard event. One primary paid-booking
@@ -205,9 +238,9 @@ export interface PlatformMapping {
  * them against the current docs before enabling a platform.
  */
 export const PLATFORM_EVENTS: Partial<Record<EventName, PlatformMapping>> = {
-  page_view: { ga4: 'page_view', meta: 'PageView', reddit: 'PageVisit', pinterest: 'pagevisit', tiktok: 'PageView' },
-  pricing_viewed: { ga4: 'view_item_list', meta: 'ViewContent', reddit: 'ViewContent', pinterest: 'viewcategory', tiktok: 'ViewContent' },
-  view_item: { ga4: 'view_item', meta: 'ViewContent', reddit: 'ViewContent', pinterest: 'viewcategory', tiktok: 'ViewContent' },
+  page_view: { ga4: 'page_view', meta: 'PageView', reddit: 'PageVisit', pinterest: 'pagevisit', tiktok: 'PageView', x: 'page_view' },
+  pricing_viewed: { ga4: 'view_item_list', meta: 'ViewContent', reddit: 'ViewContent', pinterest: 'viewcategory', tiktok: 'ViewContent', x: 'view_content' },
+  view_item: { ga4: 'view_item', meta: 'ViewContent', reddit: 'ViewContent', pinterest: 'viewcategory', tiktok: 'ViewContent', x: 'view_content' },
   booking_started: { ga4: 'booking_started' },
   service_selected: { ga4: 'select_item' },
   setup_selected: { ga4: 'booking_setup_selected' },
@@ -219,17 +252,28 @@ export const PLATFORM_EVENTS: Partial<Record<EventName, PlatformMapping>> = {
   hold_created: { ga4: 'booking_hold_created' },
   tour_cta_clicked: { ga4: 'studio_tour_started' },
   contact_started: { ga4: 'contact_form_started' },
-  phone_clicked: { ga4: 'phone_clicked' },
-  email_clicked: { ga4: 'email_clicked' },
-  directions_clicked: { ga4: 'directions_clicked' },
-  checkout_created: { ga4: 'begin_checkout', meta: 'InitiateCheckout', reddit: 'Custom:InitiateCheckout', pinterest: 'custom:initiate_checkout', tiktok: 'InitiateCheckout' },
-  purchase_confirmed: { ga4: 'purchase', googleAds: 'booking', meta: 'Purchase', reddit: 'Purchase', pinterest: 'checkout', tiktok: 'CompletePayment' },
-  tour_confirmed: { ga4: 'studio_tour_confirmed', googleAds: 'tour', meta: 'Schedule', reddit: 'Lead', pinterest: 'lead', tiktok: 'Schedule' },
-  contact_submitted: { ga4: 'contact_form_submitted', googleAds: 'contact', meta: 'Lead', reddit: 'Lead', pinterest: 'lead', tiktok: 'SubmitForm' },
+  checkout_created: { ga4: 'begin_checkout', meta: 'InitiateCheckout', reddit: 'Custom:InitiateCheckout', pinterest: 'custom:initiate_checkout', tiktok: 'InitiateCheckout', x: 'checkout' },
+  purchase_confirmed: { ga4: 'purchase', googleAds: 'booking', meta: 'Purchase', reddit: 'Purchase', pinterest: 'checkout', tiktok: 'CompletePayment', x: 'purchase' },
+  tour_confirmed: { ga4: 'studio_tour_confirmed', googleAds: 'tour', meta: 'Schedule', reddit: 'Lead', pinterest: 'lead', tiktok: 'Schedule', x: 'tour' },
+  contact_submitted: { ga4: 'contact_form_submitted', googleAds: 'contact', meta: 'Lead', reddit: 'Lead', pinterest: 'lead', tiktok: 'SubmitForm', x: 'lead' },
   extension_purchased: { ga4: 'booking_extended' },
   refund_succeeded: { ga4: 'refund' },
   booking_rescheduled: { ga4: 'booking_rescheduled' },
   booking_cancelled: { ga4: 'booking_cancelled' },
+  booking_abandoned: { ga4: 'booking_abandoned' },
+  scroll_depth: { ga4: 'scroll_depth' },
+  view_section: { ga4: 'view_section' },
+  click_cta: { ga4: 'click_cta' },
+  click_book_now: { ga4: 'click_book_now', tiktok: 'ClickButton' },
+  click_instagram: { ga4: 'click_instagram' },
+  click_whatsapp: { ga4: 'click_whatsapp', meta: 'Contact', tiktok: 'Contact' },
+  phone_clicked: { ga4: 'click_phone', meta: 'Contact', tiktok: 'Contact' },
+  email_clicked: { ga4: 'click_email', meta: 'Contact', tiktok: 'Contact' },
+  directions_clicked: { ga4: 'click_map', meta: 'FindLocation' },
+  view_package: { ga4: 'view_package', meta: 'ViewContent', reddit: 'ViewContent', pinterest: 'viewcategory', tiktok: 'ViewContent', x: 'view_content' },
+  select_package: { ga4: 'select_package' },
+  view_gallery: { ga4: 'view_gallery' },
+  play_video: { ga4: 'play_video' },
 };
 
 /** GA4 key events (mark only these as key events in the GA4 property). */
@@ -240,10 +284,11 @@ export const MIRRORED_CONVERSIONS: ServerEventName[] = ['checkout_created', 'pur
 
 /** Server events that are delivered to server-side destinations (CAPI / MP). */
 export const SERVER_DELIVERED: Partial<Record<ServerEventName, Destination[]>> = {
-  checkout_created: ['ga4', 'meta_capi', 'reddit_capi', 'pinterest_capi', 'tiktok_events_api'],
-  purchase_confirmed: ['ga4', 'meta_capi', 'reddit_capi', 'pinterest_capi', 'tiktok_events_api'],
-  tour_confirmed: ['ga4', 'meta_capi', 'reddit_capi', 'pinterest_capi', 'tiktok_events_api'],
-  contact_submitted: ['ga4', 'meta_capi', 'reddit_capi', 'pinterest_capi', 'tiktok_events_api'],
+  checkout_created: ['ga4', 'meta_capi', 'reddit_capi', 'pinterest_capi', 'tiktok_events_api', 'x_capi'],
+  purchase_confirmed: ['ga4', 'meta_capi', 'reddit_capi', 'pinterest_capi', 'tiktok_events_api', 'x_capi'],
+  tour_confirmed: ['ga4', 'meta_capi', 'reddit_capi', 'pinterest_capi', 'tiktok_events_api', 'x_capi'],
+  contact_submitted: ['ga4', 'meta_capi', 'reddit_capi', 'pinterest_capi', 'tiktok_events_api', 'x_capi'],
   extension_purchased: ['ga4'],
   refund_succeeded: ['ga4'],
+  booking_abandoned: ['ga4'],
 };

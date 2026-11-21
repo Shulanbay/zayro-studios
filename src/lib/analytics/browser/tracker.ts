@@ -4,7 +4,7 @@
  * ttq directly. Adapters:
  *   - firstParty: batches events to /api/analytics/collect (keepalive);
  *   - dataLayer: GTM / gtag events with GA4 names (Analytics consent);
- *   - pixels: Meta, Reddit, Pinterest, TikTok (Advertising consent).
+ *   - pixels: Meta, Reddit, Pinterest, TikTok, X (Advertising consent).
  *
  * Never sent anywhere: names, emails, phones, notes, guest details, Stripe
  * IDs, booking references, Manage Booking tokens. Admin, API and Manage
@@ -14,7 +14,7 @@ import type { PublicAnalyticsConfig } from '../server/config';
 import type { ConversionPayload } from '../server/hooks';
 import { captureFromUrl, isTrackablePath, sanitizePageUrl, sanitizePath, stripClickIds, type CapturedTouch } from '../attribution';
 import { PLATFORM_EVENTS, type BrowserEventName, type Destination } from '../catalog';
-import { CONSENT_COOKIE, consentModeSignals, currentConsent, type ConsentState } from '../consent';
+import { CONSENT_COOKIE, applyGpc, consentModeSignals, currentConsent, type ConsentState } from '../consent';
 import { ensureGtag, loadAdvertisingTags, loadGoogleTag, vendorWindow } from './vendors';
 
 interface QueuedEvent {
@@ -58,8 +58,13 @@ function readCookie(name: string): string | null {
   }
 }
 
+/** Global Privacy Control signal from the browser (an opt-out of advertising). */
+export function browserGpc(): boolean {
+  return typeof navigator !== 'undefined' && (navigator as Navigator & { globalPrivacyControl?: boolean }).globalPrivacyControl === true;
+}
+
 export function readStoredConsent(): ConsentState | null {
-  return currentConsent(readCookie(CONSENT_COOKIE));
+  return applyGpc(currentConsent(readCookie(CONSENT_COOKIE)), browserGpc());
 }
 
 export function getConsent(): ConsentState | null {
@@ -97,6 +102,7 @@ export function initAnalytics(config: PublicAnalyticsConfig) {
 
 /** Consent changed (banner / preferences): update Consent Mode, load allowed tags, clean the URL. */
 export function setConsent(next: ConsentState | null) {
+  next = applyGpc(next, browserGpc());
   state.consent = next;
   const w = vendorWindow();
   ensureGtag(w)('consent', 'update', consentModeSignals(next));
@@ -213,7 +219,11 @@ export function trackEvent(name: BrowserEventName, properties: Record<string, un
 
   if (name === 'page_view') return vendorPageView(eventId, { ga4: true, ads: true });
   const map = PLATFORM_EVENTS[name];
-  if (map?.ga4) pushDataLayer(map.ga4, { event_id: eventId, ...properties });
+  const pageParams = { page_path: sanitizePath(path()) ?? '/', page_title: document.title.slice(0, 120) };
+  if (map?.ga4) pushDataLayer(map.ga4, { event_id: eventId, ...pageParams, ...properties });
+  // Generic booking-step event for GTM / GA4 funnels (the specific step event above stays the source of truth).
+  const step = BOOKING_STEP_INDEX[name];
+  if (step) pushDataLayer('booking_step_completed', { event_id: `${eventId}:step`, booking_step: step, booking_step_name: name, ...pageParams, service_id: properties.service_id });
   if (adsOn()) {
     const w = vendorWindow();
     const content = { content_category: properties.category, content_name: properties.service_name };
@@ -223,11 +233,33 @@ export function trackEvent(name: BrowserEventName, properties: Record<string, un
         if (state.config?.redditPixelId) w.rdt?.('track', 'ViewContent', { conversionId: eventId });
         if (state.config?.pinterestTagId) w.pintrk?.('track', 'viewcategory', { event_id: eventId });
         if (state.config?.tiktokPixelId) w.ttq?.track?.('ViewContent', {}, { event_id: eventId });
+        const xId = state.config?.xEventIds?.view_content;
+        if (state.config?.xPixelId && xId) w.twq?.('event', xId, { conversion_id: eventId });
       }
+      // Contact / click events: standard non-purchase events on platforms that have one.
+      if (map?.meta && map.meta !== 'ViewContent' && map.meta !== 'PageView' && state.config?.metaPixelId) w.fbq?.('track', map.meta, {}, { eventID: eventId });
+      if (map?.tiktok && map.tiktok !== 'ViewContent' && map.tiktok !== 'PageView' && state.config?.tiktokPixelId && isBrowserEventTikTok(map.tiktok)) w.ttq?.track?.(map.tiktok, {}, { event_id: eventId });
     } catch {
       // a vendor script error never breaks the page
     }
   }
+}
+
+/** Booking-flow steps in order (the dataLayer also gets a generic booking_step_completed). */
+const BOOKING_STEP_INDEX: Partial<Record<BrowserEventName, number>> = {
+  booking_started: 1,
+  service_selected: 2,
+  setup_selected: 3,
+  date_selected: 4,
+  time_selected: 5,
+  extras_reached: 6,
+  details_started: 7,
+  hold_created: 8,
+};
+
+/** TikTok events the browser may send for clicks (never the conversion events, which come from trackConversion). */
+function isBrowserEventTikTok(name: string): boolean {
+  return name === 'ClickButton' || name === 'Contact';
 }
 
 /** GA4 + pixel page view for the current route (once per navigation). */
@@ -240,6 +272,8 @@ function vendorPageView(eventId: string, which: { ga4: boolean; ads: boolean }) 
     if (state.config?.redditPixelId) w.rdt?.('track', 'PageVisit', { conversionId: eventId });
     if (state.config?.pinterestTagId) w.pintrk?.('page');
     if (state.config?.tiktokPixelId) w.ttq?.page?.();
+    const xId = state.config?.xEventIds?.page_view;
+    if (state.config?.xPixelId && xId) w.twq?.('event', xId, { conversion_id: eventId });
   } catch {
     // ignore vendor errors
   }
@@ -307,6 +341,12 @@ export function trackConversion(c: ConversionPayload | null | undefined) {
       if (cfg.tiktokPixelId && map?.tiktok && w.ttq?.track) {
         w.ttq.track(map.tiktok, { value, currency, content_type: c.items.length ? 'product' : undefined, contents: c.items.map((i) => ({ content_id: i.id, content_name: i.name, quantity: i.quantity, price: i.priceCents / 100 })) }, { event_id: c.eventId });
         fired.push('tiktok_pixel');
+      }
+      const xEvent = map?.x ? cfg.xEventIds?.[map.x] : undefined;
+      if (cfg.xPixelId && xEvent && w.twq) {
+        // conversion_id = the server's event ID, so X deduplicates pixel + Conversion API.
+        w.twq('event', xEvent, { value, currency, conversion_id: c.eventId, contents: c.items.map((i) => ({ content_id: i.id, content_name: i.name, content_type: i.category, content_price: i.priceCents / 100, num_items: i.quantity })) });
+        fired.push('x_pixel');
       }
     } catch {
       // ignore vendor errors

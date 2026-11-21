@@ -10,6 +10,7 @@ once and reused by every destination and every retry (never regenerated):
 | Reddit Pixel / CAPI | `conversionId` (browser) / `metadata.conversion_id` (server) |
 | Pinterest Tag / CAPI | `event_id` (both) |
 | TikTok Pixel / Events API | `event_id` (both) |
+| X Pixel / Conversion API | `conversion_id` (both) |
 
 Server event IDs are deterministic (`sha256("zayro-analytics-event:<kind>:<internal id>")`
 laid out as a UUID): `checkout_created` ← booking id, `purchase_confirmed` ←
@@ -48,9 +49,33 @@ re-check them against current official docs before enabling a platform.
 | `refund_succeeded` | Stripe refund became `succeeded` (webhook) | refund | — | — | — | — | — | server | Analytics | `refund_succeeded` ← refund id; `transaction_id` = original purchase ID | refund amount, USD | no |
 | `booking_rescheduled` | (reserved, not yet emitted) | booking_rescheduled | — | — | — | — | — | server | — | — | — | no |
 | `booking_cancelled` | (reserved, not yet emitted) | booking_cancelled | — | — | — | — | — | server | — | — | — | no |
+| `booking_abandoned` | Stripe Checkout expired / failed / left (webhook or cancel page), once per booking | booking_abandoned | — | — | — | — | — | server | Analytics | `booking_abandoned` ← booking id | — | no |
 | `tour_cta_clicked` | Click on a “Book a free tour” link | studio_tour_started | — | — | — | — | — | browser | Analytics | random | — | no |
 | `contact_started` | First focus in the contact form | contact_form_started | — | — | — | — | — | browser | Analytics | random | — | no |
-| `phone_clicked` / `email_clicked` / `directions_clicked` | tel: / mailto: / maps link clicked | phone_clicked / email_clicked / directions_clicked | — | — | — | — | — | browser | Analytics | random | — | no |
+| `phone_clicked` / `email_clicked` / `directions_clicked` | tel: / mailto: / maps link clicked | click_phone / click_email / click_map | — | Contact / Contact / FindLocation | — | — | Contact / Contact / — | browser | Analytics; Advertising (pixels) | random | — | no |
+| `click_instagram` / `click_whatsapp` | instagram.com / wa.me link clicked | click_instagram / click_whatsapp | — | — / Contact | — | — | — / Contact | browser | as above | random | — | no |
+| `click_book_now` | Any link to /booking (not the tour) | click_book_now | — | — | — | — | ClickButton | browser | as above | random | — | no |
+| `click_cta` | Any other `.button` link / button, or `data-analytics-cta` | click_cta | — | — | — | — | — | browser | Analytics | random | — | no |
+| `scroll_depth` | 25 / 50 / 75 / 90 % of the page, once each | scroll_depth | — | — | — | — | — | browser | Analytics | random | — | no |
+| `view_section` | A `<section id>` or `data-analytics-section` half visible, once per page | view_section | — | — | — | — | — | browser | Analytics | random | — | no |
+| `view_package` | A monthly package card half visible | view_package | — | ViewContent | ViewContent | viewcategory | ViewContent | browser | as above | random | — | no |
+| `select_package` | “Buy Monthly Package” clicked | select_package | — | — | — | — | — | browser | Analytics | random | — | no |
+| `view_gallery` | Studio setups gallery half visible | view_gallery | — | — | — | — | — | browser | Analytics | random | — | no |
+| `play_video` | Any `<video>` starts playing, once per video | play_video | — | — | — | — | — | browser | Analytics | random | — | no |
+
+### X (Twitter) Ads
+
+The X Pixel and Conversion API use event IDs created in X Events Manager
+(`tw-<pixel>-<event>`), set per key in `X_EVENT_ID_<KEY>`:
+
+| Internal event | X event key (env var) |
+| --- | --- |
+| `page_view` | page_view (`X_EVENT_ID_PAGE_VIEW`) |
+| `pricing_viewed`, `view_item`, `view_package` | view_content (`X_EVENT_ID_VIEW_CONTENT`) |
+| `checkout_created` | checkout (`X_EVENT_ID_CHECKOUT`) |
+| `purchase_confirmed` | purchase (`X_EVENT_ID_PURCHASE`) — the one paid-booking conversion |
+| `tour_confirmed` | tour (`X_EVENT_ID_TOUR`) |
+| `contact_submitted` | lead (`X_EVENT_ID_LEAD`) |
 
 No refund event is invented for ad platforms that don't support one; refunds
 reduce **net revenue** in the internal dashboard and in GA4 only.

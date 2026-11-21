@@ -1,4 +1,4 @@
-import type { Destination } from '../catalog';
+import { X_EVENT_KEYS, type Destination, type XEventKey } from '../catalog';
 import { DEFAULT_ATTRIBUTION_WINDOW_DAYS } from '../attribution';
 import { vendorsAllowedOverride } from './runtime';
 
@@ -84,6 +84,9 @@ export interface PublicAnalyticsConfig {
   redditPixelId: string | null;
   pinterestTagId: string | null;
   tiktokPixelId: string | null;
+  /** X Pixel ID and the Events Manager event IDs (tw-xxxxx-yyyyy) per event key. */
+  xPixelId: string | null;
+  xEventIds: Partial<Record<XEventKey, string>>;
 }
 
 export function publicAnalyticsConfig(): PublicAnalyticsConfig {
@@ -110,7 +113,19 @@ export function publicAnalyticsConfig(): PublicAnalyticsConfig {
     redditPixelId: vendorsEnabled ? publicId('NEXT_PUBLIC_REDDIT_PIXEL_ID') : null,
     pinterestTagId: vendorsEnabled ? publicId('NEXT_PUBLIC_PINTEREST_TAG_ID') : null,
     tiktokPixelId: vendorsEnabled ? publicId('NEXT_PUBLIC_TIKTOK_PIXEL_ID') : null,
+    xPixelId: vendorsEnabled ? publicId('NEXT_PUBLIC_X_PIXEL_ID') : null,
+    xEventIds: vendorsEnabled ? xEventIds() : {},
   };
+}
+
+/** X event IDs from X_EVENT_ID_<KEY> (e.g. X_EVENT_ID_PURCHASE=tw-abc12-def34). */
+export function xEventIds(): Partial<Record<XEventKey, string>> {
+  const out: Partial<Record<XEventKey, string>> = {};
+  for (const k of X_EVENT_KEYS) {
+    const v = env(`X_EVENT_ID_${k.toUpperCase()}`);
+    if (/^tw-[A-Za-z0-9]{2,20}-[A-Za-z0-9]{2,20}$/.test(v)) out[k] = v;
+  }
+  return out;
 }
 
 export interface DestinationStatus {
@@ -135,6 +150,12 @@ const DEST_INFO: Record<Destination, { label: string; channel: 'browser' | 'serv
   pinterest_capi: { label: 'Pinterest Conversions API', channel: 'server', required: [['PINTEREST_AD_ACCOUNT_ID'], ['PINTEREST_CONVERSIONS_ACCESS_TOKEN']], test: 'PINTEREST_TEST_MODE' },
   tiktok_pixel: { label: 'TikTok Pixel', channel: 'browser', required: [['NEXT_PUBLIC_TIKTOK_PIXEL_ID']] },
   tiktok_events_api: { label: 'TikTok Events API', channel: 'server', required: [['TIKTOK_PIXEL_CODE', 'NEXT_PUBLIC_TIKTOK_PIXEL_ID'], ['TIKTOK_EVENTS_ACCESS_TOKEN']], test: 'TIKTOK_TEST_EVENT_CODE' },
+  x_pixel: { label: 'X (Twitter) Pixel', channel: 'browser', required: [['NEXT_PUBLIC_X_PIXEL_ID'], ['X_EVENT_ID_PURCHASE']] },
+  x_capi: {
+    label: 'X Conversion API',
+    channel: 'server',
+    required: [['NEXT_PUBLIC_X_PIXEL_ID'], ['X_EVENT_ID_PURCHASE'], ['X_ADS_CONSUMER_KEY'], ['X_ADS_CONSUMER_SECRET'], ['X_ADS_ACCESS_TOKEN'], ['X_ADS_ACCESS_TOKEN_SECRET']],
+  },
 };
 
 export function destinationStatus(destination: Destination): DestinationStatus {
@@ -161,6 +182,15 @@ export function serverCredentials() {
     reddit: { pixelId: publicId('REDDIT_PIXEL_ID', 'NEXT_PUBLIC_REDDIT_PIXEL_ID'), token: env('REDDIT_CONVERSIONS_ACCESS_TOKEN'), testMode: flag('REDDIT_TEST_MODE') },
     pinterest: { adAccountId: publicId('PINTEREST_AD_ACCOUNT_ID'), token: env('PINTEREST_CONVERSIONS_ACCESS_TOKEN'), testMode: flag('PINTEREST_TEST_MODE') },
     tiktok: { pixelCode: publicId('TIKTOK_PIXEL_CODE', 'NEXT_PUBLIC_TIKTOK_PIXEL_ID'), token: env('TIKTOK_EVENTS_ACCESS_TOKEN'), testEventCode: env('TIKTOK_TEST_EVENT_CODE') || null },
+    x: {
+      pixelId: publicId('NEXT_PUBLIC_X_PIXEL_ID'),
+      eventIds: xEventIds(),
+      consumerKey: env('X_ADS_CONSUMER_KEY'),
+      consumerSecret: env('X_ADS_CONSUMER_SECRET'),
+      accessToken: env('X_ADS_ACCESS_TOKEN'),
+      accessTokenSecret: env('X_ADS_ACCESS_TOKEN_SECRET'),
+      apiVersion: env('X_ADS_API_VERSION') || '12',
+    },
   };
 }
 

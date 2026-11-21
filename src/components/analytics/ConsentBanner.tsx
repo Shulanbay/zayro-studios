@@ -12,12 +12,15 @@ import type { ConsentAction, ConsentState } from '@/lib/analytics/consent';
  */
 export default function ConsentBanner({
   consent,
+  gpc = false,
   open,
   canClose,
   onDecide,
   onClose,
 }: {
   consent: ConsentState | null;
+  /** The browser sends Global Privacy Control: advertising cannot be switched on. */
+  gpc?: boolean;
   open: boolean;
   canClose: boolean;
   onDecide: (action: ConsentAction, custom?: { analytics: boolean; advertising: boolean }) => void;
@@ -69,7 +72,7 @@ export default function ConsentBanner({
         </div>
         <p className="text-sm text-zayro-gray mt-2">
           We use necessary cookies to run bookings, payments and security. With your permission we also measure visits (analytics) and the results of our ads
-          (advertising: Google, Meta, Reddit, Pinterest, TikTok). You can change this any time under “Cookie preferences” in the footer.{' '}
+          (advertising: Google, Meta, Reddit, Pinterest, TikTok, X). You can change this any time under “Cookie preferences” in the footer.{' '}
           <Link href="/privacy#cookies" className="underline font-medium text-zayro-dark">
             Privacy Policy
           </Link>
@@ -95,12 +98,19 @@ export default function ConsentBanner({
               </span>
             </label>
             <label className="flex items-start gap-3 text-sm cursor-pointer">
-              <input type="checkbox" checked={advertising} onChange={(e) => setAdvertising(e.target.checked)} className="mt-0.5 h-5 w-5 flex-shrink-0 accent-zayro-primary" />
+              <input
+                type="checkbox"
+                checked={advertising && !gpc}
+                disabled={gpc}
+                onChange={(e) => setAdvertising(e.target.checked)}
+                className="mt-0.5 h-5 w-5 flex-shrink-0 accent-zayro-primary"
+              />
               <span>
                 <span className="font-semibold">Advertising</span>
                 <span className="block text-zayro-gray">
-                  Google Ads, Meta (Facebook/Instagram), Reddit, Pinterest and TikTok tags and their server-side conversion APIs, to measure which ads lead to bookings.
+                  Google Ads, Meta (Facebook/Instagram), Reddit, Pinterest, TikTok and X tags and their server-side conversion APIs, to measure which ads lead to bookings.
                   Ad click identifiers are kept only with this permission.
+                  {gpc && <span className="block mt-1 font-medium text-zayro-dark">Your browser sends Global Privacy Control, so advertising stays off.</span>}
                 </span>
               </span>
             </label>
@@ -115,7 +125,7 @@ export default function ConsentBanner({
             Reject non-essential
           </button>
           {customize ? (
-            <button type="button" className={`${btn} bg-white hover:bg-zayro-bg`} onClick={() => onDecide('custom', { analytics, advertising })}>
+            <button type="button" className={`${btn} bg-white hover:bg-zayro-bg`} onClick={() => onDecide('custom', { analytics, advertising: advertising && !gpc })}>
               Save my choices
             </button>
           ) : (

@@ -44,7 +44,7 @@ export default function PrivacyPage() {
             </li>
             <li>
               • Ad click identifiers, only if you allow advertising: when you arrive from an ad, the ad platform adds an identifier to the link
-              (Google <code>gclid</code>, Meta <code>fbclid</code>, Reddit <code>rdt_cid</code>, Pinterest <code>epik</code>, TikTok <code>ttclid</code>).
+              (Google <code>gclid</code> / <code>gbraid</code> / <code>wbraid</code>, Meta <code>fbclid</code>, Reddit <code>rdt_cid</code>, Pinterest <code>epik</code>, TikTok <code>ttclid</code>, X <code>twclid</code>).
             </li>
           </ul>
           <p className="text-zayro-gray leading-relaxed mb-6">
@@ -78,7 +78,7 @@ export default function PrivacyPage() {
             </li>
             <li>
               • <strong>Advertising</strong>: Google Ads, Meta (Facebook and Instagram) Pixel and Conversions API, Reddit Pixel and Conversions API,
-              Pinterest Tag and Conversions API, and TikTok Pixel and Events API. These tell each platform when a visit from its ad led to a booking,
+              Pinterest Tag and Conversions API, TikTok Pixel and Events API, and X (Twitter) Pixel and Conversion API. These tell each platform when a visit from its ad led to a booking,
               a studio tour or a contact request, so we can measure and improve our ads. Your browser sends events to the platforms, and our server
               may send the same confirmed conversion (with an event ID, the booking value in USD, the service booked and, if you arrived from that
               platform&apos;s ad, its click identifier). The platforms may use this under their own privacy policies, including for ad measurement and
@@ -89,8 +89,9 @@ export default function PrivacyPage() {
             We do not send your name, email address, phone number, booking notes, guest details or payment card data to analytics or advertising
             platforms. Enhanced matching features that use hashed contact details are switched off. Because advertising measurement shares
             information with these platforms, we do not claim that no data is ever shared; if you prefer that it isn&apos;t, choose
-            &quot;Reject non-essential&quot; or turn off Advertising. You can also use the opt-out tools of Google, Meta, Reddit, Pinterest and TikTok in
-            your account settings with each of them.
+            &quot;Reject non-essential&quot; or turn off Advertising. You can also use the opt-out tools of Google, Meta, Reddit, Pinterest, TikTok and X in
+            your account settings with each of them. If your browser sends a Global Privacy Control (GPC) signal, we treat it as an
+            opt-out: advertising stays off even if you click &quot;Accept all&quot;.
           </p>
 
           <h2 className="text-2xl font-bold mb-4">How long we keep it</h2>

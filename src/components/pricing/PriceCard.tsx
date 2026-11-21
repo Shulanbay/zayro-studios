@@ -16,6 +16,8 @@ export interface PriceCardProps {
   meta?: string[];
   features?: string[] | null;
   cta: { href: string; label: string; ariaLabel?: string };
+  /** Marks a monthly package card for the view_package analytics event. */
+  analyticsPackage?: { id: number; name: string };
 }
 
 /**
@@ -35,11 +37,14 @@ export default function PriceCard({
   meta,
   features,
   cta,
+  analyticsPackage,
 }: PriceCardProps) {
   return (
     <article
       className={`card h-full flex flex-col min-w-0 relative ${featured ? 'card-selected' : ''}`}
       aria-label={badge ? `${title} (${badge})` : title}
+      data-analytics-package={analyticsPackage?.id}
+      data-analytics-package-name={analyticsPackage?.name}
     >
       {badge && (
         <span className="self-start mb-4 inline-flex items-center rounded-full bg-gradient-cta px-3 py-1 text-sm font-semibold text-white">

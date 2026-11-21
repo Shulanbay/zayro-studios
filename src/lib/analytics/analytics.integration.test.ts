@@ -259,6 +259,18 @@ describe('collect endpoint', () => {
     expect(JSON.stringify(s)).not.toContain('tiktok-click-xyz');
   });
 
+  it('Global Privacy Control (Sec-GPC: 1) overrides an "Accept all": analytics recorded, ad click IDs dropped', async () => {
+    const b = new Browser(true, true);
+    const res = await collectRoute.POST(
+      b.request('/api/analytics/collect', { events: [ev('page_view', '/')], touch: { utm: { utm_source: 'facebook', utm_medium: 'paid_social' }, clickIds: { fbclid: 'fb-gpc-click' }, landingPath: '/' } }, { 'sec-gpc': '1' })
+    );
+    expect(res.status).toBe(200);
+    const s = (await pg.query<any>(`SELECT * FROM analytics_sessions ORDER BY created_at DESC LIMIT 1`)).rows[0];
+    expect(s.click_ids_encrypted).toBeNull();
+    expect(s.click_id_types ?? '').toBe('');
+    expect(JSON.stringify(s)).not.toContain('fb-gpc-click');
+  });
+
   it('ignores duplicate event IDs and rejects forged purchases, unknown events and PII', async () => {
     const b = new Browser(true, false);
     const e = ev('booking_started', '/booking', { category: 'podcast' });
@@ -682,5 +694,116 @@ describe('retention', () => {
     expect(await counts()).toEqual(before);
     // Idempotent.
     expect((await cleanupAnalytics()).events).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe('X Ads, abandoned checkouts and the KPI dashboard', () => {
+  const X_ENV = {
+    NEXT_PUBLIC_X_PIXEL_ID: 'o8z6j',
+    X_EVENT_ID_PURCHASE: 'tw-o8z6j-o8z6k',
+    X_EVENT_ID_CHECKOUT: 'tw-o8z6j-o8z6c',
+    X_ADS_CONSUMER_KEY: 'x-consumer-key',
+    X_ADS_CONSUMER_SECRET: 'x-consumer-secret-value',
+    X_ADS_ACCESS_TOKEN: 'x-access-token-value',
+    X_ADS_ACCESS_TOKEN_SECRET: 'x-access-secret-value',
+  };
+  afterEach(() => {
+    for (const k of Object.keys(X_ENV)) delete process.env[k];
+  });
+
+  it('an X ad click (twclid) is attributed, and the paid booking reaches X once with conversion_id = the internal event ID', async () => {
+    const b = new Browser(true, true);
+    await b.collect([ev('page_view', '/podcast-studio-nyc')], { utm: { utm_source: 'twitter', utm_medium: 'paid_social', utm_campaign: 'x_podcast_q4' }, clickIds: { twclid: 'tw-click-1', gbraid: 'gb-1' }, landingPath: '/podcast-studio-nyc' });
+    const session = (await pg.query<any>(`SELECT platform, session_source, click_id_types FROM analytics_sessions ORDER BY created_at DESC LIMIT 1`)).rows[0];
+    expect(session).toMatchObject({ platform: 'x', session_source: 'x' });
+    expect(session.click_id_types).toContain('twclid');
+
+    enableVendors();
+    Object.assign(process.env, X_ENV);
+    const { booking, holdId } = await bookPaid(b);
+    await processStripeEvent(paidEvent(booking, holdId));
+    const purchase = await db.query.purchases.findFirst({ where: eq(schema.purchases.id, booking.purchase_id) });
+    const purchaseEventId = eventIds.purchase(purchase.id);
+    const xSends = sent.filter((s) => s.destination === 'x_capi');
+    const xPurchase = xSends.find((s) => s.body.conversions[0].conversion_id === purchaseEventId)!;
+    expect(xPurchase.url).toBe('https://ads-api.x.com/12/measurement/conversions/o8z6j');
+    expect(xPurchase.body.conversions[0]).toMatchObject({ event_id: 'tw-o8z6j-o8z6k', identifiers: [{ twclid: 'tw-click-1' }], price_currency: 'USD', value: (purchase.total_cents / 100).toFixed(2) });
+    expect(JSON.stringify(xSends)).not.toMatch(/ada@|lovelace|secret/i);
+    expect(await count('analytics_deliveries', `external_event_id = '${purchaseEventId}' AND destination = 'x_capi'`)).toBe(1);
+    // The checkout went to X too (its own event, its own ID).
+    expect(xSends.some((s) => s.body.conversions[0].event_id === 'tw-o8z6j-o8z6c' && s.body.conversions[0].conversion_id !== purchaseEventId)).toBe(true);
+  });
+
+  it('an expired Checkout records one booking_abandoned (server-verified, never from a click)', async () => {
+    const b = new Browser(true, false);
+    await b.collect([ev('page_view', '/booking')]);
+    const { booking, holdId } = await bookPaid(b, 'leaver@example.com');
+    const expired = (id: string) =>
+      ({ id, type: 'checkout.session.expired', livemode: false, data: { object: { id: booking.stripe_session_id, object: 'checkout.session', status: 'expired', metadata: { bookingId: booking.id, holdId } } } }) as unknown as Stripe.Event;
+    expect((await processStripeEvent(expired('evt_exp_1'))).body.status).toBe('released');
+    await processStripeEvent(expired('evt_exp_2'));
+    expect(await count('analytics_events', `event_name = 'booking_abandoned' AND booking_id = '${booking.id}' AND source = 'server'`)).toBe(1);
+    // The browser can't forge it.
+    const res = await b.collect([ev('booking_abandoned', '/booking')]);
+    expect(await count('analytics_events', `event_name = 'booking_abandoned' AND source = 'browser'`)).toBe(0);
+    expect(res.status).toBeLessThan(500);
+  });
+
+  it('KPIs: platform filter, previous period, cancelled vs abandoned; the comparison table never invents ad spend', async () => {
+    const { kpis, platformComparison, previousRange, change } = await import('./server/kpis');
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const range = { from: today, to: today };
+    const all = await kpis(range, 'last_non_direct');
+    expect(all.paidBookings).toBeGreaterThanOrEqual(1);
+    expect(all.abandonedBookings).toBeGreaterThanOrEqual(1);
+    const xOnly = await kpis(range, 'last_non_direct', { platform: 'x' });
+    expect(xOnly.paidBookings).toBe(1);
+    expect(xOnly.visitors).toBe(1);
+    expect(xOnly.gross).toBeGreaterThan(0);
+    const none = await kpis(range, 'last_non_direct', { platform: 'instagram' });
+    expect(none).toMatchObject({ paidBookings: 0, visitors: 0, gross: 0 });
+    // Previous day: nothing yet → no relative change can be computed.
+    const before = await kpis(previousRange(range), 'last_non_direct', { platform: 'x' });
+    expect(before.paidBookings).toBe(0);
+    expect(change(xOnly.paidBookings, before.paidBookings)).toBeNull();
+    const rows = await platformComparison(range, 'last_non_direct');
+    const x = rows.find((r) => r.platform === 'x' && r.campaign === 'x_podcast_q4')!;
+    expect(x).toMatchObject({ clicks: 1, visits: 1, completed: 1, spend: null });
+    expect(rows.every((r) => r.spend === null)).toBe(true);
+  });
+});
+
+describe('analytics viewers (ANALYTICS_VIEWER_EMAILS)', () => {
+  afterEach(() => {
+    delete process.env.ANALYTICS_VIEWER_EMAILS;
+    h.sessionToken = null;
+  });
+
+  it('get a Marketing Analyst profile on first sign-in: analytics only, audited, never duplicated', async () => {
+    process.env.ANALYTICS_VIEWER_EMAILS = ' Viewer.One@Example.com ,viewer.two@example.com';
+    const { canRequestLogin, resolveAdminProfile, requirePermission } = await import('@/lib/crm/auth');
+    expect(await canRequestLogin('viewer.one@example.com')).toBe(true);
+    expect(await canRequestLogin('someone.else@example.com')).toBe(false);
+    const first = await resolveAdminProfile('VIEWER.ONE@example.com');
+    expect(first?.role.name).toBe('Marketing Analyst');
+    expect(first?.role.permissions).toEqual(['analytics.read', 'analytics.export']);
+    await resolveAdminProfile('viewer.one@example.com');
+    expect(await count('admin_profiles', `normalized_email = 'viewer.one@example.com'`)).toBe(1);
+    expect(await count('audit_logs', `operation = 'team.invite' AND entity_id = '${first!.profile.id}'`)).toBe(1);
+
+    // Signed in: analytics yes; settings, team, bookings, purchases no (server-side).
+    h.sessionToken = createSessionToken('viewer.one@example.com');
+    const req = (method = 'GET') => new NextRequest('http://localhost/api/admin/x', { method });
+    expect((await requirePermission(req(), 'analytics.read')).ok).toBe(true);
+    for (const p of ['settings.manage', 'team.manage', 'bookings.read', 'purchases.read', 'integrations.read', 'customers.read'] as const) {
+      expect((await requirePermission(req(), p)).ok, p).toBe(false);
+    }
+
+    // An Owner can disable the profile; the env var never re-enables it.
+    await pg.query(`UPDATE admin_profiles SET status = 'disabled' WHERE normalized_email = 'viewer.one@example.com'`);
+    expect(await resolveAdminProfile('viewer.one@example.com')).toBeNull();
+    expect(await canRequestLogin('viewer.one@example.com')).toBe(false);
   });
 });

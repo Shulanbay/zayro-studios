@@ -47,6 +47,24 @@ export function isAdminEmail(email: string): boolean {
   return getAdminEmails().includes(normalizeEmail(email));
 }
 
+/**
+ * Bootstrap analytics viewers (ANALYTICS_VIEWER_EMAILS, comma-separated):
+ * an address here gets a Marketing Analyst profile on first sign-in — view
+ * and export aggregated analytics only. As with ADMIN_EMAILS, once the
+ * profile exists the database decides (an Owner can disable it or change
+ * the role in Team & Roles).
+ */
+export function getAnalyticsViewerEmails(): string[] {
+  return (process.env.ANALYTICS_VIEWER_EMAILS || '')
+    .split(',')
+    .map((e) => normalizeEmail(e))
+    .filter(Boolean);
+}
+
+export function isAnalyticsViewerEmail(email: string): boolean {
+  return getAnalyticsViewerEmails().includes(normalizeEmail(email));
+}
+
 function encodeToken(payload: Record<string, unknown>): string {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const signature = sign(body);

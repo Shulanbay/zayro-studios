@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getAdminContext } from '@/lib/crm/auth';
+import { writeAudit } from '@/lib/crm/audit';
 import { addDays, formatDateLabel, isDateString, todayInTz } from '@/lib/crm/time';
 import { formatCents } from '@/lib/crm/money';
 import { Card, Forbidden, Notice, PageHeader, StatCard } from '@/components/crm/ui';
@@ -17,6 +18,8 @@ import {
   timeSeries,
   type AttributionModel,
 } from '@/lib/analytics/server/metrics';
+import { change, consentAndTestSummary, filterOptions, hasFilters, kpis, parseFilters, platformComparison, previousRange, type KpiSet } from '@/lib/analytics/server/kpis';
+import { PLATFORM_LABELS } from '@/lib/analytics/attribution';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,13 +72,47 @@ function Info({ text }: { text: string }) {
   );
 }
 
-export default async function AnalyticsPage({ searchParams }: { searchParams: { range?: string; from?: string; to?: string; model?: string } }) {
+function Delta({ now, before, invert = false, money = false }: { now: number | null; before: number | null; invert?: boolean; money?: boolean }) {
+  const c = change(now, before);
+  const prev = before === null ? '—' : money ? formatCents(before) : num(before);
+  if (c === null) return <span className="text-zayro-gray">no prior data · prev {prev}</span>;
+  const good = invert ? c < 0 : c > 0;
+  const tone = c === 0 ? 'text-zayro-gray' : good ? 'text-green-700' : 'text-red-700';
+  return (
+    <span className={tone}>
+      {c > 0 ? '▲' : c < 0 ? '▼' : '•'} {(Math.abs(c) * 100).toFixed(Math.abs(c) < 0.1 ? 1 : 0)}% vs previous period · prev {prev}
+    </span>
+  );
+}
+
+function Kpi({ label, value, now, before, info, invert, money, tone }: { label: string; value: string; now: number | null; before: number | null; info: string; invert?: boolean; money?: boolean; tone?: 'good' | 'warn' }) {
+  return <StatCard label={label} value={value} tone={tone} hint={<><span className="block">{info}</span><Delta now={now} before={before} invert={invert} money={money} /></>} />;
+}
+
+const hrs = (h: number | null) => (h === null ? '—' : h < 48 ? `${h.toFixed(1)} h` : `${(h / 24).toFixed(1)} days`);
+
+export default async function AnalyticsPage({
+  searchParams,
+}: {
+  searchParams: { range?: string; from?: string; to?: string; model?: string; platform?: string; source?: string; campaign?: string; service?: string };
+}) {
   const admin = await getAdminContext();
   if (!admin) redirect('/admin/login');
   if (!admin.can('analytics.read')) return <Forbidden what="marketing analytics" />;
 
   const range = rangeFrom(searchParams);
   const model: AttributionModel = parseModel(searchParams.model);
+  // Access log: who looked at which period (no customer data is shown here).
+  await writeAudit({
+    actor: { id: admin.id, email: admin.email },
+    operation: 'analytics.view',
+    entityType: 'analytics',
+    entityId: 'dashboard',
+    metadata: { from: range.from, to: range.to, model, role: admin.roleName },
+  }).catch(() => undefined);
+  const filters = parseFilters(searchParams);
+  const prev = previousRange(range);
+  const [k, kPrev, comparison, options, diag] = await Promise.all([kpis(range, model, filters), kpis(prev, model, filters), platformComparison(range, model, filters), filterOptions(range), consentAndTestSummary(range)]);
   const [o, series, [bookingFunnel, tourFunnel, contactFunnel], platforms, campaigns, segments, health] = await Promise.all([
     overview(range),
     timeSeries(range),
@@ -106,7 +143,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: { 
       <form method="get" className="card !p-4 mb-4 flex flex-wrap items-end gap-2" aria-label="Date range and attribution model">
         <div className="flex flex-wrap gap-1" role="group" aria-label="Date range presets">
           {presets(todayInTz()).map((p) => (
-            <a key={p.key} href={`?${new URLSearchParams({ range: p.key, model }).toString()}`} className={`crm-btn ${range.key === p.key ? 'crm-btn-primary' : ''}`} aria-current={range.key === p.key ? 'true' : undefined}>
+            <a key={p.key} href={`?${new URLSearchParams({ range: p.key, model, ...(filters.platform ? { platform: filters.platform } : {}), ...(filters.source ? { source: filters.source } : {}), ...(filters.campaign ? { campaign: filters.campaign } : {}), ...(filters.serviceId ? { service: String(filters.serviceId) } : {}) }).toString()}`} className={`crm-btn ${range.key === p.key ? 'crm-btn-primary' : ''}`} aria-current={range.key === p.key ? 'true' : undefined}>
               {p.label}
             </a>
           ))}
@@ -135,17 +172,134 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: { 
             ))}
           </select>
         </div>
-        <button type="submit" className="crm-btn">
-          Apply custom range
+        <div>
+          <label className="field-label" htmlFor="platform">
+            Ad platform
+          </label>
+          <select id="platform" name="platform" defaultValue={filters.platform ?? ''}>
+            <option value="">All</option>
+            {Object.entries(PLATFORM_LABELS).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="field-label" htmlFor="source">
+            Traffic source
+          </label>
+          <select id="source" name="source" defaultValue={filters.source ?? ''}>
+            <option value="">All</option>
+            {options.sources.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="field-label" htmlFor="campaign">
+            Campaign
+          </label>
+          <select id="campaign" name="campaign" defaultValue={filters.campaign ?? ''}>
+            <option value="">All</option>
+            {options.campaigns.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="field-label" htmlFor="service">
+            Service
+          </label>
+          <select id="service" name="service" defaultValue={filters.serviceId ? String(filters.serviceId) : ''}>
+            <option value="">All</option>
+            {options.services.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button type="submit" className="crm-btn crm-btn-primary">
+          Apply
         </button>
+        {hasFilters(filters) && (
+          <a className="crm-btn" href={`?${new URLSearchParams({ range: range.key === 'custom' ? '30d' : range.key, model }).toString()}`}>
+            Clear filters
+          </a>
+        )}
       </form>
 
       <Notice tone="blue" title="How to read these numbers">
         Visits are counted only for visitors who allowed analytics cookies; bookings, revenue and refunds include everyone (they come from the booking database, the same as
-        the main Dashboard). Revenue by source uses the attribution snapshot taken when each booking was created. Ad spend is not imported, so there is no ROAS — cost data
-        unavailable.
+        the main Dashboard). Revenue by source uses the attribution snapshot taken when each booking was created. Filters apply to the KPI cards and the platform table.
+        Ad spend is not imported, so there is no cost per lead, cost per booking or ROAS.
       </Notice>
 
+      <h2 className="text-base font-semibold mt-4 mb-2">
+        KPIs{hasFilters(filters) ? ' (filtered)' : ''} · compared with {formatDateLabel(prev.from)} – {formatDateLabel(prev.to)}
+      </h2>
+      <KpiGrid k={k} p={kPrev} />
+
+      <Card
+        title={<>Advertising platforms &amp; campaigns<Info text="Clicks = sessions that arrived with that platform's ad click ID. Visits, leads and starts from consented sessions; completed bookings and revenue from the booking attribution snapshot (chosen model)." /></>}
+        className="my-4"
+      >
+        <Notice tone="amber" title="Ad cost integration not configured">
+          No ad platform spend is imported yet, so spend, cost per lead, cost per booking and ROAS are not shown (they are never estimated). To add them, connect
+          each platform&apos;s reporting API (Google Ads API, Meta Marketing API, TikTok Business API, Reddit Ads API, X Ads API) — see ANALYTICS_SETUP.md → “Ad cost
+          integration”.
+        </Notice>
+        <div className="overflow-x-auto mt-3">
+          <table className="crm-table text-sm min-w-[1100px]">
+            <thead>
+              <tr>
+                {['Platform', 'Campaign', 'Clicks', 'Visits', 'Leads', 'Booking starts', 'Completed', 'Conv. rate', 'Ad spend', 'Cost / lead', 'Cost / booking', 'Revenue', 'ROAS'].map((h) => (
+                  <th key={h} scope="col">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {comparison.length === 0 && (
+                <tr>
+                  <td colSpan={13} className="text-zayro-gray">
+                    No data in this range yet.
+                  </td>
+                </tr>
+              )}
+              {comparison.map((r) => (
+                <tr key={`${r.platform}-${r.campaign}`}>
+                  <th scope="row" className="font-medium text-left">
+                    {r.platformLabel}
+                  </th>
+                  <td className="break-all">{r.campaign}</td>
+                  <td>{num(r.clicks)}</td>
+                  <td>{num(r.visits)}</td>
+                  <td>{num(r.leads)}</td>
+                  <td>{num(r.bookingStarts)}</td>
+                  <td>{num(r.completed)}</td>
+                  <td>{pct(r.conversionRate)}</td>
+                  <td className="text-zayro-gray" title="Ad cost integration not configured">
+                    not configured
+                  </td>
+                  <td className="text-zayro-gray">—</td>
+                  <td className="text-zayro-gray">—</td>
+                  <td>{formatCents(r.revenue)}</td>
+                  <td className="text-zayro-gray">—</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <h2 className="text-base font-semibold mt-6 mb-2">Overview (all traffic, unfiltered)</h2>
       <section aria-label="Overview" className="grid grid-cols-2 md:grid-cols-4 gap-3 my-4">
         <StatCard label="Unique visitors" value={num(o.visitors)} hint="Distinct consented anonymous visitors" />
         <StatCard label="Sessions" value={num(o.sessions)} hint="30 min inactivity ends a session" />
@@ -359,6 +513,51 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: { 
         </Card>
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+        <Card title={<>Consent choices in this period<Info text="Banner decisions recorded server-side (counts only). The visitor's current state lives in their own cookie." /></>}>
+          <dl className="grid grid-cols-2 gap-2 text-sm">
+            {[
+              ['Choices recorded', diag.choices],
+              ['Accept all', diag.acceptAll],
+              ['Reject non-essential', diag.rejectAll],
+              ['Customized', diag.custom],
+              ['Withdrawn', diag.withdraw],
+              ['Analytics allowed', diag.analyticsOn],
+              ['Advertising allowed', diag.advertisingOn],
+            ].map(([label, value]) => (
+              <div key={String(label)} className="flex justify-between gap-2 border-b border-zayro-border py-1">
+                <dt className="text-zayro-gray">{label}</dt>
+                <dd className="font-semibold tabular-nums">{num(Number(value))}</dd>
+              </div>
+            ))}
+          </dl>
+        </Card>
+        <Card title={<>Test events sent<Info text="Deliveries made while a platform's test mode was on (Meta / TikTok test event codes, Reddit / Pinterest test mode, GA4 debug)." /></>}>
+          {diag.testDeliveries.length === 0 ? (
+            <p className="text-sm text-zayro-gray">No test-mode deliveries in this period. Turn on a platform&apos;s test mode (see ANALYTICS_SETUP.md) and make a test booking to see them here.</p>
+          ) : (
+            <table className="crm-table text-sm">
+              <thead>
+                <tr>
+                  <th scope="col">Destination</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {diag.testDeliveries.map((t) => (
+                  <tr key={`${t.destination}-${t.status}`}>
+                    <td>{t.destination}</td>
+                    <td>{t.status}</td>
+                    <td>{num(t.count)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Card>
+      </div>
+
       <Card title="Destinations and delivery health" actions={admin.can('integrations.retry') ? <AnalyticsRetryButton /> : null} className="mb-4">
         {ownerView && !analyticsOperationalStatus().activeInThisEnvironment && (
           <p className="text-sm font-medium text-amber-800 mb-2">External delivery is off (ANALYTICS_VENDORS_ENABLED or environment) — configured destinations receive nothing.</p>
@@ -470,5 +669,27 @@ function SimpleTable({ rows, cols }: { rows: { label: string; sessions: number; 
         ))}
       </tbody>
     </table>
+  );
+}
+
+function KpiGrid({ k, p }: { k: KpiSet; p: KpiSet }) {
+  return (
+    <section aria-label="KPIs" className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+      <Kpi label="Unique visitors" value={num(k.visitors)} now={k.visitors} before={p.visitors} info="Distinct consented visitors" />
+      <Kpi label="Sessions" value={num(k.sessions)} now={k.sessions} before={p.sessions} info="30 min inactivity ends a session" />
+      <Kpi label="New / returning visitors" value={`${num(k.newVisitors)} / ${num(k.returningVisitors)}`} now={k.newVisitors} before={p.newVisitors} info="Change shown for new visitors" />
+      <Kpi label="Page views" value={num(k.pageViews)} now={k.pageViews} before={p.pageViews} info="Consented sessions" />
+      <Kpi label="Leads" value={num(k.leads)} now={k.leads} before={p.leads} info="Contact forms accepted by the server" />
+      <Kpi label="Booking starts" value={num(k.bookingStarts)} now={k.bookingStarts} before={p.bookingStarts} info="Sessions that started booking" />
+      <Kpi label="Confirmed bookings" value={num(k.confirmedBookings)} now={k.confirmedBookings} before={p.confirmedBookings} info={`${num(k.paidBookings)} paid + ${num(k.tours)} free tours`} tone="good" />
+      <Kpi label="Cancelled bookings" value={num(k.cancelledBookings)} now={k.cancelledBookings} before={p.cancelledBookings} info="Cancelled after being confirmed" invert />
+      <Kpi label="Abandoned checkouts" value={num(k.abandonedBookings)} now={k.abandonedBookings} before={p.abandonedBookings} info="Stripe Checkout started, never paid" invert />
+      <Kpi label="Revenue (gross)" value={formatCents(k.gross)} now={k.gross} before={p.gross} info={`Net ${formatCents(k.net)} after ${formatCents(k.refunds)} refunds`} money />
+      <Kpi label="Average booking value" value={k.averageOrderValue === null ? '—' : formatCents(k.averageOrderValue)} now={k.averageOrderValue} before={p.averageOrderValue} info="Booking revenue ÷ paid bookings" money />
+      <Kpi label="Conversion rate" value={pct(k.conversionRate)} now={k.conversionRate} before={p.conversionRate} info="Paid bookings ÷ sessions" />
+      <Kpi label="Lead → booking" value={pct(k.leadToBooking)} now={k.leadToBooking} before={p.leadToBooking} info="Paid bookings ÷ (Checkout starts + contact leads)" />
+      <Kpi label="Avg time to purchase" value={hrs(k.avgHoursToPurchase)} now={k.avgHoursToPurchase} before={p.avgHoursToPurchase} info="First recorded visit → payment (attributed bookings)" invert />
+      <StatCard label="Cost per lead / per booking / ROAS" value="—" hint="Ad cost integration not configured" />
+    </section>
   );
 }

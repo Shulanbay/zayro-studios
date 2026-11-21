@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import type { PublicAnalyticsConfig } from '@/lib/analytics/server/config';
 import { isTrackablePath } from '@/lib/analytics/attribution';
 import { CONSENT_COOKIE, CONSENT_MAX_AGE_SECONDS, CONSENT_VERSION, choiceFor, serializeConsent, type ConsentAction, type ConsentState } from '@/lib/analytics/consent';
-import { getConsent, initAnalytics, readStoredConsent, replayPageViewToVendors, setConsent, trackEvent } from '@/lib/analytics/browser/tracker';
+import { browserGpc, getConsent, initAnalytics, readStoredConsent, replayPageViewToVendors, setConsent, trackEvent } from '@/lib/analytics/browser/tracker';
 import ConsentBanner from './ConsentBanner';
 
 export const OPEN_PREFERENCES_EVENT = 'zayro:open-cookie-preferences';
@@ -21,6 +21,24 @@ function writeConsentCookie(state: ConsentState) {
 }
 
 const SERVICE_PAGES = /^\/(podcast-studio-nyc|video-production-studio-nyc|studio)(\/|$)/;
+const SCROLL_MARKS = [25, 50, 75, 90] as const;
+
+/** UI text → a short analytics label (allowlisted characters only; UI copy, never user input). */
+export function analyticsLabel(text: string | null | undefined): string {
+  return (text ?? '')
+    .replace(/[^A-Za-z0-9 _.:/&+()'-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 60);
+}
+
+function placementOf(el: HTMLElement): string {
+  return analyticsLabel(
+    el.dataset.analyticsPlacement ||
+      el.closest('[data-analytics-section]')?.getAttribute('data-analytics-section') ||
+      (el.closest('header') ? 'header' : el.closest('footer') ? 'footer' : el.closest('section[id]')?.id || 'page')
+  ).slice(0, 40);
+}
 
 /**
  * Site-wide analytics: page views on every App Router navigation (once per
@@ -69,26 +87,104 @@ export default function AnalyticsProvider({ config }: { config: PublicAnalyticsC
     return () => clearTimeout(timer);
   }, [ready]);
 
-  // Contact clicks and tour CTAs, by delegation — components stay vendor-agnostic.
+  // Clicks by delegation — components stay vendor-agnostic. Order matters:
+  // the most specific meaning wins and each click sends one interaction event.
   useEffect(() => {
     if (!ready) return;
     const onClick = (e: MouseEvent) => {
-      const a = (e.target as Element | null)?.closest?.('a, [data-analytics-event]') as HTMLElement | null;
+      const a = (e.target as Element | null)?.closest?.('a, button, [data-analytics-event]') as HTMLElement | null;
       if (!a) return;
-      const placement = (a.dataset.analyticsPlacement || (a.closest('header') ? 'header' : a.closest('footer') ? 'footer' : 'page')).slice(0, 40);
+      const placement = placementOf(a);
       const href = a.getAttribute('href') || '';
+      const pkg = /^\/packages\/buy\?(?:.*&)?package=(\d{1,7})/.exec(href);
+      const service = /^\/booking\?(?:.*&)?service=(\d{1,7})/.exec(href);
       if (a.dataset.analyticsEvent === 'tour_cta_clicked' || /[?&]category=tour(&|$)/.test(href)) trackEvent('tour_cta_clicked', { placement });
       else if (href.startsWith('tel:')) trackEvent('phone_clicked', { placement });
       else if (href.startsWith('mailto:')) trackEvent('email_clicked', { placement });
       else if (/^https:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.|goo\.gl\/maps|maps\.app\.goo\.gl|maps\.apple\.com)/.test(href)) trackEvent('directions_clicked', { placement });
+      else if (/^https:\/\/(www\.)?instagram\.com\//.test(href)) trackEvent('click_instagram', { placement });
+      else if (/^https:\/\/(wa\.me|api\.whatsapp\.com|(www\.)?whatsapp\.com)\//.test(href)) trackEvent('click_whatsapp', { placement });
+      else if (pkg) trackEvent('select_package', { package_id: Number(pkg[1]), package_name: analyticsLabel(a.getAttribute('aria-label') || a.textContent).replace(/^Buy Monthly Package: /, '') || undefined });
+      else if (href === '/booking' || href.startsWith('/booking?')) trackEvent('click_book_now', { button_location: placement, ...(service ? { service_id: Number(service[1]) } : {}) });
+      else if (a.dataset.analyticsCta || a.classList.contains('button') || a.classList.contains('crm-btn')) {
+        const name = analyticsLabel(a.dataset.analyticsCta || a.getAttribute('aria-label') || a.textContent);
+        if (name) trackEvent('click_cta', { button_name: name, button_location: placement, ...(href.startsWith('/') ? { target: analyticsLabel(href.split('?')[0]) } : {}) });
+      }
     };
     document.addEventListener('click', onClick, { capture: true });
     return () => document.removeEventListener('click', onClick, { capture: true });
   }, [ready]);
 
+  // Scroll depth (25 / 50 / 75 / 90 %), each mark once per page.
+  useEffect(() => {
+    if (!ready || !pathname || !isTrackablePath(pathname)) return;
+    const sent = new Set<number>();
+    const onScroll = () => {
+      const doc = document.documentElement;
+      const max = doc.scrollHeight - window.innerHeight;
+      if (max <= 0) return;
+      const pct = (window.scrollY / max) * 100;
+      for (const mark of SCROLL_MARKS) {
+        if (pct >= mark && !sent.has(mark)) {
+          sent.add(mark);
+          trackEvent('scroll_depth', { percent: mark });
+        }
+      }
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [ready, pathname]);
+
+  // Section, package and gallery views: once per element per page, when half visible.
+  useEffect(() => {
+    if (!ready || !pathname || !isTrackablePath(pathname) || typeof IntersectionObserver === 'undefined') return;
+    const seen = new Set<Element>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting || seen.has(entry.target)) continue;
+          seen.add(entry.target);
+          observer.unobserve(entry.target);
+          const el = entry.target as HTMLElement;
+          if (el.dataset.analyticsGallery) trackEvent('view_gallery', { gallery_name: analyticsLabel(el.dataset.analyticsGallery) });
+          else if (el.dataset.analyticsPackage) trackEvent('view_package', { package_id: Number(el.dataset.analyticsPackage) || undefined, package_name: analyticsLabel(el.dataset.analyticsPackageName) || undefined });
+          else {
+            const name = analyticsLabel(el.dataset.analyticsSection || el.id || el.getAttribute('aria-labelledby'));
+            if (name) trackEvent('view_section', { section_name: name });
+          }
+        }
+      },
+      { threshold: 0.5 }
+    );
+    // Wait a tick so the new route's content is in the DOM.
+    const t = setTimeout(() => {
+      document.querySelectorAll('main section[id], main [data-analytics-section], main [data-analytics-gallery], main [data-analytics-package]').forEach((el) => observer.observe(el));
+    }, 300);
+    return () => {
+      clearTimeout(t);
+      observer.disconnect();
+    };
+  }, [ready, pathname]);
+
+  // Video plays (any <video> on the site), once per video per page.
+  useEffect(() => {
+    if (!ready) return;
+    const played = new WeakSet<EventTarget>();
+    const onPlay = (e: Event) => {
+      const v = e.target as HTMLVideoElement | null;
+      if (!v || v.tagName !== 'VIDEO' || played.has(v)) return;
+      played.add(v);
+      trackEvent('play_video', { video_name: analyticsLabel(v.dataset.analyticsVideo || v.getAttribute('aria-label') || v.title || 'video') });
+    };
+    document.addEventListener('play', onPlay, { capture: true });
+    return () => document.removeEventListener('play', onPlay, { capture: true });
+  }, [ready]);
+
   const decide = useCallback((action: ConsentAction, custom?: { analytics: boolean; advertising: boolean }) => {
     const previous = getConsent();
     const choice = choiceFor(action, custom);
+    // Global Privacy Control: advertising stays off whatever was clicked.
+    if (browserGpc()) choice.advertising = false;
     const next: ConsentState = {
       version: CONSENT_VERSION,
       consentId: previous?.consentId ?? randomId(),
@@ -116,5 +212,5 @@ export default function AnalyticsProvider({ config }: { config: PublicAnalyticsC
   }, []);
 
   if (!ready || !trackable) return null;
-  return <ConsentBanner consent={consent} open={open || !consent} onDecide={decide} onClose={() => setOpen(false)} canClose={!!consent} />;
+  return <ConsentBanner consent={consent} gpc={browserGpc()} open={open || !consent} onDecide={decide} onClose={() => setOpen(false)} canClose={!!consent} />;
 }
