@@ -8,6 +8,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useI18n } from './i18n';
 
 // ---------------------------------------------------------------------------
 // Toasts
@@ -50,6 +51,16 @@ export function useToast() {
 // API helper
 // ---------------------------------------------------------------------------
 
+/** English sentinel; shown translated through `apiMessage` / `common.networkError`. */
+export const NETWORK_ERROR = 'Network error — check your connection and try again.';
+
+/** An API error/success message in the admin's language (English when not translated). */
+export function useApiMessage() {
+  const { t, apiMessage } = useI18n();
+  return (message: string | null | undefined, status?: number) =>
+    message === NETWORK_ERROR ? t('common.networkError') : message ? apiMessage(message) : t('common.requestFailed', { status: status ?? 0 });
+}
+
 export async function callApi<T = any>(url: string, method: string, body?: unknown): Promise<{ ok: boolean; status: number; data: T & { error?: string } }> {
   try {
     const res = await fetch(url, {
@@ -61,7 +72,7 @@ export async function callApi<T = any>(url: string, method: string, body?: unkno
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, status: res.status, data };
   } catch {
-    return { ok: false, status: 0, data: { error: 'Network error — check your connection and try again.' } as T & { error?: string } };
+    return { ok: false, status: 0, data: { error: NETWORK_ERROR } as T & { error?: string } };
   }
 }
 
@@ -134,6 +145,8 @@ export function ActionButton({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const { t } = useI18n();
+  const message = useApiMessage();
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -143,10 +156,10 @@ export function ActionButton({
     setBusy(false);
     setOpen(false);
     if (!res.ok) {
-      toast('error', res.data?.error || `Request failed (${res.status})`);
+      toast('error', message(res.data?.error, res.status));
       return;
     }
-    toast('success', successMessage || res.data?.message || 'Done');
+    toast('success', successMessage || (res.data?.message ? message(res.data.message) : t('common.actions.done')));
     if (redirectTo) router.push(redirectTo);
     else router.refresh();
   };
@@ -154,7 +167,7 @@ export function ActionButton({
   return (
     <>
       <button type="button" className={className} disabled={busy || disabled} onClick={() => (confirm ? setOpen(true) : run())} aria-busy={busy}>
-        {busy ? 'Working…' : label}
+        {busy ? t('common.actions.working') : label}
       </button>
       {confirm && (
         <Dialog
@@ -164,10 +177,10 @@ export function ActionButton({
           footer={
             <>
               <button type="button" className="crm-btn" onClick={() => setOpen(false)} disabled={busy}>
-                Keep as is
+                {t('common.actions.keepAsIs')}
               </button>
               <button type="button" className={confirm.danger ? 'crm-btn crm-btn-danger' : 'crm-btn crm-btn-primary'} onClick={run} disabled={busy}>
-                {busy ? 'Working…' : confirm.confirmLabel}
+                {busy ? t('common.actions.working') : confirm.confirmLabel}
               </button>
             </>
           }
@@ -193,6 +206,7 @@ export function useJsonSubmit(opts: {
 }) {
   const router = useRouter();
   const toast = useToast();
+  const apiMessage = useApiMessage();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -202,7 +216,7 @@ export function useJsonSubmit(opts: {
     const res = await callApi(opts.url, opts.method ?? 'POST', payload);
     setBusy(false);
     if (!res.ok) {
-      const message = res.data?.error || `Request failed (${res.status})`;
+      const message = apiMessage(res.data?.error, res.status);
       setError(message);
       toast('error', message);
       return null;

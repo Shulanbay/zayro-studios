@@ -6,13 +6,13 @@ import { bookings, customerNotes, customerPackages, customers, purchases, refund
 import { getAdminContext } from '@/lib/crm/auth';
 import { auditFor } from '@/lib/crm/queries';
 import { decimalToCents } from '@/lib/crm/money';
-import { formatDateLabel, formatInstantEt, formatTimeLabel } from '@/lib/crm/time';
 import { toDateOnly } from '@/lib/utils';
-import { Card, DefinitionList, EmptyState, Forbidden, Money, Notice, PageHeader, StatCard, StatusBadge, humanize } from '@/components/crm/ui';
+import { Card, DefinitionList, EmptyState, Forbidden, Money, Notice, PageHeader, StatCard, StatusBadge } from '@/components/crm/ui';
+import { getAdminI18n } from '@/lib/i18n/server';
+import { rich } from '@/lib/i18n/rich';
 import { AddNoteForm, CustomerEditForm, MergeDialog } from '@/components/crm/customer';
 import { NotesEditor } from '@/components/crm/actions';
 import { AuditTrail } from '@/components/crm/AuditTrail';
-import { formatCents } from '@/lib/crm/money';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +21,7 @@ export default async function CustomerPage({ params }: { params: { id: string } 
   if (!admin) redirect('/admin/login');
   if (!admin.can('customers.read')) return <Forbidden what="customers" />;
   if (!/^[0-9a-f-]{36}$/i.test(params.id)) notFound();
+  const { t, f, label } = getAdminI18n(admin);
 
   const customer = await db.query.customers.findFirst({ where: eq(customers.id, params.id) });
   if (!customer) notFound();
@@ -73,7 +74,7 @@ export default async function CustomerPage({ params }: { params: { id: string } 
           <li key={s.id} className="py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
             <span className="min-w-0">
               <Link href={`/admin/sessions/${s.id}`} className="font-medium">
-                {formatDateLabel(toDateOnly(s.date))}, {formatTimeLabel(s.start)}
+                {f.date(toDateOnly(s.date))}, {f.time(s.start)}
               </Link>
               <span className="text-zayro-gray"> · {s.service}</span>
             </span>
@@ -90,7 +91,7 @@ export default async function CustomerPage({ params }: { params: { id: string } 
     <>
       <PageHeader
         title={name}
-        back={{ href: '/admin/customers', label: 'Customers' }}
+        back={{ href: '/admin/customers', label: t('common.nav.customers') }}
         description={
           <span className="inline-flex flex-wrap items-center gap-2">
             <span className="break-all">{customer.email}</span>
@@ -101,12 +102,12 @@ export default async function CustomerPage({ params }: { params: { id: string } 
           <>
             {admin.can('bookings.create') && customer.status !== 'merged' && (
               <Link href={`/admin/sessions/new?customerId=${customer.id}`} className="crm-btn crm-btn-primary">
-                New booking
+                {t('customers.detail.newBooking')}
               </Link>
             )}
             {admin.can('packages.manage') && customer.status !== 'merged' && (
               <Link href={`/admin/packages/assign?customerId=${customer.id}`} className="crm-btn">
-                Assign package
+                {t('customers.detail.assignPackage')}
               </Link>
             )}
             {admin.can('customers.merge') && customer.status !== 'merged' && <MergeDialog primaryId={customer.id} primaryEmail={customer.email} />}
@@ -116,42 +117,54 @@ export default async function CustomerPage({ params }: { params: { id: string } 
 
       {customer.status === 'merged' && (
         <div className="mb-4">
-          <Notice tone="blue" title="Merged record">
-            This customer was merged into {mergedInto ? <Link href={`/admin/customers/${mergedInto.id}`}>{mergedInto.email}</Link> : 'another record'}. It is kept for history only.
+          <Notice tone="blue" title={t('customers.detail.mergedTitle')}>
+            {rich(t('customers.detail.mergedBody'), {
+              target: mergedInto ? <Link href={`/admin/customers/${mergedInto.id}`}>{mergedInto.email}</Link> : t('customers.detail.anotherRecord'),
+            })}
           </Notice>
         </div>
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        {showMoney && <StatCard label="Lifetime spend" value={formatCents(customer.total_spent_cents)} hint="Paid minus refunds" />}
-        {showMoney && <StatCard label="Refunded" value={formatCents(Number(refundTotal[0]?.n ?? 0))} />}
-        <StatCard label="Sessions" value={customer.booking_count} hint={customer.last_booking_at ? `Last ${formatInstantEt(customer.last_booking_at)}` : undefined} />
-        {admin.can('packages.read') && <StatCard label="Package credits" value={credits} hint={`${packageRows.filter((p) => p.status === 'active').length} active package(s)`} />}
+        {showMoney && <StatCard label={t('customers.detail.lifetimeSpend')} value={f.money(customer.total_spent_cents)} hint={t('customers.detail.lifetimeHint')} />}
+        {showMoney && <StatCard label={t('customers.detail.refunded')} value={f.money(Number(refundTotal[0]?.n ?? 0))} />}
+        <StatCard
+          label={t('customers.detail.sessions')}
+          value={f.number(customer.booking_count)}
+          hint={customer.last_booking_at ? t('customers.detail.lastAt', { date: f.instant(customer.last_booking_at) }) : undefined}
+        />
+        {admin.can('packages.read') && (
+          <StatCard
+            label={t('customers.detail.credits')}
+            value={f.number(credits)}
+            hint={t('customers.detail.activePackages', { count: packageRows.filter((p) => p.status === 'active').length })}
+          />
+        )}
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-2 grid gap-4 min-w-0 content-start">
-          <Card title={`Upcoming sessions (${upcoming.length})`}>{sessionTable(upcoming, 'Nothing upcoming.')}</Card>
-          <Card title={`Past and cancelled sessions (${past.length})`}>{sessionTable(past, 'No past sessions.')}</Card>
+          <Card title={t('customers.detail.upcoming', { count: upcoming.length })}>{sessionTable(upcoming, t('customers.detail.nothingUpcoming'))}</Card>
+          <Card title={t('customers.detail.past', { count: past.length })}>{sessionTable(past, t('customers.detail.noPast'))}</Card>
 
           {showMoney && (
-            <Card title="Purchases">
+            <Card title={t('customers.detail.purchases')}>
               {purchaseRows.length === 0 ? (
-                <EmptyState title="No purchases" />
+                <EmptyState title={t('customers.detail.noPurchases')} />
               ) : (
                 <div className="crm-table-wrap -mx-5 md:-mx-6 -mb-5 md:-mb-6">
                   <table className="crm-table min-w-[560px]">
-                    <caption className="sr-only">Purchases</caption>
+                    <caption className="sr-only">{t('customers.detail.purchases')}</caption>
                     <thead>
                       <tr>
-                        <th scope="col">Order</th>
-                        <th scope="col">Type</th>
-                        <th scope="col">Status</th>
+                        <th scope="col">{t('customers.detail.order')}</th>
+                        <th scope="col">{t('customers.detail.type')}</th>
+                        <th scope="col">{t('customers.detail.status')}</th>
                         <th scope="col" className="text-right">
-                          Total
+                          {t('customers.detail.total')}
                         </th>
                         <th scope="col" className="text-right">
-                          Refunded
+                          {t('customers.detail.refunded')}
                         </th>
                       </tr>
                     </thead>
@@ -163,7 +176,7 @@ export default async function CustomerPage({ params }: { params: { id: string } 
                               {p.order_number}
                             </Link>
                           </td>
-                          <td>{humanize(p.type)}</td>
+                          <td>{label(p.type)}</td>
                           <td>
                             <StatusBadge status={p.status} />
                           </td>
@@ -183,18 +196,18 @@ export default async function CustomerPage({ params }: { params: { id: string } 
           )}
 
           {admin.can('packages.read') && (
-            <Card title="Packages">
+            <Card title={t('customers.detail.packages')}>
               {packageRows.length === 0 ? (
-                <p className="text-sm text-zayro-gray">No packages.</p>
+                <p className="text-sm text-zayro-gray">{t('customers.detail.noPackages')}</p>
               ) : (
                 <ul className="divide-y divide-zayro-border -my-2">
                   {packageRows.map((p) => (
                     <li key={p.id} className="py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
                       <Link href={`/admin/packages/${p.id}`} className="font-medium">
-                        {(p.plan_snapshot as { name?: string }).name ?? 'Package'}
+                        {(p.plan_snapshot as { name?: string }).name ?? t('customers.detail.packageFallback')}
                       </Link>
                       <span className="flex items-center gap-2 text-xs text-zayro-gray">
-                        {p.remaining_credits}/{p.total_credits} left · until {formatInstantEt(p.expires_at)}
+                        {t('customers.detail.creditsLeft', { left: p.remaining_credits, total: p.total_credits, date: f.instantDate(p.expires_at) })}
                         <StatusBadge status={p.status} />
                       </span>
                     </li>
@@ -206,7 +219,7 @@ export default async function CustomerPage({ params }: { params: { id: string } 
         </div>
 
         <div className="grid gap-4 min-w-0 content-start">
-          <Card title="Details">
+          <Card title={t('customers.detail.details')}>
             {admin.can('customers.update') && customer.status !== 'merged' ? (
               <CustomerEditForm
                 id={customer.id}
@@ -222,31 +235,31 @@ export default async function CustomerPage({ params }: { params: { id: string } 
             ) : (
               <DefinitionList
                 items={[
-                  ['Phone', customer.phone],
-                  ['Company', customer.company],
-                  ['Marketing emails', customer.marketing_consent ? 'Yes' : 'No'],
+                  [t('customers.detail.phone'), customer.phone],
+                  [t('customers.detail.company'), customer.company],
+                  [t('customers.detail.marketing'), customer.marketing_consent ? t('common.yes') : t('common.no')],
                 ]}
               />
             )}
-            <p className="text-xs text-zayro-gray mt-3">Customer since {formatInstantEt(customer.created_at)}</p>
+            <p className="text-xs text-zayro-gray mt-3">{t('customers.detail.since', { date: f.instantDate(customer.created_at) })}</p>
           </Card>
 
-          <Card title="Notes">
+          <Card title={t('customers.detail.notes')}>
             {admin.can('notes.write') && customer.status !== 'merged' && (
               <div className="mb-4 grid gap-4">
-                <NotesEditor url={`/api/admin/customers/${customer.id}`} initial={customer.internal_notes ?? ''} field="internal_notes" label="Pinned note" />
+                <NotesEditor url={`/api/admin/customers/${customer.id}`} initial={customer.internal_notes ?? ''} field="internal_notes" label={t('customers.detail.pinned')} />
                 <AddNoteForm customerId={customer.id} />
               </div>
             )}
             {notes.length === 0 ? (
-              <p className="text-sm text-zayro-gray">No notes yet.</p>
+              <p className="text-sm text-zayro-gray">{t('customers.detail.noNotes')}</p>
             ) : (
               <ul className="grid gap-3">
                 {notes.map((n) => (
                   <li key={n.id} className="text-sm border-l-2 border-zayro-border pl-3">
                     <p className="whitespace-pre-wrap break-words">{n.body}</p>
                     <p className="text-xs text-zayro-gray mt-0.5">
-                      {n.author_email ?? 'staff'} · {formatInstantEt(n.created_at)}
+                      {n.author_email ?? t('customers.detail.staff')} · {f.instant(n.created_at)}
                     </p>
                   </li>
                 ))}
@@ -254,7 +267,7 @@ export default async function CustomerPage({ params }: { params: { id: string } 
             )}
           </Card>
 
-          <Card title="History">
+          <Card title={t('customers.detail.history')}>
             <AuditTrail rows={audit} />
           </Card>
         </div>

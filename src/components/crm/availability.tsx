@@ -1,7 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import { callApi, FormError, useJsonSubmit } from './client';
+import { callApi, FormError, useApiMessage, useJsonSubmit } from './client';
+import { useI18n } from './i18n';
+
+const WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** "Monday" (stored) → the weekday's name in the admin's language, capitalised. */
+function useDayName() {
+  const { f } = useI18n();
+  return (day: string) => {
+    const i = WEEK.indexOf(day);
+    if (i < 0) return day;
+    const name = f.weekday(i, 'long');
+    return name.charAt(0).toLocaleUpperCase(f.intl) + name.slice(1);
+  };
+}
 
 export interface DayRow {
   id: number;
@@ -12,25 +26,27 @@ export interface DayRow {
 }
 
 function DayEditor({ row }: { row: DayRow }) {
+  const { t } = useI18n();
+  const dayName = useDayName()(row.day_of_week);
   const [open, setOpen] = useState(row.is_available);
   const [start, setStart] = useState(row.start_time);
   const [end, setEnd] = useState(row.end_time);
-  const { submit, busy, error } = useJsonSubmit({ url: '/api/admin/availability', method: 'PATCH', successMessage: `${row.day_of_week} saved` });
+  const { submit, busy, error } = useJsonSubmit({ url: '/api/admin/availability', method: 'PATCH', successMessage: t('availability.day.saved', { day: dayName }) });
   const dirty = open !== row.is_available || start !== row.start_time || end !== row.end_time;
   return (
     <li className="py-2 grid grid-cols-[110px_auto_1fr] sm:grid-cols-[120px_90px_120px_120px_auto] items-center gap-2">
-      <span className="font-medium text-sm">{row.day_of_week}</span>
+      <span className="font-medium text-sm break-words">{dayName}</span>
       <label className="flex items-center gap-1.5 text-sm">
-        <input type="checkbox" checked={open} onChange={(e) => setOpen(e.target.checked)} /> Open
+        <input type="checkbox" checked={open} onChange={(e) => setOpen(e.target.checked)} /> {t('availability.day.open')}
       </label>
       <div className="col-span-3 sm:col-span-1 grid grid-cols-2 sm:contents gap-2">
-        <input aria-label={`${row.day_of_week} opens`} type="time" step={900} value={start} disabled={!open} onChange={(e) => setStart(e.target.value)} />
-        <input aria-label={`${row.day_of_week} closes`} type="time" step={900} value={end} disabled={!open} onChange={(e) => setEnd(e.target.value)} />
+        <input aria-label={t('availability.day.opens', { day: dayName })} type="time" step={900} value={start} disabled={!open} onChange={(e) => setStart(e.target.value)} />
+        <input aria-label={t('availability.day.closes', { day: dayName })} type="time" step={900} value={end} disabled={!open} onChange={(e) => setEnd(e.target.value)} />
       </div>
       <div className="col-span-3 sm:col-span-1 flex items-center gap-2 justify-end">
         {error && <span className="text-xs text-red-700">{error}</span>}
         <button type="button" className="crm-btn crm-btn-sm" disabled={!dirty || busy} onClick={() => submit({ id: row.id, start_time: start, end_time: end, is_available: open })}>
-          {busy ? 'Saving…' : 'Save'}
+          {busy ? t('availability.day.saving') : t('common.actions.save')}
         </button>
       </div>
     </li>
@@ -48,15 +64,11 @@ export function WeeklyHoursEditor({ rows }: { rows: DayRow[] }) {
 }
 
 export function BookingRulesForm({ initial }: { initial: { bufferBefore: number; bufferAfter: number; increment: number; minAdvanceHours: number; horizonDays: number } }) {
+  const { t } = useI18n();
   const [v, setV] = useState(Object.fromEntries(Object.entries(initial).map(([k, n]) => [k, String(n)])) as Record<keyof typeof initial, string>);
-  const { submit, busy, error } = useJsonSubmit({ url: '/api/admin/settings', method: 'PATCH', successMessage: 'Booking rules saved' });
-  const fields: [keyof typeof initial, string, string][] = [
-    ['increment', 'Slot interval (min)', 'Start times offered every N minutes'],
-    ['minAdvanceHours', 'Booking cutoff (hours)', 'Customers can’t book sooner than this'],
-    ['bufferBefore', 'Buffer before (min)', 'Gap kept free before each session'],
-    ['bufferAfter', 'Buffer after (min)', 'Gap kept free after each session'],
-    ['horizonDays', 'Book ahead (days)', 'How far ahead the calendar opens'],
-  ];
+  const { submit, busy, error } = useJsonSubmit({ url: '/api/admin/settings', method: 'PATCH', successMessage: t('availability.rule.saved') });
+  const keys = ['increment', 'minAdvanceHours', 'bufferBefore', 'bufferAfter', 'horizonDays'] as const;
+  const fields: [keyof typeof initial, string, string][] = keys.map((k) => [k, t(`availability.rule.${k}`), t(`availability.rule.${k}Hint`)]);
   return (
     <form
       onSubmit={(e) => {
@@ -79,7 +91,7 @@ export function BookingRulesForm({ initial }: { initial: { bufferBefore: number;
       <FormError error={error} />
       <div className="flex justify-end">
         <button type="submit" className="crm-btn crm-btn-primary" disabled={busy}>
-          {busy ? 'Saving…' : 'Save rules'}
+          {busy ? t('availability.rule.saving') : t('availability.rule.save')}
         </button>
       </div>
     </form>
@@ -87,12 +99,13 @@ export function BookingRulesForm({ initial }: { initial: { bufferBefore: number;
 }
 
 export function OverrideForm() {
+  const { t } = useI18n();
   const [date, setDate] = useState('');
   const [kind, setKind] = useState<'custom_hours' | 'holiday' | 'day_off' | 'closure'>('holiday');
   const [start, setStart] = useState('10:00');
   const [end, setEnd] = useState('18:00');
   const [reason, setReason] = useState('');
-  const { submit, busy, error } = useJsonSubmit({ url: '/api/admin/availability-overrides', successMessage: 'Date override saved', onSuccess: () => setReason('') });
+  const { submit, busy, error } = useJsonSubmit({ url: '/api/admin/availability-overrides', successMessage: t('availability.override.saved'), onSuccess: () => setReason('') });
   return (
     <form
       onSubmit={(e) => {
@@ -104,32 +117,32 @@ export function OverrideForm() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="field-label" htmlFor="ov-date">
-            Date
+            {t('availability.override.date')}
           </label>
           <input id="ov-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
         </div>
         <div>
           <label className="field-label" htmlFor="ov-kind">
-            Type
+            {t('availability.override.type')}
           </label>
           <select id="ov-kind" value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
-            <option value="holiday">Holiday (closed)</option>
-            <option value="day_off">Day off (closed)</option>
-            <option value="closure">Studio closure (closed)</option>
-            <option value="custom_hours">Different opening hours</option>
+            <option value="holiday">{t('availability.override.holiday')}</option>
+            <option value="day_off">{t('availability.override.dayOff')}</option>
+            <option value="closure">{t('availability.override.closure')}</option>
+            <option value="custom_hours">{t('availability.override.customHours')}</option>
           </select>
         </div>
         {kind === 'custom_hours' && (
           <>
             <div>
               <label className="field-label" htmlFor="ov-start">
-                Opens
+                {t('availability.override.opens')}
               </label>
               <input id="ov-start" type="time" step={900} value={start} onChange={(e) => setStart(e.target.value)} />
             </div>
             <div>
               <label className="field-label" htmlFor="ov-end">
-                Closes
+                {t('availability.override.closes')}
               </label>
               <input id="ov-end" type="time" step={900} value={end} onChange={(e) => setEnd(e.target.value)} />
             </div>
@@ -137,15 +150,15 @@ export function OverrideForm() {
         )}
         <div className="sm:col-span-2">
           <label className="field-label" htmlFor="ov-reason">
-            Reason (optional)
+            {t('availability.override.reason')}
           </label>
-          <input id="ov-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={255} placeholder="e.g. Thanksgiving" />
+          <input id="ov-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={255} placeholder={t('availability.override.reasonPlaceholder')} />
         </div>
       </div>
       <FormError error={error} />
       <div className="flex justify-end">
         <button type="submit" className="crm-btn crm-btn-primary" disabled={busy || !date}>
-          {busy ? 'Saving…' : 'Save date'}
+          {busy ? t('availability.override.saving') : t('availability.override.save')}
         </button>
       </div>
     </form>
@@ -160,6 +173,8 @@ interface Slot {
 
 /** What a customer would see for a date and session length right now. */
 export function AvailabilityPreview({ defaultDate, services }: { defaultDate: string; services: { id: number; name: string; duration: number }[] }) {
+  const { t, f, label } = useI18n();
+  const apiMessage = useApiMessage();
   const [date, setDate] = useState(defaultDate);
   const [serviceId, setServiceId] = useState(services[0]?.id ?? 0);
   const [result, setResult] = useState<{ slots: Slot[]; closedReason: string | null; open: { start: number; end: number } | null } | null>(null);
@@ -170,7 +185,7 @@ export function AvailabilityPreview({ defaultDate, services }: { defaultDate: st
     setError(null);
     const res = await callApi<typeof result & object>(`/api/admin/slots?date=${date}&serviceId=${serviceId}&public=1`, 'GET');
     setBusy(false);
-    if (!res.ok) return setError(res.data.error || 'Could not load');
+    if (!res.ok) return setError(res.data.error ? apiMessage(res.data.error, res.status) : t('availability.previewForm.loadFailed'));
     setResult(res.data);
   };
   const free = result?.slots.filter((s) => s.available) ?? [];
@@ -179,40 +194,40 @@ export function AvailabilityPreview({ defaultDate, services }: { defaultDate: st
       <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-end">
         <div>
           <label className="field-label" htmlFor="pv-date">
-            Date
+            {t('availability.previewForm.date')}
           </label>
           <input id="pv-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
         <div>
           <label className="field-label" htmlFor="pv-svc">
-            Service
+            {t('availability.previewForm.service')}
           </label>
           <select id="pv-svc" value={serviceId} onChange={(e) => setServiceId(Number(e.target.value))}>
             {services.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name} ({s.duration} min)
+                {t('availability.previewForm.serviceOption', { name: s.name, minutes: s.duration })}
               </option>
             ))}
           </select>
         </div>
         <button type="button" className="crm-btn" onClick={run} disabled={busy}>
-          {busy ? 'Checking…' : 'Preview'}
+          {busy ? t('availability.previewForm.checking') : t('availability.previewForm.preview')}
         </button>
       </div>
       <FormError error={error} />
       {result && (
         <div aria-live="polite">
           {!result.open ? (
-            <p className="text-sm text-amber-800">Closed: {result.closedReason}</p>
+            <p className="text-sm text-amber-800">{t('availability.previewForm.closed', { reason: label(result.closedReason) })}</p>
           ) : (
             <>
               <p className="text-sm text-zayro-gray mb-2">
-                {free.length} bookable start time{free.length === 1 ? '' : 's'} for customers (cutoff and buffers applied).
+                {t('availability.previewForm.bookable', { count: free.length })}
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {result.slots.map((s) => (
                   <span key={s.start} className={`crm-badge ${s.available ? 'bg-emerald-50 text-emerald-800 border-emerald-100' : 'bg-slate-100 text-slate-400 border-slate-200 line-through'}`}>
-                    {s.start}
+                    {f.time(s.start)}
                   </span>
                 ))}
               </div>
@@ -232,7 +247,8 @@ export function BlockTimeForm({ defaultDate }: { defaultDate: string }) {
   const [kind, setKind] = useState('block');
   const [reason, setReason] = useState('');
   const [repeat, setRepeat] = useState('0');
-  const { submit, busy, error } = useJsonSubmit({ url: '/api/admin/blocked-times', successMessage: 'Time blocked', onSuccess: () => setReason('') });
+  const { t } = useI18n();
+  const { submit, busy, error } = useJsonSubmit({ url: '/api/admin/blocked-times', successMessage: t('availability.blocked.form.blocked'), onSuccess: () => setReason('') });
   return (
     <form
       onSubmit={(e) => {
@@ -244,64 +260,65 @@ export function BlockTimeForm({ defaultDate }: { defaultDate: string }) {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="field-label" htmlFor="bt-date">
-            Date
+            {t('availability.blocked.form.date')}
           </label>
           <input id="bt-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
         </div>
         <div>
           <label className="field-label" htmlFor="bt-enddate">
-            Until date (optional)
+            {t('availability.blocked.form.until')}
           </label>
           <input id="bt-enddate" type="date" value={endDate} min={date} onChange={(e) => setEndDate(e.target.value)} />
         </div>
         <div>
           <label className="field-label" htmlFor="bt-start">
-            From (ET)
+            {t('availability.blocked.form.from')}
           </label>
           <input id="bt-start" type="time" step={900} value={start} onChange={(e) => setStart(e.target.value)} required />
         </div>
         <div>
           <label className="field-label" htmlFor="bt-end">
-            To (ET)
+            {t('availability.blocked.form.to')}
           </label>
           <input id="bt-end" type="time" step={900} value={end} onChange={(e) => setEnd(e.target.value)} required />
         </div>
         <div>
           <label className="field-label" htmlFor="bt-kind">
-            Type
+            {t('availability.blocked.form.type')}
           </label>
           <select id="bt-kind" value={kind} onChange={(e) => setKind(e.target.value)}>
-            <option value="block">Blocked</option>
-            <option value="maintenance">Maintenance</option>
-            <option value="private_event">Private event</option>
-            <option value="holiday">Holiday</option>
+            {(['block', 'maintenance', 'private_event', 'holiday'] as const).map((k) => (
+              <option key={k} value={k}>
+                {t(`availability.blocked.kinds.${k}`)}
+              </option>
+            ))}
           </select>
         </div>
         <div>
           <label className="field-label" htmlFor="bt-repeat">
-            Repeat weekly
+            {t('availability.blocked.form.repeat')}
           </label>
           <select id="bt-repeat" value={repeat} onChange={(e) => setRepeat(e.target.value)}>
-            <option value="0">No</option>
+            <option value="0">{t('availability.blocked.form.no')}</option>
             {[1, 3, 7, 11, 25].map((n) => (
               <option key={n} value={n}>
-                {n + 1} weeks in total
+                {t('availability.blocked.form.weeks', { count: n + 1 })}
               </option>
             ))}
           </select>
         </div>
         <div className="col-span-2">
           <label className="field-label" htmlFor="bt-reason">
-            Reason
+            {t('availability.blocked.form.reason')}
           </label>
-          <input id="bt-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={255} placeholder="Shown in the admin calendar and Google Calendar" />
+          <input id="bt-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={255} placeholder={t('availability.blocked.form.reasonPlaceholder')} />
         </div>
       </div>
-      <p className="text-xs text-zayro-gray">Takes effect immediately for public booking. Refused if a confirmed booking is already in that time.</p>
+      <p className="text-xs text-zayro-gray">{t('availability.blocked.form.note')}</p>
       <FormError error={error} />
       <div className="flex justify-end">
         <button type="submit" className="crm-btn crm-btn-primary" disabled={busy}>
-          {busy ? 'Blocking…' : 'Block time'}
+          {busy ? t('availability.blocked.form.blocking') : t('availability.blocked.form.submit')}
         </button>
       </div>
     </form>

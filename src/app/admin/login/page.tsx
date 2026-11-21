@@ -1,10 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
+import { LocaleSwitcher, useI18n } from '@/components/crm/i18n';
+
+const URL_ERRORS = ['invalid_or_expired', 'already_used', 'rate_limited'] as const;
 
 function LoginForm() {
+  const { t } = useI18n();
   const searchParams = useSearchParams();
   const urlError = searchParams.get('error');
   const [email, setEmail] = useState('');
@@ -26,46 +29,52 @@ function LoginForm() {
     }
   };
 
+  const errorText = urlError
+    ? (URL_ERRORS as readonly string[]).includes(urlError)
+      ? t(`login.errors.${urlError as (typeof URL_ERRORS)[number]}`)
+      : t('login.errors.generic')
+    : null;
+
   return (
     <div className="min-h-screen flex items-center justify-center surface-soft px-4">
       <div className="card max-w-md w-full">
-        <h1 className="text-2xl font-black mb-1 text-zayro-dark">Admin Sign In</h1>
-        <p className="text-zayro-gray mb-8 text-sm">ZAYRO Studios</p>
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <h1 className="text-2xl font-black text-zayro-dark min-w-0 break-words">{t('login.title')}</h1>
+          <LocaleSwitcher className="shrink-0 mt-1" />
+        </div>
+        <p className="text-zayro-gray mb-8 text-sm">{t('login.subtitle')}</p>
 
-        {urlError && !sent && (
+        {errorText && !sent && (
           <p className="field-error mb-6" role="alert">
-            {urlError === 'invalid_or_expired'
-              ? 'That sign-in link expired or is not valid. Request a new one below.'
-              : urlError === 'already_used'
-                ? 'That sign-in link was already used. Request a new one below.'
-                : urlError === 'rate_limited'
-                  ? 'Too many attempts. Wait a few minutes and try again.'
-                  : 'Sign-in failed. Please try again.'}
+            {errorText}
           </p>
         )}
 
         {sent ? (
-          <p className="text-zayro-gray" role="status">
-            If that email is an admin account, a sign-in link was just sent. Check your inbox — the link expires in 15 minutes and can only be used once.
-          </p>
+          <div role="status">
+            <p className="text-zayro-gray">{t('login.sent')}</p>
+            <button type="button" className="crm-link mt-4 text-sm" onClick={() => setSent(false)}>
+              {t('login.useAnother')}
+            </button>
+          </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label htmlFor="admin-email" className="field-label">
-                Email
+                {t('login.email')}
               </label>
               <input
                 id="admin-email"
                 type="email"
                 required
                 autoComplete="email"
-                placeholder="you@zayro.studio"
+                placeholder={t('login.emailPlaceholder')}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
             </div>
             <button type="submit" disabled={loading} className={`button button-primary w-full py-3 ${loading ? 'is-loading' : ''}`}>
-              Send Sign-in Link
+              {loading ? t('login.sending') : t('login.submit')}
             </button>
           </form>
         )}

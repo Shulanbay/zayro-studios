@@ -4,6 +4,7 @@ import { getTaxRate } from '@/lib/pricing';
 import { BUSINESS_ADDRESS, BUSINESS_EMAIL } from '@/lib/constants';
 import { Card, DefinitionList, Forbidden, PageHeader } from '@/components/crm/ui';
 import { TaxRateForm } from '@/components/crm/settings';
+import { getAdminI18n } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,44 +21,45 @@ export default async function SettingsPage() {
   const admin = await getAdminContext();
   if (!admin) redirect('/admin/login');
   if (!admin.can('settings.manage')) return <Forbidden what="settings" />;
+  const { t } = getAdminI18n(admin);
   const taxRate = await getTaxRate();
 
   return (
     <>
-      <PageHeader title="Settings" description="Business settings. Opening hours and booking rules are under Availability; credentials are managed in Vercel." />
+      <PageHeader title={t('common.nav.settings')} description={t('system.settings.description')} />
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <Card title="Tax">
+        <Card title={t('system.settings.tax')}>
           <TaxRateForm initialPercent={Math.round(taxRate * 100000) / 1000} />
         </Card>
-        <Card title="Studio">
+        <Card title={t('system.settings.studio')}>
           <DefinitionList
             items={[
-              ['Room', 'Main Studio (one room)'],
-              ['Time zone', 'America/New_York'],
-              ['Address', BUSINESS_ADDRESS],
-              ['Contact email', BUSINESS_EMAIL],
-              ['Currency', 'USD'],
+              [t('system.settings.room'), t('system.settings.roomValue')],
+              [t('system.settings.timeZone'), 'America/New_York'],
+              [t('system.settings.address'), BUSINESS_ADDRESS],
+              [t('system.settings.contactEmail'), BUSINESS_EMAIL],
+              [t('system.settings.currency'), 'USD'],
             ]}
           />
-          <p className="text-xs text-zayro-gray mt-3">Address and contact email come from BUSINESS_ADDRESS / BUSINESS_EMAIL in Vercel.</p>
+          <p className="text-xs text-zayro-gray mt-3">{t('system.settings.addressNote')}</p>
         </Card>
-        <Card title="Environment" className="xl:col-span-2">
+        <Card title={t('system.settings.environment')} className="xl:col-span-2">
           <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {ENV_GROUPS.map((g) => (
               <div key={g.label}>
-                <h3 className="text-sm font-semibold mb-1">{g.label}</h3>
+                <h3 className="text-sm font-semibold mb-1">{t.dynamic(`system.settings.groups.${g.label}`, g.label)}</h3>
                 <ul className="text-sm">
                   {g.names.map((n) => (
                     <li key={n} className="flex justify-between gap-2 py-0.5">
                       <code className="text-xs">{n}</code>
-                      <span className={process.env[n] ? 'text-emerald-700 text-xs' : 'text-red-700 text-xs'}>{process.env[n] ? 'set' : 'not set'}</span>
+                      <span className={process.env[n] ? 'text-emerald-700 text-xs' : 'text-red-700 text-xs'}>{process.env[n] ? t('system.settings.set') : t('system.settings.notSet')}</span>
                     </li>
                   ))}
                 </ul>
               </div>
             ))}
           </div>
-          <p className="text-xs text-zayro-gray mt-3">Values are never shown. Change them in Vercel → Settings → Environment Variables, then redeploy.</p>
+          <p className="text-xs text-zayro-gray mt-3">{t('system.settings.envNote')}</p>
         </Card>
       </div>
     </>

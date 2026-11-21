@@ -197,7 +197,7 @@ describe('migrations 0002 + 0003 on a production-like database', () => {
   it('works on an empty database (packages simply have no base service yet)', async () => {
     const db = new PGlite();
     const applied = await applyMigrations(clientFor(db), { migrationsFolder: './drizzle' });
-    expect(applied).toHaveLength(22);
+    expect(applied).toHaveLength(23);
     const rows = await services(db);
     expect(rows.filter((r) => r.category === 'package').every((r) => r.package_base_service_id === null)).toBe(true);
     expect(rows.filter((r) => r.category === 'photography')).toHaveLength(3);

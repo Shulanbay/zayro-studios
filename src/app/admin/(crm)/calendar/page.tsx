@@ -4,10 +4,12 @@ import { and, eq, gt, gte, inArray, isNull, lt, lte } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { availability, availabilityOverrides, blockedTimes, bookings, services, temporaryHolds } from '@/lib/db/schema';
 import { getAdminContext } from '@/lib/crm/auth';
-import { CATEGORY_LABELS, SERVICE_CATEGORIES } from '@/lib/catalog';
-import { addDays, daysBetween, dayOfWeek, formatDateLabel, formatTimeLabel, isDateString, minutesIntoDay, timeToMinutes, todayInTz, wallTimeToUtc } from '@/lib/crm/time';
+import { SERVICE_CATEGORIES } from '@/lib/catalog';
+import { addDays, daysBetween, dayOfWeek, isDateString, minutesIntoDay, timeToMinutes, todayInTz, wallTimeToUtc } from '@/lib/crm/time';
+import { getAdminI18n } from '@/lib/i18n/server';
 import { toDateOnly } from '@/lib/utils';
-import { Forbidden, PageHeader, humanize, withParams } from '@/components/crm/ui';
+import { Forbidden, PageHeader } from '@/components/crm/ui';
+import { withParams } from '@/components/crm/ui-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +29,7 @@ interface Item {
 }
 
 const HOUR_PX = 44;
+const hhmm = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
 function startOfWeek(date: string) {
   const dow = new Date(`${date}T12:00:00Z`).getUTCDay(); // 0 = Sunday
@@ -48,6 +51,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: { v
   const admin = await getAdminContext();
   if (!admin) redirect('/admin/login');
   if (!admin.can('bookings.read')) return <Forbidden what="the calendar" />;
+  const { t, f, label } = getAdminI18n(admin);
 
   const view: View = (['day', 'week', 'month', 'list'] as const).includes(searchParams.view as View) ? (searchParams.view as View) : 'week';
   const today = todayInTz();
@@ -115,7 +119,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: { v
       start: timeToMinutes(b.start),
       end: timeToMinutes(b.end) <= timeToMinutes(b.start) ? 1440 : timeToMinutes(b.end),
       title: `${b.first} ${b.last}`.trim(),
-      subtitle: `${b.service} · ${formatTimeLabel(b.start)}–${formatTimeLabel(b.end)}`,
+      subtitle: `${b.service} · ${f.time(b.start)}–${f.time(b.end)}`,
       status: b.status,
       href: `/admin/sessions/${b.id}`,
       category: b.category,
@@ -123,14 +127,14 @@ export default async function CalendarPage({ searchParams }: { searchParams: { v
   }
   if (!category) {
     for (const h of holdRows) {
-      items.push({ key: h.id, kind: 'hold', date: toDateOnly(h.booking_date), start: timeToMinutes(h.start_time), end: timeToMinutes(h.end_time), title: 'Checkout hold', subtitle: `${formatTimeLabel(h.start_time)}–${formatTimeLabel(h.end_time)} · expires soon`, status: 'hold' });
+      items.push({ key: h.id, kind: 'hold', date: toDateOnly(h.booking_date), start: timeToMinutes(h.start_time), end: timeToMinutes(h.end_time), title: t('calendar.checkoutHold'), subtitle: `${f.time(h.start_time)}–${f.time(h.end_time)} · ${t('calendar.expiresSoon')}`, status: 'hold' });
     }
   }
   for (const bl of blockRows) {
     for (let d = from; d <= to; d = addDays(d, 1)) {
       const s = Math.max(0, minutesIntoDay(bl.start_datetime, d));
       const e = Math.min(1440, minutesIntoDay(bl.end_datetime, d));
-      if (e > s) items.push({ key: `${bl.id}-${d}`, kind: 'block', date: d, start: s, end: e, title: bl.reason || 'Blocked', subtitle: humanize(bl.kind), status: 'blocked', href: '/admin/blocked-time' });
+      if (e > s) items.push({ key: `${bl.id}-${d}`, kind: 'block', date: d, start: s, end: e, title: bl.reason || t('calendar.blocked'), subtitle: t.dynamic(`availability.blocked.kinds.${bl.kind}`, label(bl.kind)), status: 'blocked', href: '/admin/blocked-time' });
     }
   }
   items.sort((a, b) => (a.date === b.date ? a.start - b.start : a.date < b.date ? -1 : 1));
@@ -152,12 +156,8 @@ export default async function CalendarPage({ searchParams }: { searchParams: { v
   const step = view === 'day' ? 1 : view === 'week' ? 7 : view === 'list' ? 14 : 0;
   const prevDate = view === 'month' ? (() => { const d = new Date(`${anchor.slice(0, 8)}01T12:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 10); })() : addDays(anchor, -step);
   const nextDate = view === 'month' ? (() => { const d = new Date(`${anchor.slice(0, 8)}01T12:00:00Z`); d.setUTCMonth(d.getUTCMonth() + 1); return d.toISOString().slice(0, 10); })() : addDays(anchor, step);
-  const title =
-    view === 'month'
-      ? new Date(`${anchor}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-      : view === 'day'
-        ? formatDateLabel(anchor)
-        : `${formatDateLabel(from)} – ${formatDateLabel(to)}`;
+  const title = view === 'month' ? f.month(anchor) : view === 'day' ? f.date(anchor) : f.dateRange(from, to);
+  const statusText = (s: string) => (s === 'hold' ? t('calendar.hold') : s === 'blocked' ? t('calendar.blocked') : label(s));
   const canCreate = admin.can('bookings.create');
 
   const timeGrid = (cols: string[]) => (
@@ -169,15 +169,17 @@ export default async function CalendarPage({ searchParams }: { searchParams: { v
             const hrs = hoursFor(d);
             return (
               <div key={d} className={`border-b border-l border-zayro-border px-2 py-2 text-xs bg-[#F9FBFE] ${d === today ? 'text-zayro-primary font-semibold' : 'text-zayro-dark'}`}>
-                <Link href={withParams('/admin/calendar', params, { view: 'day', date: d })}>{formatDateLabel(d).replace(/, \d{4}$/, '')}</Link>
-                <div className="text-[11px] text-zayro-gray font-normal">{hrs ? `${formatTimeLabel(`${String(Math.floor(hrs[0] / 60)).padStart(2, '0')}:${String(hrs[0] % 60).padStart(2, '0')}`)}–${formatTimeLabel(`${String(Math.floor(hrs[1] / 60)).padStart(2, '0')}:${String(hrs[1] % 60).padStart(2, '0')}`)}` : 'Closed'}</div>
+                <Link href={withParams('/admin/calendar', params, { view: 'day', date: d })}>
+                  {f.weekday(new Date(`${d}T12:00:00Z`).getUTCDay())}, {f.dateShort(d)}
+                </Link>
+                <div className="text-[11px] text-zayro-gray font-normal">{hrs ? `${f.time(hhmm(hrs[0]))}–${f.time(hhmm(hrs[1]))}` : t('calendar.closed')}</div>
               </div>
             );
           })}
           <div className="relative" style={{ height: hours.length * HOUR_PX }}>
             {hours.map((h, i) => (
               <div key={h} className="absolute right-1 text-[10px] text-zayro-gray" style={{ top: i * HOUR_PX - 6 }}>
-                {i === 0 ? '' : formatTimeLabel(`${String(h / 60).padStart(2, '0')}:00`).replace(':00 ', ' ')}
+                {i === 0 ? '' : f.time(hhmm(h)).replace(':00 ', ' ')}
               </div>
             ))}
           </div>
@@ -195,7 +197,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: { v
                       href={`/admin/sessions/new?date=${d}&time=${time}`}
                       className="absolute left-0 right-0 border-t border-zayro-border/70 hover:bg-blue-50/40 focus-visible:bg-blue-50"
                       style={{ top: i * HOUR_PX, height: HOUR_PX }}
-                      aria-label={`New booking ${formatDateLabel(d)} ${formatTimeLabel(time)}`}
+                      aria-label={t('calendar.newBookingAt', { date: f.date(d), time: f.time(time) })}
                     />
                   ) : (
                     <div key={h} className={`absolute left-0 right-0 border-t border-zayro-border/70 ${open ? '' : 'bg-slate-50'}`} style={{ top: i * HOUR_PX, height: HOUR_PX }} />
@@ -235,18 +237,18 @@ export default async function CalendarPage({ searchParams }: { searchParams: { v
   return (
     <>
       <PageHeader
-        title="Calendar"
-        description={`${title} · New York time · the CRM database is the source of truth; Google Calendar mirrors it.`}
+        title={t('common.nav.calendar')}
+        description={t('calendar.description', { range: title })}
         actions={
           <>
             {admin.can('availability.manage') && (
               <Link href="/admin/blocked-time" className="crm-btn">
-                Block time
+                {t('calendar.blockTime')}
               </Link>
             )}
             {canCreate && (
               <Link href={`/admin/sessions/new?date=${anchor}`} className="crm-btn crm-btn-primary">
-                New booking
+                {t('calendar.newBooking')}
               </Link>
             )}
           </>
@@ -254,21 +256,21 @@ export default async function CalendarPage({ searchParams }: { searchParams: { v
       />
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        <div className="flex gap-1" role="group" aria-label="Move">
-          <Link className="crm-btn crm-btn-sm" href={withParams('/admin/calendar', params, { date: prevDate })} aria-label="Previous">
+        <div className="flex gap-1" role="group" aria-label={t('calendar.move')}>
+          <Link className="crm-btn crm-btn-sm" href={withParams('/admin/calendar', params, { date: prevDate })} aria-label={t('calendar.previous')}>
             ←
           </Link>
           <Link className="crm-btn crm-btn-sm" href={withParams('/admin/calendar', params, { date: today })}>
-            Today
+            {t('calendar.today')}
           </Link>
-          <Link className="crm-btn crm-btn-sm" href={withParams('/admin/calendar', params, { date: nextDate })} aria-label="Next">
+          <Link className="crm-btn crm-btn-sm" href={withParams('/admin/calendar', params, { date: nextDate })} aria-label={t('calendar.next')}>
             →
           </Link>
         </div>
-        <div className="flex gap-1" role="group" aria-label="View">
+        <div className="flex flex-wrap gap-1" role="group" aria-label={t('calendar.viewLabel')}>
           {(['day', 'week', 'month', 'list'] as const).map((v) => (
             <Link key={v} className={`crm-btn crm-btn-sm ${view === v ? '!border-zayro-primary !text-zayro-primary' : ''}`} aria-current={view === v ? 'page' : undefined} href={withParams('/admin/calendar', params, { view: v })}>
-              {humanize(v)}
+              {t(`calendar.views.${v}`)}
             </Link>
           ))}
         </div>
@@ -276,35 +278,37 @@ export default async function CalendarPage({ searchParams }: { searchParams: { v
           <input type="hidden" name="view" value={view} />
           <input type="hidden" name="date" value={anchor} />
           <label className="sr-only" htmlFor="cal-cat">
-            Category
+            {t('calendar.category')}
           </label>
-          <select id="cal-cat" name="category" defaultValue={category ?? ''} className="!w-auto">
-            <option value="">All services</option>
+          <select id="cal-cat" name="category" defaultValue={category ?? ''} className="!w-auto max-w-full">
+            <option value="">{t('calendar.allServices')}</option>
             {SERVICE_CATEGORIES.filter((c) => c !== 'package').map((c) => (
               <option key={c} value={c}>
-                {CATEGORY_LABELS[c]}
+                {label(c)}
               </option>
             ))}
           </select>
           <label className="flex items-center gap-1.5 text-sm">
-            <input type="checkbox" name="cancelled" value="1" defaultChecked={showCancelled} /> Show cancelled
+            <input type="checkbox" name="cancelled" value="1" defaultChecked={showCancelled} /> {t('calendar.showCancelled')}
           </label>
           <button type="submit" className="crm-btn crm-btn-sm">
-            Apply
+            {t('common.actions.apply')}
           </button>
         </form>
       </div>
 
-      <div className="flex flex-wrap gap-3 text-xs text-zayro-gray mb-3" aria-label="Legend">
-        {[
-          ['bg-blue-50 border-blue-200', 'Podcast / session'],
-          ['bg-rose-50 border-rose-200', 'Photography'],
-          ['bg-sky-50 border-sky-200', 'Studio tour'],
-          ['bg-amber-50 border-amber-300 border-dashed', 'Hold / awaiting payment'],
-          ['bg-slate-200 border-slate-300', 'Blocked'],
-        ].map(([cls, label]) => (
-          <span key={label} className="inline-flex items-center gap-1.5">
-            <span className={`inline-block w-3 h-3 rounded border ${cls}`} /> {label}
+      <div className="flex flex-wrap gap-3 text-xs text-zayro-gray mb-3" aria-label={t('calendar.legend')}>
+        {(
+          [
+            ['bg-blue-50 border-blue-200', 'session'],
+            ['bg-rose-50 border-rose-200', 'photography'],
+            ['bg-sky-50 border-sky-200', 'tour'],
+            ['bg-amber-50 border-amber-300 border-dashed', 'hold'],
+            ['bg-slate-200 border-slate-300', 'blocked'],
+          ] as const
+        ).map(([cls, key]) => (
+          <span key={key} className="inline-flex items-center gap-1.5">
+            <span className={`inline-block w-3 h-3 rounded border ${cls}`} /> {t(`calendar.legendItems.${key}`)}
           </span>
         ))}
       </div>
@@ -316,9 +320,9 @@ export default async function CalendarPage({ searchParams }: { searchParams: { v
         <div className="card !p-0 overflow-hidden">
           <div className="crm-table-wrap">
             <div className="grid grid-cols-7 min-w-[720px]">
-              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+              {[1, 2, 3, 4, 5, 6, 0].map((d) => (
                 <div key={d} className="px-2 py-2 text-xs font-semibold text-zayro-gray bg-[#F9FBFE] border-b border-zayro-border">
-                  {d}
+                  {f.weekday(d)}
                 </div>
               ))}
               {dates.map((d) => {
@@ -334,7 +338,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: { v
                         <li key={it.key}>
                           {it.href ? (
                             <Link href={it.href} className={`block truncate rounded border px-1 text-[11px] ${tone(it)}`} title={`${it.title} — ${it.subtitle}`}>
-                              {it.kind === 'booking' ? `${formatTimeLabel(`${String(Math.floor(it.start / 60)).padStart(2, '0')}:${String(it.start % 60).padStart(2, '0')}`)} ` : ''}
+                              {it.kind === 'booking' ? `${f.time(hhmm(it.start))} ` : ''}
                               {it.title}
                             </Link>
                           ) : (
@@ -345,7 +349,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: { v
                       {dayItems.length > 4 && (
                         <li>
                           <Link href={withParams('/admin/calendar', params, { view: 'day', date: d })} className="text-[11px]">
-                            +{dayItems.length - 4} more
+                            {t('calendar.more', { count: dayItems.length - 4 })}
                           </Link>
                         </li>
                       )}
@@ -365,17 +369,17 @@ export default async function CalendarPage({ searchParams }: { searchParams: { v
             return (
               <section key={d} className="py-2 border-b border-zayro-border last:border-0">
                 <h2 className={`text-sm font-semibold mb-1 ${d === today ? 'text-zayro-primary' : ''}`}>
-                  {formatDateLabel(d)} {!hoursFor(d) && <span className="text-xs font-normal text-zayro-gray">· closed</span>}
+                  {f.date(d)} {!hoursFor(d) && <span className="text-xs font-normal text-zayro-gray">{t('calendar.closedSuffix')}</span>}
                 </h2>
                 {dayItems.length === 0 ? (
-                  <p className="text-xs text-zayro-gray">Nothing scheduled.</p>
+                  <p className="text-xs text-zayro-gray">{t('calendar.nothing')}</p>
                 ) : (
                   <ul className="grid gap-1">
                     {dayItems.map((it) => (
                       <li key={it.key} className={`rounded-lg border px-2 py-1.5 text-sm flex flex-wrap justify-between gap-2 ${tone(it)}`}>
                         {it.href ? <Link href={it.href} className="font-medium text-inherit">{it.title}</Link> : <span className="font-medium">{it.title}</span>}
                         <span className="text-xs">
-                          {it.subtitle} · {humanize(it.status)}
+                          {it.subtitle} · {statusText(it.status)}
                         </span>
                       </li>
                     ))}

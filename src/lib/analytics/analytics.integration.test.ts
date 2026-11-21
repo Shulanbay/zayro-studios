@@ -573,7 +573,10 @@ describe('dashboard and export', () => {
     expect(res.status).toBe(200);
     const csv = await res.text();
     const header = csv.replace(/^﻿/, '').split('\r\n')[0];
-    expect(header).toBe('Date (ET),Source,Medium,Campaign,Sessions,Visitors,Page views,Booking starts,Checkouts,Purchases,Gross revenue (USD),Refunds (USD),Net revenue (USD),Booking start rate (starts / sessions),Purchase rate (purchases / sessions)');
+    // Marketing Analysts see the admin (and its CSV headers) in Russian by default; the column set is the same in every language.
+    expect(header).toBe(
+      'Дата (ET),Источник,Канал,Кампания,Сеансы,Посетители,Просмотры страниц,Начатые бронирования,Начатые оплаты,Покупки,Валовая выручка (USD),Возвраты (USD),Чистая выручка (USD),Доля начатых бронирований (начатые / сеансы),Доля покупок (покупки / сеансы)'
+    );
     expect(csv).toContain("'=cmd|calc");
     expect(csv).toContain("'+sum(1)");
     expect(csv).not.toMatch(/@|Lovelace|\+1 212|cs_test|pi_|ZAY-|rdt-abc|tt-retry|fb-click|10\.9\.|Mozilla/);

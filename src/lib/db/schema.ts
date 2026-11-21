@@ -408,6 +408,8 @@ export const adminProfiles = pgTable('admin_profiles', {
   full_name: varchar('full_name', { length: 255 }),
   role_id: integer('role_id').notNull(),
   status: varchar('status', { length: 20, enum: ADMIN_STATUSES }).notNull().default('active'),
+  /** Admin-panel language: 'ru' | 'kk' | 'en'; null = role default. */
+  locale: varchar('locale', { length: 5 }),
   last_login_at: timestamp('last_login_at', { withTimezone: true }),
   created_by: varchar('created_by', { length: 255 }),
   created_at: createdAt(),

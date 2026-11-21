@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { getAdminContext } from '@/lib/crm/auth';
 import { parseRange } from '@/lib/crm/range';
 import { Card, Forbidden, PageHeader } from '@/components/crm/ui';
+import { getAdminI18n } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,37 +18,45 @@ export default async function ReportsPage({ searchParams }: { searchParams: { fr
   const admin = await getAdminContext();
   if (!admin) redirect('/admin/login');
   if (!admin.can('reports.export')) return <Forbidden what="exports" />;
+  const { t } = getAdminI18n(admin);
   const range = parseRange(searchParams, 30);
   const exports = EXPORTS.filter((e) => (!e.money || admin.can('purchases.read')) && (e.kind !== 'package-credits' || admin.can('packages.read')));
 
   return (
     <>
-      <PageHeader title="Reports" description="CSV exports in UTF-8, safe to open in Excel, Numbers or Google Sheets. Every export is recorded in the audit log." />
-      <form method="get" className="card !p-4 mb-4 flex flex-wrap items-end gap-2" aria-label="Date range">
+      <PageHeader
+        title={t('common.nav.reports')}
+        description={
+          <>
+            {t('system.reports.description')} <span className="block mt-1">{t('system.reports.columnsNote')}</span>
+          </>
+        }
+      />
+      <form method="get" className="card !p-4 mb-4 flex flex-wrap items-end gap-2" aria-label={t('system.reports.rangeLabel')}>
         <div>
           <label className="field-label" htmlFor="from">
-            From
+            {t('system.reports.from')}
           </label>
           <input id="from" type="date" name="from" defaultValue={range.from} />
         </div>
         <div>
           <label className="field-label" htmlFor="to">
-            To
+            {t('system.reports.to')}
           </label>
           <input id="to" type="date" name="to" defaultValue={range.to} />
         </div>
         <button type="submit" className="crm-btn">
-          Set range
+          {t('system.reports.setRange')}
         </button>
       </form>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {exports.map((e) => {
           const href = `/api/admin/export/${e.kind}${e.kind === 'customers' ? '' : `?from=${range.from}&to=${range.to}`}`;
           return (
-            <Card key={e.kind} title={e.title}>
-              <p className="text-sm text-zayro-gray mb-4">{e.body}</p>
+            <Card key={e.kind} title={t.dynamic(`system.reports.exports.${e.kind}.title`, e.title)}>
+              <p className="text-sm text-zayro-gray mb-4">{t.dynamic(`system.reports.exports.${e.kind}.body`, e.body)}</p>
               <a href={href} className="crm-btn crm-btn-primary" download>
-                Download CSV
+                {t('system.reports.download')}
               </a>
             </Card>
           );

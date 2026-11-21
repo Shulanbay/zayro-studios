@@ -7,6 +7,7 @@ import { bookableServiceOptions } from '@/lib/crm/serviceOptions';
 import { isDateString, isTimeString, todayInTz } from '@/lib/crm/time';
 import { Forbidden, PageHeader } from '@/components/crm/ui';
 import { ManualBookingForm } from '@/components/crm/booking';
+import { getAdminI18n } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,7 @@ export default async function NewBookingPage({ searchParams }: { searchParams: {
   const admin = await getAdminContext();
   if (!admin) redirect('/admin/login');
   if (!admin.can('bookings.create')) return <Forbidden what="creating bookings" />;
+  const { t } = getAdminI18n(admin);
 
   const services = await bookableServiceOptions();
   const customer =
@@ -23,7 +25,7 @@ export default async function NewBookingPage({ searchParams }: { searchParams: {
 
   return (
     <>
-      <PageHeader title="New booking" description="Staff booking — checked against the same availability, holds and blocked time as the public site." back={{ href: '/admin/sessions', label: 'Sessions' }} />
+      <PageHeader title={t('sessions.newBooking.title')} description={t('sessions.newBooking.description')} back={{ href: '/admin/sessions', label: t('common.nav.sessions') }} />
       <ManualBookingForm
         services={services}
         defaultDate={isDateString(searchParams.date) ? searchParams.date : todayInTz()}

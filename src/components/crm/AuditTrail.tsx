@@ -1,6 +1,8 @@
+'use client';
+
 import type { AuditLog } from '@/lib/db/schema';
-import { formatInstantEt } from '@/lib/crm/time';
 import { StatusBadge } from './ui';
+import { useI18n } from './i18n';
 
 function summarize(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -13,7 +15,8 @@ function summarize(value: unknown): string {
 
 /** Compact audit history for detail pages. */
 export function AuditTrail({ rows }: { rows: AuditLog[] }) {
-  if (rows.length === 0) return <p className="text-sm text-zayro-gray">No recorded changes.</p>;
+  const { t, f } = useI18n();
+  if (rows.length === 0) return <p className="text-sm text-zayro-gray">{t('system.audit.trailEmpty')}</p>;
   return (
     <ol className="text-xs grid gap-3">
       {rows.map((r) => (
@@ -23,10 +26,10 @@ export function AuditTrail({ rows }: { rows: AuditLog[] }) {
             {r.outcome !== 'success' && <StatusBadge status={r.outcome} />}
           </div>
           <div className="text-zayro-gray">
-            {formatInstantEt(r.created_at)} · {r.actor_email ?? 'system'}
+            {f.instant(r.created_at)} · {r.actor_email ?? t('system.audit.system')}
           </div>
-          {r.before_data !== null && <div className="text-zayro-gray break-words">Before: {summarize(r.before_data)}</div>}
-          {r.after_data !== null && <div className="text-zayro-gray break-words">After: {summarize(r.after_data)}</div>}
+          {r.before_data !== null && <div className="text-zayro-gray break-words">{t('system.audit.trailBefore', { value: summarize(r.before_data) })}</div>}
+          {r.after_data !== null && <div className="text-zayro-gray break-words">{t('system.audit.trailAfter', { value: summarize(r.after_data) })}</div>}
           {r.metadata !== null && <div className="text-zayro-gray break-words">{summarize(r.metadata)}</div>}
         </li>
       ))}

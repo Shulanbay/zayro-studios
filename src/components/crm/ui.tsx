@@ -1,9 +1,15 @@
+'use client';
+
 /**
- * Presentational building blocks for the admin CRM. Server-safe (no hooks),
- * so pages can render them directly.
+ * Presentational building blocks for the admin CRM. Client components so
+ * they can read the admin's language; server pages render them directly
+ * (all props are serialisable). Pure helpers live in ./ui-utils.
  */
 import Link from 'next/link';
-import { formatCents } from '@/lib/crm/money';
+import { useI18n } from './i18n';
+import { humanize, withParams } from './ui-utils';
+
+export { humanize, withParams };
 
 export function PageHeader({
   title,
@@ -108,16 +114,22 @@ const STATUS_TONES: Record<string, Tone> = {
   denied: 'red',
 };
 
-export function humanize(value: string): string {
-  return value.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+/** A status value ("payment_pending") in the admin's language. */
+export function useStatusLabel() {
+  const { t } = useI18n();
+  return (status: string) => t.dynamic(`common.status.${status}`, humanize(status));
 }
 
-export function StatusBadge({ status, label }: { status: string; label?: string }) {
-  return <Badge tone={STATUS_TONES[status] ?? 'gray'}>{label ?? humanize(status)}</Badge>;
+export function StatusBadge({ status, label, prefix }: { status: string; label?: string; prefix?: 'payment' }) {
+  const { t } = useI18n();
+  const name = label ?? t.dynamic(`common.status.${status}`, humanize(status));
+  return <Badge tone={STATUS_TONES[status] ?? 'gray'}>{prefix === 'payment' ? t('common.paymentStatus', { status: name.toLowerCase() }) : name}</Badge>;
 }
 
+/** Money in the data currency (USD), written the admin's way. */
 export function Money({ cents, className = '' }: { cents: number | null | undefined; className?: string }) {
-  return <span className={`tabular-nums ${className}`}>{formatCents(cents ?? 0)}</span>;
+  const { f } = useI18n();
+  return <span className={`tabular-nums ${className}`}>{f.money(cents ?? 0)}</span>;
 }
 
 export function EmptyState({ title, body, action }: { title: string; body?: React.ReactNode; action?: React.ReactNode }) {
@@ -158,16 +170,6 @@ export function DefinitionList({ items }: { items: [React.ReactNode, React.React
   );
 }
 
-/** Builds a link to the same page with some query params replaced. */
-export function withParams(base: string, params: Record<string, string | undefined>, changes: Record<string, string | number | undefined>) {
-  const q = new URLSearchParams();
-  for (const [k, v] of Object.entries({ ...params, ...changes })) {
-    if (v !== undefined && v !== null && String(v) !== '') q.set(k, String(v));
-  }
-  const s = q.toString();
-  return s ? `${base}?${s}` : base;
-}
-
 export function Pagination({
   base,
   params,
@@ -181,35 +183,36 @@ export function Pagination({
   pageSize: number;
   total: number;
 }) {
+  const { t } = useI18n();
   const pages = Math.max(1, Math.ceil(total / pageSize));
   if (total === 0) return null;
   const from = (page - 1) * pageSize + 1;
   const to = Math.min(total, page * pageSize);
   return (
-    <nav className="flex flex-wrap items-center justify-between gap-3 pt-4 text-sm" aria-label="Pagination">
+    <nav className="flex flex-wrap items-center justify-between gap-3 pt-4 text-sm" aria-label={t('common.pagination.label')}>
       <span className="text-zayro-gray">
-        {from}–{to} of {total}
+        {t('common.pagination.range', { from, to, total })}
       </span>
       <div className="flex gap-2">
         {page > 1 ? (
           <Link className="crm-btn crm-btn-sm" href={withParams(base, params, { page: page - 1 })} rel="prev">
-            Previous
+            {t('common.pagination.previous')}
           </Link>
         ) : (
           <span className="crm-btn crm-btn-sm opacity-40" aria-disabled="true">
-            Previous
+            {t('common.pagination.previous')}
           </span>
         )}
         <span className="px-2 py-1 text-zayro-gray" aria-current="page">
-          Page {page} of {pages}
+          {t('common.pagination.page', { page, pages })}
         </span>
         {page < pages ? (
           <Link className="crm-btn crm-btn-sm" href={withParams(base, params, { page: page + 1 })} rel="next">
-            Next
+            {t('common.pagination.next')}
           </Link>
         ) : (
           <span className="crm-btn crm-btn-sm opacity-40" aria-disabled="true">
-            Next
+            {t('common.pagination.next')}
           </span>
         )}
       </div>
@@ -218,10 +221,11 @@ export function Pagination({
 }
 
 export function Forbidden({ what }: { what: string }) {
+  const { t } = useI18n();
   return (
     <div className="card max-w-lg">
-      <h1 className="text-lg font-semibold text-zayro-dark">No access</h1>
-      <p className="text-sm text-zayro-gray mt-1">Your role doesn&apos;t include {what}. Ask the studio owner if you need it.</p>
+      <h1 className="text-lg font-semibold text-zayro-dark">{t('common.forbidden.title')}</h1>
+      <p className="text-sm text-zayro-gray mt-1">{t('common.forbidden.body', { what: t.dynamic(`common.forbidden.what.${what}`, what) })}</p>
     </div>
   );
 }

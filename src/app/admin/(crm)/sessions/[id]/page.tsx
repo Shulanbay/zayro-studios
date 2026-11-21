@@ -8,12 +8,11 @@ import { auditFor } from '@/lib/crm/queries';
 import { refundableCents } from '@/lib/crm/refunds';
 import { bookableServiceOptions } from '@/lib/crm/serviceOptions';
 import { decimalToCents } from '@/lib/crm/money';
-import { formatDateLabel, formatInstantEt, formatTimeLabel } from '@/lib/crm/time';
 import { getSheetTarget } from '@/lib/googleSheets';
-import { CATEGORY_LABELS } from '@/lib/catalog';
 import { toDateOnly } from '@/lib/utils';
 import { guestList, intakeSummary } from '@/lib/bookingOptions';
-import { Badge, Card, DefinitionList, Forbidden, Money, Notice, PageHeader, StatusBadge, humanize } from '@/components/crm/ui';
+import { Badge, Card, DefinitionList, Forbidden, Money, Notice, PageHeader, StatusBadge } from '@/components/crm/ui';
+import { getAdminI18n } from '@/lib/i18n/server';
 import { ActionButton } from '@/components/crm/client';
 import { CancelBookingDialog, NotesEditor, RefundDialog } from '@/components/crm/actions';
 import { RescheduleButton } from '@/components/crm/booking';
@@ -26,6 +25,7 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
   if (!admin) redirect('/admin/login');
   if (!admin.can('bookings.read')) return <Forbidden what="sessions" />;
   if (!/^[0-9a-f-]{36}$/i.test(params.id)) notFound();
+  const { t, f, label } = getAdminI18n(admin);
 
   const booking = await db.query.bookings.findFirst({ where: eq(bookings.id, params.id) });
   if (!booking) notFound();
@@ -74,14 +74,14 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
   return (
     <>
       <PageHeader
-        title={`${service?.name ?? 'Session'} · ${customerName}`}
-        back={{ href: '/admin/sessions', label: 'Sessions' }}
+        title={`${service?.name ?? t('sessions.detail.sessionFallback')} · ${customerName}`}
+        back={{ href: '/admin/sessions', label: t('common.nav.sessions') }}
         description={
           <span className="inline-flex flex-wrap items-center gap-2">
             <span className="font-mono">{booking.booking_id}</span>
             <StatusBadge status={booking.status} />
-            {booking.payment_status !== 'succeeded' && <StatusBadge status={booking.payment_status} label={`Payment ${humanize(booking.payment_status).toLowerCase()}`} />}
-            <Badge tone="gray">{humanize(booking.source)}</Badge>
+            {booking.payment_status !== 'succeeded' && <StatusBadge status={booking.payment_status} prefix="payment" />}
+            <Badge tone="gray">{label(booking.source)}</Badge>
           </span>
         }
         actions={
@@ -91,18 +91,18 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
             )}
             {admin.can('bookings.update') && booking.status === 'confirmed' && started && (
               <>
-                <ActionButton url={`/api/admin/bookings/${booking.id}/outcome`} body={{ outcome: 'completed' }} label="Mark completed" successMessage="Marked completed" />
+                <ActionButton url={`/api/admin/bookings/${booking.id}/outcome`} body={{ outcome: 'completed' }} label={t('sessions.detail.markCompleted')} successMessage={t('sessions.detail.markedCompleted')} />
                 <ActionButton
                   url={`/api/admin/bookings/${booking.id}/outcome`}
                   body={{ outcome: 'no_show' }}
-                  label="Mark no-show"
-                  successMessage="Marked no-show"
-                  confirm={{ title: 'Mark as no-show?', body: 'The customer did not come. No refund is issued; you can undo this.', confirmLabel: 'Mark no-show' }}
+                  label={t('sessions.detail.markNoShow')}
+                  successMessage={t('sessions.detail.markedNoShow')}
+                  confirm={{ title: t('sessions.detail.noShowTitle'), body: t('sessions.detail.noShowBody'), confirmLabel: t('sessions.detail.markNoShow') }}
                 />
               </>
             )}
             {admin.can('bookings.update') && (booking.status === 'completed' || booking.status === 'no_show') && (
-              <ActionButton url={`/api/admin/bookings/${booking.id}/outcome`} body={{ outcome: 'confirmed' }} label="Reopen" successMessage="Session reopened" />
+              <ActionButton url={`/api/admin/bookings/${booking.id}/outcome`} body={{ outcome: 'confirmed' }} label={t('sessions.detail.reopen')} successMessage={t('sessions.detail.reopened')} />
             )}
             {canCancel && <CancelBookingDialog bookingUuid={booking.id} bookingCode={booking.booking_id} paid={decimalToCents(booking.total_amount) > 0 && booking.payment_status === 'succeeded'} usesCredit={!!booking.customer_package_id} />}
           </>
@@ -111,8 +111,8 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
 
       {booking.needs_refund_review && (
         <div className="mb-4">
-          <Notice tone="red" title="Refund decision needed">
-            {booking.review_reason || 'This booking was paid but cannot go ahead.'} {purchase && <Link href={`/admin/purchases/${purchase.id}`}>Open the purchase</Link>}
+          <Notice tone="red" title={t('sessions.detail.refundNeeded')}>
+            {booking.review_reason || t('sessions.detail.refundNeededFallback')} {purchase && <Link href={`/admin/purchases/${purchase.id}`}>{t('sessions.detail.openPurchase')}</Link>}
           </Notice>
         </div>
       )}
@@ -120,30 +120,33 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
       {/* What the studio needs to prepare: answers and extras (no prices — visible to every role). */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-2 grid gap-4 min-w-0">
-          <Card title="Session">
+          <Card title={t('sessions.detail.sessionCard')}>
             <DefinitionList
               items={[
-                ['Date', formatDateLabel(date)],
-                ['Time (ET)', `${formatTimeLabel(booking.start_time)} – ${formatTimeLabel(booking.end_time)} (${booking.duration_minutes} min)`],
-                ['Service', service ? `${service.name} · ${CATEGORY_LABELS[service.category] ?? service.category}` : '—'],
-                ['Room', 'Main Studio'],
-                ['Customer notes', booking.notes || '—'],
-                ['Created', formatInstantEt(booking.created_at)],
-                ['Updated', formatInstantEt(booking.updated_at)],
-                ...(booking.cancelled_at ? ([['Cancelled', `${formatInstantEt(booking.cancelled_at)}${booking.cancellation_reason ? ` — ${booking.cancellation_reason}` : ''}`]] as [string, string][]) : []),
-                ...(booking.completed_at ? ([['Completed', formatInstantEt(booking.completed_at)]] as [string, string][]) : []),
-                ...(booking.no_show_at ? ([['No-show recorded', formatInstantEt(booking.no_show_at)]] as [string, string][]) : []),
+                [t('sessions.detail.date'), f.date(date)],
+                [t('sessions.detail.timeEt'), `${f.time(booking.start_time)} – ${f.time(booking.end_time)} (${t('sessions.detail.duration', { minutes: booking.duration_minutes })})`],
+                [t('sessions.detail.service'), service ? `${service.name} · ${label(service.category)}` : '—'],
+                [t('sessions.detail.room'), t('sessions.detail.mainStudio')],
+                [t('sessions.detail.customerNotes'), booking.notes || '—'],
+                [t('sessions.detail.created'), f.instant(booking.created_at)],
+                [t('sessions.detail.updated'), f.instant(booking.updated_at)],
+                ...(booking.cancelled_at
+                  ? ([[t('sessions.detail.cancelled'), `${f.instant(booking.cancelled_at)}${booking.cancellation_reason ? ` — ${booking.cancellation_reason}` : ''}`]] as [string, string][])
+                  : []),
+                ...(booking.completed_at ? ([[t('sessions.detail.completed'), f.instant(booking.completed_at)]] as [string, string][]) : []),
+                ...(booking.no_show_at ? ([[t('sessions.detail.noShowRecorded'), f.instant(booking.no_show_at)]] as [string, string][]) : []),
               ]}
             />
           </Card>
 
           {(prepRows.length > 0 || extras.length > 0 || guestEmails.length > 0) && (
-            <Card title="Session preparation">
+            <Card title={t('sessions.detail.preparation')}>
               <DefinitionList
                 items={[
-                  ...(extras.length > 0 ? ([['Extras', extras.join(', ')]] as [string, string][]) : []),
-                  ...prepRows,
-                  ...(guestEmails.length > 0 ? ([['Guests', guestEmails.join(', ')]] as [string, string][]) : []),
+                  ...(extras.length > 0 ? ([[t('sessions.detail.extras'), extras.join(', ')]] as [string, string][]) : []),
+                  // Question labels are ours (translated); the answers are the customer's own words.
+                  ...prepRows.map(([q, a]) => [t.dynamic(`sessions.detail.intake.${q}`, q), a] as [string, string]),
+                  ...(guestEmails.length > 0 ? ([[t('sessions.detail.guests'), guestEmails.join(', ')]] as [string, string][]) : []),
                 ]}
               />
             </Card>
@@ -151,12 +154,12 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
 
           {showMoney && (
             <Card
-              title="Payment"
+              title={t('sessions.detail.payment')}
               actions={
                 purchase && (
                   <>
                     <Link href={`/admin/purchases/${purchase.id}`} className="crm-btn crm-btn-sm">
-                      Purchase {purchase.order_number}
+                      {t('sessions.detail.purchaseLink', { order: purchase.order_number })}
                     </Link>
                     {admin.can('bookings.refund') && refundable && refundable.available > 0 && ['paid', 'partially_refunded'].includes(purchase.status) && (
                       <RefundDialog
@@ -178,31 +181,40 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
             >
               <DefinitionList
                 items={[
-                  ['Subtotal', <Money key="s" cents={decimalToCents(booking.subtotal)} />],
-                  ['Tax', <Money key="t" cents={decimalToCents(booking.tax_amount)} />],
-                  ['Total', <Money key="tt" cents={decimalToCents(booking.total_amount)} className="font-semibold" />],
-                  ['Payment status', <StatusBadge key="ps" status={booking.payment_status} />],
-                  ['Purchase status', purchase ? <StatusBadge status={purchase.status} /> : '—'],
-                  ['Method', purchase ? humanize(purchase.payment_method) : '—'],
-                  ['Refunded', purchase ? <Money cents={purchase.refunded_cents} /> : '—'],
-                  ['Stripe Checkout', booking.stripe_session_id ? <code className="text-xs break-all">{booking.stripe_session_id}</code> : '—'],
-                  ['Stripe payment', booking.stripe_payment_id ? <code className="text-xs break-all">{booking.stripe_payment_id}</code> : '—'],
-                  ...(pkg ? ([['Package credit', <Link key="pk" href={`/admin/packages/${pkg.id}`}>{(pkg.plan_snapshot as { name?: string }).name ?? 'Package'} ({pkg.remaining_credits} left)</Link>]] as [string, React.ReactNode][]) : []),
+                  [t('sessions.detail.subtotal'), <Money key="s" cents={decimalToCents(booking.subtotal)} />],
+                  [t('sessions.detail.tax'), <Money key="t" cents={decimalToCents(booking.tax_amount)} />],
+                  [t('sessions.detail.total'), <Money key="tt" cents={decimalToCents(booking.total_amount)} className="font-semibold" />],
+                  [t('sessions.detail.paymentStatus'), <StatusBadge key="ps" status={booking.payment_status} />],
+                  [t('sessions.detail.purchaseStatus'), purchase ? <StatusBadge status={purchase.status} /> : '—'],
+                  [t('sessions.detail.method'), purchase ? label(purchase.payment_method) : '—'],
+                  [t('sessions.detail.refunded'), purchase ? <Money cents={purchase.refunded_cents} /> : '—'],
+                  [t('sessions.detail.stripeCheckout'), booking.stripe_session_id ? <code className="text-xs break-all">{booking.stripe_session_id}</code> : '—'],
+                  [t('sessions.detail.stripePayment'), booking.stripe_payment_id ? <code className="text-xs break-all">{booking.stripe_payment_id}</code> : '—'],
+                  ...(pkg
+                    ? ([
+                        [
+                          t('sessions.detail.packageCredit'),
+                          <Link key="pk" href={`/admin/packages/${pkg.id}`}>
+                            {t('sessions.detail.packageLeft', { name: (pkg.plan_snapshot as { name?: string }).name ?? t('sessions.detail.packageFallback'), count: pkg.remaining_credits })}
+                          </Link>,
+                        ],
+                      ] as [string, React.ReactNode][])
+                    : []),
                 ]}
               />
               {items.length > 0 && (
                 <p className="text-xs text-zayro-gray mt-3">
-                  Line item (snapshot at purchase): {items.map((i) => `${i.description_snapshot} — ${(i.total_cents / 100).toFixed(2)}`).join('; ')}
+                  {t('sessions.detail.lineItems', { items: items.map((i) => `${i.description_snapshot} — ${f.money(i.total_cents)}`).join('; ') })}
                 </p>
               )}
               {extensions.length > 0 && (
                 <div className="mt-3 text-sm">
-                  <p className="font-semibold">Extra time (customer self-service)</p>
+                  <p className="font-semibold">{t('sessions.detail.extraTime')}</p>
                   <ul className="divide-y divide-zayro-border border-t border-zayro-border">
                     {extensions.map((x) => (
                       <li key={x.id} className="py-2 flex flex-wrap justify-between gap-2">
                         <span>
-                          {x.prevEnd} → {x.newEnd} ET · <StatusBadge status={x.status} />
+                          {f.time(x.prevEnd)} → {f.time(x.newEnd)} ET · <StatusBadge status={x.status} />
                         </span>
                         <Link href={`/admin/purchases/${x.purchaseId}`}>
                           {x.order} · <Money cents={x.total} />
@@ -217,10 +229,10 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
                   {refundRows.map((r) => (
                     <li key={r.id} className="py-2 flex flex-wrap justify-between gap-2">
                       <span>
-                        Refund <Money cents={r.amount_cents} /> · {r.reason}
+                        {t('sessions.detail.refundRow')} <Money cents={r.amount_cents} /> · {r.reason}
                       </span>
                       <span className="flex items-center gap-2 text-xs text-zayro-gray">
-                        <StatusBadge status={r.status} /> {formatInstantEt(r.created_at)}
+                        <StatusBadge status={r.status} /> {f.instant(r.created_at)}
                       </span>
                     </li>
                   ))}
@@ -230,34 +242,37 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
           )}
 
           <Card
-            title="Google Calendar, Sheets and email"
+            title={t('sessions.detail.syncTitle')}
             actions={
               admin.can('integrations.retry') &&
               booking.status === 'confirmed' && (
-                <ActionButton url={`/api/admin/bookings/${booking.id}/sync`} label="Retry Calendar + Sheets" successMessage="Sync finished — see the log below" className="crm-btn crm-btn-sm" />
+                <ActionButton url={`/api/admin/bookings/${booking.id}/sync`} label={t('sessions.detail.retrySync')} successMessage={t('sessions.detail.syncDone')} className="crm-btn crm-btn-sm" />
               )
             }
           >
             <DefinitionList
               items={[
-                ['Calendar event', booking.google_calendar_event_id ? <code className="text-xs break-all">{booking.google_calendar_event_id}</code> : <span className="text-red-700">not created</span>],
-                ['Sheets row', booking.google_sheets_row_id || (sheetExpected ? <span className="text-red-700">missing</span> : 'not needed for this booking')],
+                [
+                  t('sessions.detail.calendarEvent'),
+                  booking.google_calendar_event_id ? <code className="text-xs break-all">{booking.google_calendar_event_id}</code> : <span className="text-red-700">{t('sessions.detail.notCreated')}</span>,
+                ],
+                [t('sessions.detail.sheetsRow'), booking.google_sheets_row_id || (sheetExpected ? <span className="text-red-700">{t('sessions.detail.missing')}</span> : t('sessions.detail.notNeeded'))],
               ]}
             />
             {emails.length > 0 && (
               <div className="mt-4">
-                <h3 className="text-sm font-semibold mb-2">Emails</h3>
+                <h3 className="text-sm font-semibold mb-2">{t('sessions.detail.emails')}</h3>
                 <ul className="text-sm divide-y divide-zayro-border">
                   {emails.map((e) => (
                     <li key={e.id} className="py-2 flex flex-wrap items-center justify-between gap-2">
                       <span>
-                        {humanize(e.template)} → {e.recipient_type}
+                        {label(e.template)} → {label(e.recipient_type)}
                         {e.error && <span className="block text-xs text-red-700">{e.error}</span>}
                       </span>
                       <span className="flex items-center gap-2">
                         <StatusBadge status={e.status} />
                         {admin.can('integrations.retry') && e.status !== 'sent' && (
-                          <ActionButton url={`/api/admin/emails/${e.id}/retry`} label="Retry email" className="crm-btn crm-btn-sm" successMessage="Email retried" />
+                          <ActionButton url={`/api/admin/emails/${e.id}/retry`} label={t('sessions.detail.retryEmail')} className="crm-btn crm-btn-sm" successMessage={t('sessions.detail.emailRetried')} />
                         )}
                       </span>
                     </li>
@@ -265,16 +280,16 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
                 </ul>
               </div>
             )}
-            <h3 className="text-sm font-semibold mt-4 mb-2">Integration log</h3>
+            <h3 className="text-sm font-semibold mt-4 mb-2">{t('sessions.detail.integrationLog')}</h3>
             {logs.length === 0 ? (
-              <p className="text-sm text-zayro-gray">No integration activity.</p>
+              <p className="text-sm text-zayro-gray">{t('sessions.detail.noActivity')}</p>
             ) : (
               <ul className="text-xs divide-y divide-zayro-border">
                 {logs.map((l) => (
                   <li key={l.id} className="py-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
-                    <span className="text-zayro-gray whitespace-nowrap">{formatInstantEt(l.created_at)}</span>
-                    <span className="font-medium">{humanize(l.integration_type)}</span>
-                    <span className={l.status === 'success' ? 'text-emerald-700' : 'text-red-700'}>{l.status}</span>
+                    <span className="text-zayro-gray whitespace-nowrap">{f.instant(l.created_at)}</span>
+                    <span className="font-medium">{label(l.integration_type)}</span>
+                    <span className={l.status === 'success' ? 'text-emerald-700' : 'text-red-700'}>{label(l.status)}</span>
                     <span className="text-zayro-gray break-words min-w-0">{l.error_message || (l.response_data as { message?: string } | null)?.message || ''}</span>
                   </li>
                 ))}
@@ -284,27 +299,42 @@ export default async function SessionDetailPage({ params }: { params: { id: stri
         </div>
 
         <div className="grid gap-4 content-start min-w-0">
-          <Card title="Customer" actions={customer && admin.can('customers.read') && <Link href={`/admin/customers/${customer.id}`} className="crm-btn crm-btn-sm">Profile</Link>}>
+          <Card
+            title={t('sessions.detail.customer')}
+            actions={
+              customer &&
+              admin.can('customers.read') && (
+                <Link href={`/admin/customers/${customer.id}`} className="crm-btn crm-btn-sm">
+                  {t('sessions.detail.profile')}
+                </Link>
+              )
+            }
+          >
             <DefinitionList
               items={[
-                ['Name', customerName],
-                ['Email', <a key="e" href={`mailto:${booking.customer_email}`} className="break-all">{booking.customer_email}</a>],
-                ['Phone', booking.customer_phone ? <a key="p" href={`tel:${booking.customer_phone}`}>{booking.customer_phone}</a> : '—'],
-                ['Company', booking.company_name || '—'],
-                ...(customer && showMoney ? ([['Lifetime spend', <Money key="ls" cents={customer.total_spent_cents} />], ['Bookings', String(customer.booking_count)]] as [string, React.ReactNode][]) : []),
+                [t('sessions.detail.name'), customerName],
+                [t('sessions.detail.email'), <a key="e" href={`mailto:${booking.customer_email}`} className="break-all">{booking.customer_email}</a>],
+                [t('sessions.detail.phone'), booking.customer_phone ? <a key="p" href={`tel:${booking.customer_phone}`}>{booking.customer_phone}</a> : '—'],
+                [t('sessions.detail.company'), booking.company_name || '—'],
+                ...(customer && showMoney
+                  ? ([
+                      [t('sessions.detail.lifetimeSpend'), <Money key="ls" cents={customer.total_spent_cents} />],
+                      [t('sessions.detail.bookings'), f.number(customer.booking_count)],
+                    ] as [string, React.ReactNode][])
+                  : []),
               ]}
             />
           </Card>
 
-          <Card title="Internal notes">
+          <Card title={t('sessions.detail.internalNotes')}>
             {admin.can('notes.write') ? (
-              <NotesEditor url={`/api/admin/bookings/${booking.id}/notes`} initial={booking.internal_notes ?? ''} label="Visible to staff only" />
+              <NotesEditor url={`/api/admin/bookings/${booking.id}/notes`} initial={booking.internal_notes ?? ''} label={t('sessions.detail.staffOnly')} />
             ) : (
               <p className="text-sm whitespace-pre-wrap">{booking.internal_notes || '—'}</p>
             )}
           </Card>
 
-          <Card title="History">
+          <Card title={t('sessions.detail.history')}>
             <AuditTrail rows={audit} />
           </Card>
         </div>

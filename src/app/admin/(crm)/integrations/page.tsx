@@ -6,9 +6,9 @@ import { bookings, emailLogs, integrationLogs, services, webhookEvents } from '@
 import { rowsOf } from '@/lib/db/types';
 import { getAdminContext } from '@/lib/crm/auth';
 import { getGoogleConfigStatus } from '@/lib/googleAuth';
-import { formatDateLabel, formatInstantEt, formatTimeLabel } from '@/lib/crm/time';
+import { getAdminI18n } from '@/lib/i18n/server';
 import { toDateOnly } from '@/lib/utils';
-import { Card, DefinitionList, Forbidden, PageHeader, StatusBadge, humanize } from '@/components/crm/ui';
+import { Card, DefinitionList, Forbidden, PageHeader, StatusBadge } from '@/components/crm/ui';
 import { ActionButton } from '@/components/crm/client';
 import { GoogleConnectionTest, StripeWebhookStatus } from '@/components/admin/AdminControls';
 import { cameraConfig } from '@/lib/bookingOptions';
@@ -18,7 +18,7 @@ import { analyticsOperationalStatus } from '@/lib/analytics/server/config';
 
 export const dynamic = 'force-dynamic';
 
-function YesNo({ ok, yes = 'Yes', no = 'No' }: { ok: boolean; yes?: string; no?: string }) {
+function YesNo({ ok, yes, no }: { ok: boolean; yes: string; no: string }) {
   return <span className={ok ? 'text-emerald-700 font-medium' : 'text-red-700 font-medium'}>{ok ? yes : no}</span>;
 }
 
@@ -26,6 +26,9 @@ export default async function IntegrationsPage() {
   const admin = await getAdminContext();
   if (!admin) redirect('/admin/login');
   if (!admin.can('integrations.read')) return <Forbidden what="integrations" />;
+  const { t, f, label } = getAdminI18n(admin);
+  const yes = t('integrations.yes');
+  const no = t('integrations.no');
 
   // Booleans only; the switch is changed in Vercel, never from the CRM.
   const analytics = analyticsOperationalStatus();
@@ -81,39 +84,49 @@ export default async function IntegrationsPage() {
 
   return (
     <>
-      <PageHeader title="Integrations" description="Status of Stripe, email and Google. Only yes/no configuration is shown — credentials live in Vercel and are never displayed." />
+      <PageHeader title={t('common.nav.integrations')} description={t('integrations.description')} />
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <Card title="Health">
+        <Card title={t('integrations.health')}>
           <DefinitionList
             items={[
-              ['Database migrations applied', String(health?.migrations ?? '—')],
-              ['Double-booking constraint', <YesNo key="o" ok={!!health?.overlap} yes="Installed" no="Missing — overlapping bookings exist or btree_gist unavailable" />],
-              ['One customer per email', <YesNo key="u" ok={!!health?.unique_customers} yes="Enforced" no={`Not enforced (${health?.duplicate_groups ?? 0} duplicate group(s) to merge)`} />],
-              ['Stripe mode', <span key="m" className={stripeMode === 'Live' ? 'text-amber-800 font-medium' : ''}>{stripeMode}</span>],
-              ['Stripe webhook secret', <YesNo key="w" ok={!!process.env.STRIPE_WEBHOOK_SECRET} />],
-              ['Email (Resend)', <YesNo key="e" ok={!!process.env.RESEND_API_KEY && !!process.env.EMAIL_FROM} />],
-              ['Owner notifications to', process.env.OWNER_EMAIL ? 'configured' : <YesNo key="oe" ok={false} />],
+              [t('integrations.migrations'), health?.migrations === undefined ? '—' : f.number(health.migrations)],
+              [t('integrations.overlap'), <YesNo key="o" ok={!!health?.overlap} yes={t('integrations.installed')} no={t('integrations.overlapMissing')} />],
+              [
+                t('integrations.uniqueCustomers'),
+                <YesNo key="u" ok={!!health?.unique_customers} yes={t('integrations.enforced')} no={t('integrations.notEnforced', { count: health?.duplicate_groups ?? 0 })} />,
+              ],
+              [
+                t('integrations.stripeMode'),
+                <span key="m" className={stripeMode === 'Live' ? 'text-amber-800 font-medium' : ''}>
+                  {t(`integrations.modes.${stripeMode}`)}
+                </span>,
+              ],
+              [t('integrations.webhookSecret'), <YesNo key="w" ok={!!process.env.STRIPE_WEBHOOK_SECRET} yes={yes} no={no} />],
+              [t('integrations.email'), <YesNo key="e" ok={!!process.env.RESEND_API_KEY && !!process.env.EMAIL_FROM} yes={yes} no={no} />],
+              [t('integrations.ownerTo'), process.env.OWNER_EMAIL ? t('integrations.configured') : <YesNo key="oe" ok={false} yes={yes} no={no} />],
             ]}
           />
         </Card>
 
         <StripeWebhookStatus />
 
-        <Card title="Stripe webhook events" className="xl:col-span-2">
+        <Card title={t('integrations.events')} className="xl:col-span-2">
           {events.length === 0 ? (
-            <p className="text-sm text-zayro-gray">No events received yet.</p>
+            <p className="text-sm text-zayro-gray">{t('integrations.noEvents')}</p>
           ) : (
             <div className="crm-table-wrap -mx-5 md:-mx-6 -mb-5 md:-mb-6">
               <table className="crm-table min-w-[760px]">
-                <caption className="sr-only">Recent Stripe events</caption>
+                <caption className="sr-only">{t('integrations.eventsCaption')}</caption>
                 <thead>
                   <tr>
-                    <th scope="col">Received</th>
-                    <th scope="col">Event</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Result</th>
-                    <th scope="col">Tries</th>
-                    <th scope="col"><span className="sr-only">Actions</span></th>
+                    {(['received', 'event', 'status', 'result', 'tries'] as const).map((c) => (
+                      <th key={c} scope="col">
+                        {t(`integrations.cols.${c}`)}
+                      </th>
+                    ))}
+                    <th scope="col">
+                      <span className="sr-only">{t('integrations.cols.actions')}</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -121,7 +134,7 @@ export default async function IntegrationsPage() {
                     const p = (e.safe_payload ?? {}) as { result?: string; bookingId?: string };
                     return (
                       <tr key={e.id}>
-                        <td className="text-xs whitespace-nowrap">{formatInstantEt(e.received_at)}</td>
+                        <td className="text-xs whitespace-nowrap">{f.instant(e.received_at)}</td>
                         <td>
                           <code className="text-xs">{e.event_type}</code>
                           <div className="text-[11px] text-zayro-gray">{e.external_event_id}</div>
@@ -130,11 +143,11 @@ export default async function IntegrationsPage() {
                           <StatusBadge status={e.status} />
                         </td>
                         <td className="text-xs">
-                          {p.result ? humanize(p.result) : ''}
+                          {p.result ? label(p.result) : ''}
                           {p.bookingId && (
                             <>
                               {' '}
-                              · <Link href={`/admin/sessions/${p.bookingId}`}>booking</Link>
+                              · <Link href={`/admin/sessions/${p.bookingId}`}>{t('integrations.booking')}</Link>
                             </>
                           )}
                           {e.error && <div className="text-red-700 break-words">{e.error}</div>}
@@ -142,7 +155,7 @@ export default async function IntegrationsPage() {
                         <td className="tabular-nums">{e.attempts}</td>
                         <td>
                           {canRetry && e.status === 'failed' && (
-                            <ActionButton url={`/api/admin/webhooks/${e.external_event_id}/retry`} label="Retry" className="crm-btn crm-btn-sm" successMessage="Event reprocessed" />
+                            <ActionButton url={`/api/admin/webhooks/${e.external_event_id}/retry`} label={t('integrations.retry')} className="crm-btn crm-btn-sm" successMessage={t('integrations.reprocessed')} />
                           )}
                         </td>
                       </tr>
@@ -154,70 +167,77 @@ export default async function IntegrationsPage() {
           )}
         </Card>
 
-        <Card title="Email (last 30 days)">
+        <Card title={t('integrations.emailTitle')}>
           <div className="flex flex-wrap gap-4 text-sm mb-4">
             {(['sent', 'failed', 'skipped', 'pending'] as const).map((s) => (
               <span key={s}>
-                <StatusBadge status={s} /> <span className="tabular-nums">{emailCount[s] ?? 0}</span>
+                <StatusBadge status={s} /> <span className="tabular-nums">{f.number(emailCount[s] ?? 0)}</span>
               </span>
             ))}
           </div>
           {emailProblems.length === 0 ? (
-            <p className="text-sm text-zayro-gray">Nothing waiting to be retried.</p>
+            <p className="text-sm text-zayro-gray">{t('integrations.nothingToRetry')}</p>
           ) : (
             <ul className="divide-y divide-zayro-border text-sm">
               {emailProblems.map((e) => (
                 <li key={e.id} className="py-2 flex flex-wrap items-start justify-between gap-2">
                   <span className="min-w-0">
-                    {humanize(e.template)} → {e.recipient_type}
+                    {label(e.template)} → {label(e.recipient_type)}
                     {e.booking_id && (
                       <>
                         {' '}
-                        · <Link href={`/admin/sessions/${e.booking_id}`}>booking</Link>
+                        · <Link href={`/admin/sessions/${e.booking_id}`}>{t('integrations.booking')}</Link>
                       </>
                     )}
                     <span className="block text-xs text-zayro-gray">
-                      {formatInstantEt(e.created_at)} · {e.attempts} attempt(s){e.error ? ` · ${e.error}` : ''}
+                      {f.instant(e.created_at)} · {t('integrations.attempts', { count: e.attempts })}
+                      {e.error ? ` · ${e.error}` : ''}
                     </span>
                   </span>
                   <span className="flex items-center gap-2">
                     <StatusBadge status={e.status} />
-                    {canRetry && <ActionButton url={`/api/admin/emails/${e.id}/retry`} label="Retry" className="crm-btn crm-btn-sm" successMessage="Email retried" />}
+                    {canRetry && <ActionButton url={`/api/admin/emails/${e.id}/retry`} label={t('integrations.retry')} className="crm-btn crm-btn-sm" successMessage={t('integrations.emailRetried')} />}
                   </span>
                 </li>
               ))}
             </ul>
           )}
-          <p className="text-xs text-zayro-gray mt-3">Retrying an email never re-sends one that already went out, and never touches Calendar or Sheets.</p>
+          <p className="text-xs text-zayro-gray mt-3">{t('integrations.emailNote')}</p>
         </Card>
 
-        <Card title="Configuration">
+        <Card title={t('integrations.configuration')}>
           <DefinitionList
             items={[
-              ['Manage Booking links (BOOKING_MANAGE_SECRET)', <YesNo key="m" ok={isManageSecretConfigured()} yes="configured" no="missing — links disabled" />],
+              [t('integrations.manageLinks'), <YesNo key="m" ok={isManageSecretConfigured()} yes={t('integrations.configured')} no={t('integrations.linksMissing')} />],
               ...cameraRows.map((r): [string, React.ReactNode] => [
-                `Cameras: ${r.name}`,
-                r.config.ok ? `${r.config.included} included · up to ${Math.max(0, 3 - r.config.included)} extra` : <span key={r.id} className="text-red-700 font-medium">Invalid ({r.config.reason}) — Additional Camera off</span>,
+                t('integrations.cameras', { name: r.name }),
+                r.config.ok ? (
+                  t('integrations.camerasValue', { included: r.config.included, extra: Math.max(0, 3 - r.config.included) })
+                ) : (
+                  <span key={r.id} className="text-red-700 font-medium">
+                    {t('integrations.camerasInvalid', { reason: r.config.reason })}
+                  </span>
+                ),
               ]),
               [
-                'Marketing analytics vendors (ANALYTICS_VENDORS_ENABLED)',
+                t('integrations.vendors'),
                 <span key="av">
-                  <YesNo ok={analytics.vendorSwitch} yes="ON" no="OFF — no tag or vendor API is used" />
-                  {analytics.vendorSwitch && !analytics.activeInThisEnvironment ? ` · inactive in ${analytics.environment}` : ''}
+                  <YesNo ok={analytics.vendorSwitch} yes={t('integrations.on')} no={t('integrations.vendorsOff')} />
+                  {analytics.vendorSwitch && !analytics.activeInThisEnvironment ? t('integrations.inactiveIn', { env: analytics.environment }) : ''}
                 </span>,
               ],
-              ['Analytics click-ID encryption (ANALYTICS_ENCRYPTION_SECRET)', <YesNo key="ae" ok={analytics.encryptionSecretConfigured} yes="configured" no="missing — click IDs not stored" />],
-              ['Analytics delivery/retention cron (CRON_SECRET)', <YesNo key="ac" ok={analytics.cronSecretConfigured} yes="configured" no="missing — cron job refused" />],
-              ['Sheets “Paid Bookings” extra-time columns', `Optional U1:X1 headers: ${PAID_BOOKINGS_EXTENSION_HEADERS.join(' · ')} (use “Test connection” to check)`],
+              [t('integrations.encryption'), <YesNo key="ae" ok={analytics.encryptionSecretConfigured} yes={t('integrations.configured')} no={t('integrations.encryptionMissing')} />],
+              [t('integrations.cron'), <YesNo key="ac" ok={analytics.cronSecretConfigured} yes={t('integrations.configured')} no={t('integrations.cronMissing')} />],
+              [t('integrations.sheetsColumns'), t('integrations.sheetsColumnsValue', { headers: PAID_BOOKINGS_EXTENSION_HEADERS.join(' · ') })],
             ]}
           />
           {configWarnings.length > 0 && (
             <>
-              <h3 className="text-sm font-semibold mt-5 mb-2">Recent configuration warnings</h3>
+              <h3 className="text-sm font-semibold mt-5 mb-2">{t('integrations.warnings')}</h3>
               <ul className="text-xs divide-y divide-zayro-border">
                 {configWarnings.map((l) => (
                   <li key={l.id} className="py-1.5">
-                    <span className="text-zayro-gray">{formatInstantEt(l.created_at)}</span> · <span className="text-red-700">{l.error_message}</span>
+                    <span className="text-zayro-gray">{f.instant(l.created_at)}</span> · <span className="text-red-700">{l.error_message}</span>
                   </li>
                 ))}
               </ul>
@@ -225,28 +245,28 @@ export default async function IntegrationsPage() {
           )}
         </Card>
 
-        <Card title="Google Calendar & Sheets">
+        <Card title={t('integrations.google')}>
           <DefinitionList
             items={[
-              ['Calendar configured', <YesNo key="c" ok={google.calendarConfigured} />],
-              ['Sheets configured', <YesNo key="s" ok={google.sheetsConfigured} />],
-              ['Service account key valid', <YesNo key="k" ok={google.privateKeyValid} />],
-              ['Sheet tabs', 'Paid Bookings · Studio Tours'],
-              ['Last Calendar success', formatInstantEt(lastCal?.created_at)],
-              ['Last Sheets success', formatInstantEt(lastSheet?.created_at)],
+              [t('integrations.calendarConfigured'), <YesNo key="c" ok={google.calendarConfigured} yes={yes} no={no} />],
+              [t('integrations.sheetsConfigured'), <YesNo key="s" ok={google.sheetsConfigured} yes={yes} no={no} />],
+              [t('integrations.keyValid'), <YesNo key="k" ok={google.privateKeyValid} yes={yes} no={no} />],
+              [t('integrations.tabs'), 'Paid Bookings · Studio Tours'],
+              [t('integrations.lastCalendar'), f.instant(lastCal?.created_at)],
+              [t('integrations.lastSheets'), f.instant(lastSheet?.created_at)],
             ]}
           />
           <GoogleConnectionTest />
           {missingSync.length > 0 && (
             <>
-              <h3 className="text-sm font-semibold mt-5 mb-2">Upcoming bookings without a Calendar event</h3>
+              <h3 className="text-sm font-semibold mt-5 mb-2">{t('integrations.missingSync')}</h3>
               <ul className="divide-y divide-zayro-border text-sm">
                 {missingSync.map((b) => (
                   <li key={b.id} className="py-2 flex flex-wrap items-center justify-between gap-2">
                     <Link href={`/admin/sessions/${b.id}`}>
-                      {formatDateLabel(toDateOnly(b.date))} {formatTimeLabel(b.start)} · {b.service}
+                      {f.date(toDateOnly(b.date))} {f.time(b.start)} · {b.service}
                     </Link>
-                    {canRetry && <ActionButton url={`/api/admin/bookings/${b.id}/sync`} label="Retry sync" className="crm-btn crm-btn-sm" successMessage="Sync attempted" />}
+                    {canRetry && <ActionButton url={`/api/admin/bookings/${b.id}/sync`} label={t('integrations.retrySync')} className="crm-btn crm-btn-sm" successMessage={t('integrations.syncAttempted')} />}
                   </li>
                 ))}
               </ul>
@@ -254,12 +274,12 @@ export default async function IntegrationsPage() {
           )}
           {googleFailures.length > 0 && (
             <>
-              <h3 className="text-sm font-semibold mt-5 mb-2">Recent failures</h3>
+              <h3 className="text-sm font-semibold mt-5 mb-2">{t('integrations.failures')}</h3>
               <ul className="text-xs divide-y divide-zayro-border">
                 {googleFailures.map((l) => (
                   <li key={l.id} className="py-1.5">
-                    <span className="text-zayro-gray">{formatInstantEt(l.created_at)}</span> · {humanize(l.integration_type)} ·{' '}
-                    {l.booking_id ? <Link href={`/admin/sessions/${l.booking_id}`}>booking</Link> : '—'} · <span className="text-red-700">{l.error_message}</span>
+                    <span className="text-zayro-gray">{f.instant(l.created_at)}</span> · {label(l.integration_type)} ·{' '}
+                    {l.booking_id ? <Link href={`/admin/sessions/${l.booking_id}`}>{t('integrations.booking')}</Link> : '—'} · <span className="text-red-700">{l.error_message}</span>
                   </li>
                 ))}
               </ul>

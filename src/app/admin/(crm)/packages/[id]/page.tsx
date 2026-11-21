@@ -6,8 +6,8 @@ import { bookings, customerPackages, customers, packageCreditTransactions, purch
 import { getAdminContext } from '@/lib/crm/auth';
 import { expireDuePackages } from '@/lib/crm/packages';
 import { auditFor } from '@/lib/crm/queries';
-import { formatInstantEt } from '@/lib/crm/time';
-import { Card, DefinitionList, Forbidden, PageHeader, StatCard, StatusBadge, humanize } from '@/components/crm/ui';
+import { getAdminI18n } from '@/lib/i18n/server';
+import { Card, DefinitionList, Forbidden, PageHeader, StatCard, StatusBadge } from '@/components/crm/ui';
 import { AdjustCreditsForm, CancelPackageButton } from '@/components/crm/packages';
 import { AuditTrail } from '@/components/crm/AuditTrail';
 
@@ -18,6 +18,7 @@ export default async function PackageDetailPage({ params }: { params: { id: stri
   if (!admin) redirect('/admin/login');
   if (!admin.can('packages.read')) return <Forbidden what="packages" />;
   if (!/^[0-9a-f-]{36}$/i.test(params.id)) notFound();
+  const { t, f, label } = getAdminI18n(admin);
 
   await expireDuePackages();
   const pkg = await db.query.customerPackages.findFirst({ where: eq(customerPackages.id, params.id) });
@@ -41,8 +42,8 @@ export default async function PackageDetailPage({ params }: { params: { id: stri
   return (
     <>
       <PageHeader
-        title={snap.name ?? 'Package'}
-        back={{ href: '/admin/packages', label: 'Packages' }}
+        title={snap.name ?? t('packages.packageFallback')}
+        back={{ href: '/admin/packages', label: t('common.nav.packages') }}
         description={
           <span className="inline-flex flex-wrap items-center gap-2">
             {customer && <Link href={`/admin/customers/${customer.id}`}>{[customer.first_name, customer.last_name].filter(Boolean).join(' ') || customer.email}</Link>}
@@ -53,7 +54,7 @@ export default async function PackageDetailPage({ params }: { params: { id: stri
           <>
             {canBook && (
               <Link href={`/admin/sessions/new?customerId=${pkg.customer_id}`} className="crm-btn crm-btn-primary">
-                Book with a credit
+                {t('packages.detail.bookWithCredit')}
               </Link>
             )}
             {manage && pkg.status !== 'cancelled' && <CancelPackageButton packageId={pkg.id} />}
@@ -61,42 +62,47 @@ export default async function PackageDetailPage({ params }: { params: { id: stri
         }
       />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <StatCard label="Credits left" value={pkg.remaining_credits} tone={pkg.remaining_credits === 0 ? 'warn' : 'good'} />
-        <StatCard label="Granted" value={pkg.total_credits} />
-        <StatCard label="Starts" value={<span className="text-base">{formatInstantEt(pkg.starts_at)}</span>} />
-        <StatCard label="Expires" value={<span className="text-base">{formatInstantEt(pkg.expires_at)}</span>} />
+        <StatCard label={t('packages.detail.creditsLeft')} value={f.number(pkg.remaining_credits)} tone={pkg.remaining_credits === 0 ? 'warn' : 'good'} />
+        <StatCard label={t('packages.detail.granted')} value={f.number(pkg.total_credits)} />
+        <StatCard label={t('packages.detail.starts')} value={<span className="text-base">{f.instant(pkg.starts_at)}</span>} />
+        <StatCard label={t('packages.detail.expires')} value={<span className="text-base">{f.instant(pkg.expires_at)}</span>} />
       </div>
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <Card title="Credit ledger" className="xl:col-span-2">
+        <Card title={t('packages.detail.ledger')} className="xl:col-span-2">
           <div className="crm-table-wrap -mx-5 md:-mx-6 -mb-5 md:-mb-6">
             <table className="crm-table min-w-[560px]">
-              <caption className="sr-only">Credit transactions</caption>
+              <caption className="sr-only">{t('packages.detail.ledgerCaption')}</caption>
               <thead>
                 <tr>
-                  <th scope="col">When</th>
-                  <th scope="col">Type</th>
+                  <th scope="col">{t('packages.detail.when')}</th>
+                  <th scope="col">{t('packages.detail.type')}</th>
                   <th scope="col" className="text-right">
-                    Credits
+                    {t('packages.detail.credits')}
                   </th>
                   <th scope="col" className="text-right">
-                    Balance
+                    {t('packages.detail.balance')}
                   </th>
-                  <th scope="col">Booking / reason</th>
+                  <th scope="col">{t('packages.detail.bookingReason')}</th>
                 </tr>
               </thead>
               <tbody>
-                {ledger.map(({ t, code }) => (
-                  <tr key={t.id}>
-                    <td className="text-xs whitespace-nowrap">{formatInstantEt(t.created_at)}</td>
-                    <td>{humanize(t.type)}</td>
-                    <td className={`text-right tabular-nums ${t.credits < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
-                      {t.credits > 0 ? '+' : ''}
-                      {t.credits}
+                {ledger.map(({ t: tx, code }) => (
+                  <tr key={tx.id}>
+                    <td className="text-xs whitespace-nowrap">{f.instant(tx.created_at)}</td>
+                    <td>{label(tx.type)}</td>
+                    <td className={`text-right tabular-nums ${tx.credits < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                      {tx.credits > 0 ? '+' : ''}
+                      {f.number(tx.credits)}
                     </td>
-                    <td className="text-right tabular-nums">{t.balance_after}</td>
+                    <td className="text-right tabular-nums">{f.number(tx.balance_after)}</td>
                     <td className="text-sm">
-                      {t.booking_id && code && <Link href={`/admin/sessions/${t.booking_id}`} className="font-mono text-xs">{code}</Link>} {t.reason}
-                      <div className="text-xs text-zayro-gray">{t.actor_email ?? 'system'}</div>
+                      {tx.booking_id && code && (
+                        <Link href={`/admin/sessions/${tx.booking_id}`} className="font-mono text-xs">
+                          {code}
+                        </Link>
+                      )}{' '}
+                      {tx.reason}
+                      <div className="text-xs text-zayro-gray">{tx.actor_email ?? t('packages.detail.system')}</div>
                     </td>
                   </tr>
                 ))}
@@ -105,21 +111,30 @@ export default async function PackageDetailPage({ params }: { params: { id: stri
           </div>
         </Card>
         <div className="grid gap-4 content-start">
-          <Card title="Details">
+          <Card title={t('packages.detail.details')}>
             <DefinitionList
               items={[
-                ['Valid for', snap.eligible ?? 'Any session'],
-                ['Purchase', purchase ? <Link key="p" href={`/admin/purchases/${purchase.id}`}>{purchase.order_number} ({humanize(purchase.status)})</Link> : '—'],
-                ['Notes', pkg.notes || '—'],
+                [t('packages.detail.validFor'), snap.eligible ?? t('packages.anySession')],
+                [
+                  t('packages.detail.purchase'),
+                  purchase ? (
+                    <Link key="p" href={`/admin/purchases/${purchase.id}`}>
+                      {purchase.order_number} ({label(purchase.status)})
+                    </Link>
+                  ) : (
+                    '—'
+                  ),
+                ],
+                [t('packages.detail.notes'), pkg.notes || '—'],
               ]}
             />
           </Card>
           {manage && pkg.status !== 'cancelled' && (
-            <Card title="Adjust credits">
+            <Card title={t('packages.detail.adjust')}>
               <AdjustCreditsForm packageId={pkg.id} remaining={pkg.remaining_credits} />
             </Card>
           )}
-          <Card title="History">
+          <Card title={t('packages.detail.history')}>
             <AuditTrail rows={audit} />
           </Card>
         </div>

@@ -4,6 +4,7 @@ import { getBaseUrl } from '@/lib/utils';
 import { consumeLoginToken } from '@/lib/crm/login';
 import { isSameOrigin } from '@/lib/crm/auth';
 import { enforceRateLimit } from '@/lib/crm/rateLimit';
+import { ADMIN_LOCALE_COOKIE } from '@/lib/i18n/config';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
 
   const form = await request.formData().catch(() => null);
   const token = typeof form?.get('token') === 'string' ? String(form!.get('token')) : '';
-  const result = token ? await consumeLoginToken(token) : ({ ok: false, reason: 'invalid_or_expired' } as const);
+  const result = token ? await consumeLoginToken(token, request.cookies.get(ADMIN_LOCALE_COOKIE)?.value) : ({ ok: false, reason: 'invalid_or_expired' } as const);
   if (!result.ok) {
     return NextResponse.redirect(`${baseUrl}/admin/login?error=${result.reason === 'already_used' ? 'already_used' : 'invalid_or_expired'}`, 303);
   }

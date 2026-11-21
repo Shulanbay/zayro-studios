@@ -6,6 +6,8 @@ import { errorResponse } from '@/lib/crm/errors';
 import { parseRange } from '@/lib/crm/range';
 import { addDays } from '@/lib/crm/time';
 import { exportRows, parseModel, type ExportRow } from '@/lib/analytics/server/metrics';
+import { getAdminI18n } from '@/lib/i18n/server';
+import type { AdminI18n } from '@/lib/i18n';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,23 +20,28 @@ const rate = (a: number, b: number) => (b > 0 ? (a / b).toFixed(4) : '');
  * booking references, Stripe / Calendar IDs, tokens, click IDs, IPs or
  * User-Agents. Formula-injection safe (shared CSV writer). Audited.
  */
-const COLUMNS: CsvColumn<ExportRow>[] = [
-  { header: 'Date (ET)', value: (r) => r.date },
-  { header: 'Source', value: (r) => r.source },
-  { header: 'Medium', value: (r) => r.medium },
-  { header: 'Campaign', value: (r) => r.campaign },
-  { header: 'Sessions', value: (r) => r.sessions },
-  { header: 'Visitors', value: (r) => r.visitors },
-  { header: 'Page views', value: (r) => r.pageViews },
-  { header: 'Booking starts', value: (r) => r.bookingStarts },
-  { header: 'Checkouts', value: (r) => r.checkouts },
-  { header: 'Purchases', value: (r) => r.purchases },
-  { header: 'Gross revenue (USD)', value: (r) => money(r.gross) },
-  { header: 'Refunds (USD)', value: (r) => money(r.refunds) },
-  { header: 'Net revenue (USD)', value: (r) => money(r.net) },
-  { header: 'Booking start rate (starts / sessions)', value: (r) => rate(r.bookingStarts, r.sessions) },
-  { header: 'Purchase rate (purchases / sessions)', value: (r) => rate(r.purchases, r.sessions) },
-];
+/** Column headers follow the admin's language; values stay machine-readable (ISO dates, dot decimals, USD). */
+function columns({ t }: AdminI18n): CsvColumn<ExportRow>[] {
+  const h = (key: 'date' | 'source' | 'medium' | 'campaign' | 'sessions' | 'visitors' | 'pageViews' | 'bookingStarts' | 'checkouts' | 'purchases' | 'gross' | 'refunds' | 'net' | 'startRate' | 'purchaseRate') =>
+    t(`analytics.export.${key}`);
+  return [
+    { header: h('date'), value: (r) => r.date },
+    { header: h('source'), value: (r) => r.source },
+    { header: h('medium'), value: (r) => r.medium },
+    { header: h('campaign'), value: (r) => r.campaign },
+    { header: h('sessions'), value: (r) => r.sessions },
+    { header: h('visitors'), value: (r) => r.visitors },
+    { header: h('pageViews'), value: (r) => r.pageViews },
+    { header: h('bookingStarts'), value: (r) => r.bookingStarts },
+    { header: h('checkouts'), value: (r) => r.checkouts },
+    { header: h('purchases'), value: (r) => r.purchases },
+    { header: h('gross'), value: (r) => money(r.gross) },
+    { header: h('refunds'), value: (r) => money(r.refunds) },
+    { header: h('net'), value: (r) => money(r.net) },
+    { header: h('startRate'), value: (r) => rate(r.bookingStarts, r.sessions) },
+    { header: h('purchaseRate'), value: (r) => rate(r.purchases, r.sessions) },
+  ];
+}
 
 
 export async function GET(request: NextRequest) {
@@ -46,7 +53,7 @@ export async function GET(request: NextRequest) {
     if (range.from < addDays(range.to, -400)) range = { from: addDays(range.to, -400), to: range.to };
     const model = parseModel(sp.model);
     const rows = await exportRows(range, model);
-    const csv = toCsv(COLUMNS, rows);
+    const csv = toCsv(columns(getAdminI18n(guard.admin)), rows);
     await writeAudit({ actor: actorOf(guard.admin), operation: 'analytics.export', entityType: 'analytics', metadata: { from: range.from, to: range.to, model, rows: rows.length } });
     return new NextResponse(csv, {
       headers: {

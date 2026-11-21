@@ -155,6 +155,13 @@
       "when": 1791360000000,
       "tag": "0021_x_ads_destinations",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "5",
+      "when": 1791446400000,
+      "tag": "0022_admin_locale",
+      "breakpoints": true
     }
   ]
 }

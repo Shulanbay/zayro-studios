@@ -7,9 +7,10 @@ import { bookingExtensions, bookings, customerPackages, customers, integrationLo
 import { getAdminContext } from '@/lib/crm/auth';
 import { auditFor } from '@/lib/crm/queries';
 import { refundableCents } from '@/lib/crm/refunds';
-import { formatDateLabel, formatInstantEt, formatTimeLabel } from '@/lib/crm/time';
 import { toDateOnly } from '@/lib/utils';
-import { Card, DefinitionList, Forbidden, Money, Notice, PageHeader, StatusBadge, humanize } from '@/components/crm/ui';
+import { Card, DefinitionList, Forbidden, Money, Notice, PageHeader, StatusBadge } from '@/components/crm/ui';
+import { getAdminI18n } from '@/lib/i18n/server';
+import { rich } from '@/lib/i18n/rich';
 import { RefundDialog } from '@/components/crm/actions';
 import { MarkPaidButton, ResolveReviewButton } from '@/components/crm/purchase';
 import { AuditTrail } from '@/components/crm/AuditTrail';
@@ -21,6 +22,7 @@ export default async function PurchasePage({ params }: { params: { id: string } 
   if (!admin) redirect('/admin/login');
   if (!admin.can('purchases.read')) return <Forbidden what="purchases" />;
   if (!/^[0-9a-f-]{36}$/i.test(params.id)) notFound();
+  const { t, f, label } = getAdminI18n(admin);
 
   const purchase = await db.query.purchases.findFirst({ where: eq(purchases.id, params.id) });
   if (!purchase) notFound();
@@ -59,11 +61,11 @@ export default async function PurchasePage({ params }: { params: { id: string } 
   return (
     <>
       <PageHeader
-        title={`Order ${purchase.order_number}`}
-        back={{ href: '/admin/purchases', label: 'Purchases' }}
+        title={t('purchases.detail.title', { order: purchase.order_number })}
+        back={{ href: '/admin/purchases', label: t('common.nav.purchases') }}
         description={
           <span className="inline-flex flex-wrap items-center gap-2">
-            <StatusBadge status={purchase.status} /> {humanize(purchase.type)} · {humanize(purchase.payment_method)}
+            <StatusBadge status={purchase.status} /> {label(purchase.type)} · {label(purchase.payment_method)}
           </span>
         }
         actions={
@@ -90,37 +92,33 @@ export default async function PurchasePage({ params }: { params: { id: string } 
 
       {purchase.needs_refund_review && (
         <div className="mb-4">
-          <Notice tone="red" title="Refund decision needed">
-            {purchase.review_reason || 'The customer paid but the booking cannot go ahead.'} Refund it, or close the review with a reason.
+          <Notice tone="red" title={t('purchases.detail.refundNeeded')}>
+            {purchase.review_reason || t('purchases.detail.refundNeededFallback')} {t('purchases.detail.refundNeededAction')}
           </Notice>
         </div>
       )}
       {refundable.inFlight > 0 && (
         <div className="mb-4">
-          <Notice tone="amber" title="Refund in progress">
-            <Money cents={refundable.inFlight} /> is still being processed by Stripe; the status updates when Stripe confirms it.
+          <Notice tone="amber" title={t('purchases.detail.inProgress')}>
+            {rich(t('purchases.detail.inProgressBody'), { amount: <Money cents={refundable.inFlight} /> })}
           </Notice>
         </div>
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-2 grid gap-4 min-w-0 content-start">
-          <Card title="Line items (snapshot at purchase)">
+          <Card title={t('purchases.detail.lineItems')}>
             <div className="crm-table-wrap -mx-5 md:-mx-6">
               <table className="crm-table min-w-[480px]">
-                <caption className="sr-only">Line items</caption>
+                <caption className="sr-only">{t('purchases.detail.lineItemsCaption')}</caption>
                 <thead>
                   <tr>
-                    <th scope="col">Description</th>
-                    <th scope="col" className="text-right">
-                      Qty
-                    </th>
-                    <th scope="col" className="text-right">
-                      Unit
-                    </th>
-                    <th scope="col" className="text-right">
-                      Amount
-                    </th>
+                    <th scope="col">{t('purchases.detail.description')}</th>
+                    {(['qty', 'unit', 'amount'] as const).map((c) => (
+                      <th key={c} scope="col" className="text-right">
+                        {t(`purchases.detail.${c}`)}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -130,11 +128,11 @@ export default async function PurchasePage({ params }: { params: { id: string } 
                         {i.description_snapshot}
                         {typeof (i.metadata as { listPriceCents?: number }).listPriceCents === 'number' && (i.metadata as { listPriceCents: number }).listPriceCents !== i.unit_price_cents && (
                           <div className="text-xs text-zayro-gray">
-                            List price <Money cents={(i.metadata as { listPriceCents: number }).listPriceCents} />
+                            {t('purchases.detail.listPrice')} <Money cents={(i.metadata as { listPriceCents: number }).listPriceCents} />
                           </div>
                         )}
                       </td>
-                      <td className="text-right tabular-nums">{i.quantity}</td>
+                      <td className="text-right tabular-nums">{f.number(i.quantity)}</td>
                       <td className="text-right">
                         <Money cents={i.unit_price_cents} />
                       </td>
@@ -147,32 +145,32 @@ export default async function PurchasePage({ params }: { params: { id: string } 
               </table>
             </div>
             <dl className="grid grid-cols-2 gap-y-1 text-sm max-w-xs ml-auto mt-3">
-              <dt className="text-zayro-gray">Subtotal</dt>
+              <dt className="text-zayro-gray">{t('purchases.detail.subtotal')}</dt>
               <dd className="text-right">
                 <Money cents={purchase.subtotal_cents} />
               </dd>
-              <dt className="text-zayro-gray">Tax</dt>
+              <dt className="text-zayro-gray">{t('purchases.detail.tax')}</dt>
               <dd className="text-right">
                 <Money cents={purchase.tax_cents} />
               </dd>
-              <dt className="font-semibold">Total</dt>
+              <dt className="font-semibold">{t('purchases.detail.total')}</dt>
               <dd className="text-right font-semibold">
                 <Money cents={purchase.total_cents} />
               </dd>
-              <dt className="text-zayro-gray">Refunded</dt>
+              <dt className="text-zayro-gray">{t('purchases.detail.refunded')}</dt>
               <dd className="text-right">
                 <Money cents={purchase.refunded_cents} />
               </dd>
-              <dt className="text-zayro-gray">Net</dt>
+              <dt className="text-zayro-gray">{t('purchases.detail.net')}</dt>
               <dd className="text-right">
                 <Money cents={purchase.total_cents - purchase.refunded_cents} />
               </dd>
             </dl>
           </Card>
 
-          <Card title="Refunds">
+          <Card title={t('purchases.detail.refunds')}>
             {refundRows.length === 0 ? (
-              <p className="text-sm text-zayro-gray">No refunds.</p>
+              <p className="text-sm text-zayro-gray">{t('purchases.detail.noRefunds')}</p>
             ) : (
               <ul className="divide-y divide-zayro-border -my-2 text-sm">
                 {refundRows.map((r) => (
@@ -184,7 +182,7 @@ export default async function PurchasePage({ params }: { params: { id: string } 
                       <StatusBadge status={r.status} />
                     </div>
                     <div className="text-xs text-zayro-gray">
-                      {formatInstantEt(r.created_at)} · {r.requested_by ?? r.source}
+                      {f.instant(r.created_at)} · {r.requested_by ?? label(r.source)}
                       {r.stripe_refund_id && (
                         <>
                           {' '}
@@ -199,24 +197,24 @@ export default async function PurchasePage({ params }: { params: { id: string } 
             )}
           </Card>
 
-          <Card title="Payment activity">
+          <Card title={t('purchases.detail.activity')}>
             {events.length === 0 && logs.length === 0 ? (
-              <p className="text-sm text-zayro-gray">No recorded activity.</p>
+              <p className="text-sm text-zayro-gray">{t('purchases.detail.noActivity')}</p>
             ) : (
               <ul className="text-xs divide-y divide-zayro-border">
                 {events.map((e) => (
                   <li key={e.id} className="py-1.5 flex flex-wrap gap-x-3">
-                    <span className="text-zayro-gray whitespace-nowrap">{formatInstantEt(e.received_at)}</span>
-                    <span className="font-medium">Stripe {e.event_type}</span>
+                    <span className="text-zayro-gray whitespace-nowrap">{f.instant(e.received_at)}</span>
+                    <span className="font-medium">{t('purchases.detail.stripeEvent', { type: e.event_type })}</span>
                     <StatusBadge status={e.status} />
                     <span className="text-zayro-gray">{String((e.safe_payload as { result?: string } | null)?.result ?? '')}</span>
                   </li>
                 ))}
                 {logs.map((l) => (
                   <li key={l.id} className="py-1.5 flex flex-wrap gap-x-3">
-                    <span className="text-zayro-gray whitespace-nowrap">{formatInstantEt(l.created_at)}</span>
-                    <span className="font-medium">{humanize(l.integration_type)}</span>
-                    <span className={l.status === 'success' ? 'text-emerald-700' : 'text-red-700'}>{l.status}</span>
+                    <span className="text-zayro-gray whitespace-nowrap">{f.instant(l.created_at)}</span>
+                    <span className="font-medium">{label(l.integration_type)}</span>
+                    <span className={l.status === 'success' ? 'text-emerald-700' : 'text-red-700'}>{label(l.status)}</span>
                     <span className="text-zayro-gray break-words min-w-0">{l.error_message || (l.response_data as { message?: string } | null)?.message || ''}</span>
                   </li>
                 ))}
@@ -226,42 +224,45 @@ export default async function PurchasePage({ params }: { params: { id: string } 
         </div>
 
         <div className="grid gap-4 min-w-0 content-start">
-          <Card title="Details">
+          <Card title={t('purchases.detail.details')}>
             <DefinitionList
               items={[
-                ['Customer', customer ? <Link key="c" href={`/admin/customers/${customer.id}`}>{customerName}</Link> : '—'],
-                ['Email', customer?.email ?? '—'],
-                ['Created', formatInstantEt(purchase.created_at)],
-                ['Paid at', purchase.purchased_at ? formatInstantEt(purchase.purchased_at) : '—'],
-                ['Promotion code', purchase.promotion_code || '—'],
-                ['Checkout session', purchase.stripe_checkout_session_id ? <code key="cs" className="text-xs break-all">{purchase.stripe_checkout_session_id}</code> : '—'],
-                ['Payment intent', purchase.stripe_payment_intent_id ? <code key="pi" className="text-xs break-all">{purchase.stripe_payment_intent_id}</code> : '—'],
-                ['Notes', purchase.notes || '—'],
+                [t('purchases.detail.customer'), customer ? <Link key="c" href={`/admin/customers/${customer.id}`}>{customerName}</Link> : '—'],
+                [t('purchases.detail.email'), customer?.email ?? '—'],
+                [t('purchases.detail.created'), f.instant(purchase.created_at)],
+                [t('purchases.detail.paidAt'), purchase.purchased_at ? f.instant(purchase.purchased_at) : '—'],
+                [t('purchases.detail.promo'), purchase.promotion_code || '—'],
+                [t('purchases.detail.checkout'), purchase.stripe_checkout_session_id ? <code key="cs" className="text-xs break-all">{purchase.stripe_checkout_session_id}</code> : '—'],
+                [t('purchases.detail.intent'), purchase.stripe_payment_intent_id ? <code key="pi" className="text-xs break-all">{purchase.stripe_payment_intent_id}</code> : '—'],
+                [t('purchases.detail.notes'), purchase.notes || '—'],
               ]}
             />
           </Card>
-          <Card title="Bookings">
+          <Card title={t('purchases.detail.bookings')}>
             {linked.length === 0 && !pkg ? (
-              <p className="text-sm text-zayro-gray">No linked booking.</p>
+              <p className="text-sm text-zayro-gray">{t('purchases.detail.noBooking')}</p>
             ) : (
               <ul className="grid gap-2 text-sm">
                 {linked.map((b) => (
                   <li key={b.id} className="flex flex-wrap items-center justify-between gap-2">
                     <Link href={`/admin/sessions/${b.id}`}>
-                      {b.service} · {formatDateLabel(toDateOnly(b.date))} {formatTimeLabel(b.start)}
+                      {b.service} · {f.date(toDateOnly(b.date))} {f.time(b.start)}
                     </Link>
                     <StatusBadge status={b.status} />
                   </li>
                 ))}
                 {pkg && (
                   <li>
-                    <Link href={`/admin/packages/${pkg.id}`}>Package: {(pkg.plan_snapshot as { name?: string }).name ?? 'Package'}</Link> ({pkg.remaining_credits}/{pkg.total_credits} credits left)
+                    <Link href={`/admin/packages/${pkg.id}`}>
+                      {t('purchases.detail.packageLink', { name: (pkg.plan_snapshot as { name?: string }).name ?? t('purchases.detail.packageFallback') })}
+                    </Link>{' '}
+                    {t('purchases.detail.creditsLeft', { left: pkg.remaining_credits, total: pkg.total_credits })}
                   </li>
                 )}
               </ul>
             )}
           </Card>
-          <Card title="History">
+          <Card title={t('purchases.detail.history')}>
             <AuditTrail rows={audit} />
           </Card>
         </div>

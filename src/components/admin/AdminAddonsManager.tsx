@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useI18n } from '@/components/crm/i18n';
+import { useApiMessage } from '@/components/crm/client';
 
 export interface AddonRow {
   id: number;
@@ -13,18 +15,27 @@ export interface AddonRow {
   sort_order: number;
 }
 
-async function send(method: 'POST' | 'PATCH', body: Record<string, unknown>): Promise<{ row?: AddonRow; error?: string }> {
+/** Errors come back as English API text (`error`) or a local marker, translated where shown. */
+async function send(method: 'POST' | 'PATCH', body: Record<string, unknown>): Promise<{ row?: AddonRow; error?: string; status?: number; network?: boolean }> {
   try {
     const res = await fetch('/api/admin/addons', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) return { error: data.error || 'Could not save' };
+    if (!res.ok) return { error: data.error || '', status: res.status };
     return { row: data };
   } catch {
-    return { error: 'Network error — nothing was saved' };
+    return { error: '', network: true };
   }
 }
 
+function useErrorText() {
+  const { t } = useI18n();
+  const apiMessage = useApiMessage();
+  return (r: { error?: string; network?: boolean }) => (r.network ? t('services.addons.network') : r.error ? apiMessage(r.error) : t('services.addons.saveFailed'));
+}
+
 function AddonLine({ row, onSaved }: { row: AddonRow; onSaved: (row: AddonRow) => void }) {
+  const { t } = useI18n();
+  const errorText = useErrorText();
   const [price, setPrice] = useState((row.price_cents / 100).toFixed(2));
   const [unit, setUnit] = useState(row.unit);
   const [max, setMax] = useState(String(row.max_quantity));
@@ -37,9 +48,9 @@ function AddonLine({ row, onSaved }: { row: AddonRow; onSaved: (row: AddonRow) =
     setMessage(null);
     const result = await send('PATCH', { id: row.id, ...body });
     setBusy(false);
-    if (result.error) return setMessage(result.error);
+    if (result.error !== undefined) return setMessage(errorText(result));
     if (result.row) onSaved(result.row);
-    setMessage('Saved');
+    setMessage(t('services.addons.saved'));
   };
 
   return (
@@ -50,29 +61,29 @@ function AddonLine({ row, onSaved }: { row: AddonRow; onSaved: (row: AddonRow) =
       </td>
       <td className="py-2.5 pr-3">
         <label className="sr-only" htmlFor={`addon-price-${row.id}`}>
-          Price of {row.name} in dollars
+          {t('services.addons.priceOf', { name: row.name })}
         </label>
         <input id={`addon-price-${row.id}`} type="number" min="0" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} style={{ width: '6.5rem' }} />
       </td>
       <td className="py-2.5 pr-3">
         <label className="sr-only" htmlFor={`addon-unit-${row.id}`}>
-          Charged per
+          {t('services.addons.chargedPer')}
         </label>
-        <select id={`addon-unit-${row.id}`} value={unit} onChange={(e) => setUnit(e.target.value as AddonRow['unit'])} style={{ width: '7.5rem' }}>
-          <option value="session">per session</option>
-          <option value="hour">per hour</option>
+        <select id={`addon-unit-${row.id}`} value={unit} onChange={(e) => setUnit(e.target.value as AddonRow['unit'])} style={{ width: '9rem' }}>
+          <option value="session">{t('services.addons.perSession')}</option>
+          <option value="hour">{t('services.addons.perHour')}</option>
         </select>
       </td>
       <td className="py-2.5 pr-3">
         <label className="sr-only" htmlFor={`addon-max-${row.id}`}>
-          Maximum quantity of {row.name}
+          {t('services.addons.maxOf', { name: row.name })}
         </label>
         <input id={`addon-max-${row.id}`} type="number" min="1" max="20" step="1" value={max} onChange={(e) => setMax(e.target.value)} style={{ width: '4.5rem' }} />
       </td>
       <td className="py-2.5 pr-3">
         <label className="flex items-center gap-2 text-sm text-zayro-dark">
           <input type="checkbox" style={{ width: 'auto' }} checked={row.active} disabled={busy} onChange={(e) => save({ active: e.target.checked })} />
-          Offered
+          {t('services.addons.offered')}
         </label>
       </td>
       <td className="py-2.5 text-right whitespace-nowrap">
@@ -87,7 +98,7 @@ function AddonLine({ row, onSaved }: { row: AddonRow; onSaved: (row: AddonRow) =
           disabled={busy || !dirty}
           onClick={() => save({ price: parseFloat(price), unit, max_quantity: parseInt(max, 10) })}
         >
-          Save
+          {t('common.actions.save')}
         </button>
       </td>
     </tr>
@@ -96,6 +107,8 @@ function AddonLine({ row, onSaved }: { row: AddonRow; onSaved: (row: AddonRow) =
 
 /** Extras customers can add while booking. Price edits affect new bookings only. */
 export default function AdminAddonsManager({ initialRows }: { initialRows: AddonRow[] }) {
+  const { t } = useI18n();
+  const errorText = useErrorText();
   const [rows, setRows] = useState(initialRows);
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
@@ -109,7 +122,7 @@ export default function AdminAddonsManager({ initialRows }: { initialRows: Addon
     setError(null);
     const result = await send('POST', { name, price: parseFloat(price), unit });
     setBusy(false);
-    if (result.error || !result.row) return setError(result.error || 'Could not save');
+    if (result.error !== undefined || !result.row) return setError(errorText(result));
     setRows((r) => [...r, result.row!]);
     setName('');
     setPrice('');
@@ -117,19 +130,17 @@ export default function AdminAddonsManager({ initialRows }: { initialRows: Addon
 
   return (
     <div className="card">
-      <h2 className="text-lg font-bold text-zayro-dark mb-1">Add-ons</h2>
-      <p className="text-sm text-zayro-gray mb-4">
-        Extras offered with paid podcast sessions during booking. &ldquo;Per hour&rdquo; add-ons are charged for every booked hour.
-      </p>
+      <h2 className="text-lg font-bold text-zayro-dark mb-1">{t('services.addons.title')}</h2>
+      <p className="text-sm text-zayro-gray mb-4">{t('services.addons.intro')}</p>
       <div className="crm-table-wrap">
         <table className="crm-table w-full text-sm">
           <thead>
             <tr className="text-left text-zayro-gray">
-              <th className="py-2 pr-3 font-semibold">Add-on</th>
-              <th className="py-2 pr-3 font-semibold">Price ($)</th>
-              <th className="py-2 pr-3 font-semibold">Charged</th>
-              <th className="py-2 pr-3 font-semibold">Max qty</th>
-              <th className="py-2 pr-3 font-semibold">Status</th>
+              {(['addon', 'price', 'charged', 'max', 'status'] as const).map((c) => (
+                <th key={c} className="py-2 pr-3 font-semibold">
+                  {t(`services.addons.cols.${c}`)}
+                </th>
+              ))}
               <th className="py-2" />
             </tr>
           </thead>
@@ -144,27 +155,27 @@ export default function AdminAddonsManager({ initialRows }: { initialRows: Addon
       <form onSubmit={create} className="mt-5 flex flex-wrap items-end gap-3">
         <div className="min-w-[12rem] flex-1">
           <label htmlFor="new-addon-name" className="field-label">
-            New add-on
+            {t('services.addons.newAddon')}
           </label>
-          <input id="new-addon-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={160} required placeholder="Name" />
+          <input id="new-addon-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={160} required placeholder={t('services.addons.namePlaceholder')} />
         </div>
         <div>
           <label htmlFor="new-addon-price" className="field-label">
-            Price ($)
+            {t('services.addons.cols.price')}
           </label>
           <input id="new-addon-price" type="number" min="0" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} required style={{ width: '7rem' }} />
         </div>
         <div>
           <label htmlFor="new-addon-unit" className="field-label">
-            Charged
+            {t('services.addons.cols.charged')}
           </label>
           <select id="new-addon-unit" value={unit} onChange={(e) => setUnit(e.target.value as AddonRow['unit'])}>
-            <option value="session">per session</option>
-            <option value="hour">per hour</option>
+            <option value="session">{t('services.addons.perSession')}</option>
+            <option value="hour">{t('services.addons.perHour')}</option>
           </select>
         </div>
         <button type="submit" className="crm-btn crm-btn-primary" disabled={busy}>
-          Add
+          {t('services.addons.add')}
         </button>
         {error && (
           <p className="field-error w-full" role="alert">

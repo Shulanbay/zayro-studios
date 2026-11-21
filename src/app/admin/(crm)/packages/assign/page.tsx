@@ -6,6 +6,7 @@ import { getAdminContext } from '@/lib/crm/auth';
 import { todayInTz } from '@/lib/crm/time';
 import { Forbidden, PageHeader } from '@/components/crm/ui';
 import { AssignPackageForm } from '@/components/crm/packages';
+import { getAdminI18n } from '@/lib/i18n/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,6 +14,7 @@ export default async function AssignPackagePage({ searchParams }: { searchParams
   const admin = await getAdminContext();
   if (!admin) redirect('/admin/login');
   if (!admin.can('packages.manage')) return <Forbidden what="assigning packages" />;
+  const { t } = getAdminI18n(admin);
 
   const [plans, items, customer] = await Promise.all([
     db.query.packagePlans.findMany({ where: eq(packagePlans.active, true), orderBy: [asc(packagePlans.package_type), asc(packagePlans.sort_order)] }),
@@ -23,7 +25,7 @@ export default async function AssignPackagePage({ searchParams }: { searchParams
   ]);
   return (
     <>
-      <PageHeader title="Assign a package" back={{ href: '/admin/packages', label: 'Packages' }} description="Creates a purchase with the plan price as a snapshot, the package and its opening credit grant." />
+      <PageHeader title={t('packages.assignPage.title')} back={{ href: '/admin/packages', label: t('common.nav.packages') }} description={t('packages.assignPage.description')} />
       <AssignPackageForm
         plans={plans.map((p) => ({
           id: p.id,
@@ -31,7 +33,7 @@ export default async function AssignPackagePage({ searchParams }: { searchParams
           priceCents: p.price_cents,
           credits: p.total_credits,
           validityDays: p.validity_days,
-          eligible: items.filter((i) => i.plan === p.id).map((i) => i.name).join(', ') || 'any session',
+          eligible: items.filter((i) => i.plan === p.id).map((i) => i.name).join(', ') || t('packages.assignPage.anySession'),
         }))}
         defaultCustomer={customer ? { id: customer.id, email: customer.email, name: [customer.first_name, customer.last_name].filter(Boolean).join(' ') } : null}
         canRecordPayment={admin.can('purchases.create')}

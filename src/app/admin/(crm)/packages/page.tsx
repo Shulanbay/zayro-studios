@@ -6,8 +6,8 @@ import { customerPackages, customers, packagePlanItems, packagePlans, services }
 import { getAdminContext } from '@/lib/crm/auth';
 import { expireDuePackages } from '@/lib/crm/packages';
 import { parsePage } from '@/lib/crm/range';
-import { formatInstantEt } from '@/lib/crm/time';
-import { Card, EmptyState, Forbidden, Money, Notice, PageHeader, Pagination, StatusBadge, humanize } from '@/components/crm/ui';
+import { getAdminI18n } from '@/lib/i18n/server';
+import { Card, EmptyState, Forbidden, Money, Notice, PageHeader, Pagination, StatusBadge } from '@/components/crm/ui';
 import { PlanEditor } from '@/components/crm/packages';
 
 export const dynamic = 'force-dynamic';
@@ -17,6 +17,7 @@ export default async function PackagesPage({ searchParams }: { searchParams: { s
   const admin = await getAdminContext();
   if (!admin) redirect('/admin/login');
   if (!admin.can('packages.read')) return <Forbidden what="packages" />;
+  const { t, f, label } = getAdminI18n(admin);
 
   await expireDuePackages();
   const page = parsePage(searchParams.page);
@@ -44,39 +45,39 @@ export default async function PackagesPage({ searchParams }: { searchParams: { s
   return (
     <>
       <PageHeader
-        title="Packages"
-        description="Monthly memberships as prepaid session credits. Customers can buy packages online with Stripe and schedule sessions using their private link. Staff can also assign packages here."
+        title={t('common.nav.packages')}
+        description={t('packages.description')}
         actions={
           manage && (
             <Link href="/admin/packages/assign" className="crm-btn crm-btn-primary">
-              Assign package
+              {t('packages.assign')}
             </Link>
           )
         }
       />
       <div className="grid gap-4">
-        <Card title="Plans">
+        <Card title={t('packages.plans')}>
           {plans.length === 0 ? (
-            <EmptyState title="No package plans" body="Create a service with the “package” category in Services." />
+            <EmptyState title={t('packages.noPlans')} body={t('packages.noPlansBody')} />
           ) : (
             <div className="crm-table-wrap -mx-5 md:-mx-6 -mb-5 md:-mb-6">
               <table className="crm-table min-w-[720px]">
-                <caption className="sr-only">Package plans</caption>
+                <caption className="sr-only">{t('packages.plansCaption')}</caption>
                 <thead>
                   <tr>
-                    <th scope="col">Plan</th>
-                    <th scope="col" className="text-right">
-                      Price
-                    </th>
-                    <th scope="col" className="text-right">
-                      Sessions
-                    </th>
-                    <th scope="col" className="text-right">
-                      Valid
-                    </th>
-                    <th scope="col">Can be used for</th>
-                    <th scope="col">Status</th>
-                    {manage && <th scope="col"><span className="sr-only">Edit</span></th>}
+                    <th scope="col">{t('packages.cols.plan')}</th>
+                    {(['price', 'sessions', 'valid'] as const).map((c) => (
+                      <th key={c} scope="col" className="text-right">
+                        {t(`packages.cols.${c}`)}
+                      </th>
+                    ))}
+                    <th scope="col">{t('packages.cols.usableFor')}</th>
+                    <th scope="col">{t('packages.cols.status')}</th>
+                    {manage && (
+                      <th scope="col">
+                        <span className="sr-only">{t('packages.cols.edit')}</span>
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -84,16 +85,16 @@ export default async function PackagesPage({ searchParams }: { searchParams: { s
                     <tr key={p.id}>
                       <td>
                         {p.name}
-                        <div className="text-xs text-zayro-gray">{p.package_type ? humanize(p.package_type) : ''}</div>
+                        <div className="text-xs text-zayro-gray">{p.package_type ? label(p.package_type) : ''}</div>
                       </td>
                       <td className="text-right">
                         <Money cents={p.price_cents} />
                       </td>
-                      <td className="text-right tabular-nums">{p.total_credits}</td>
-                      <td className="text-right tabular-nums">{p.validity_days} days</td>
-                      <td className="text-sm">{(eligibleByPlan.get(p.id) ?? []).map((s) => s.name).join(', ') || <span className="text-amber-800">Any session</span>}</td>
+                      <td className="text-right tabular-nums">{f.number(p.total_credits)}</td>
+                      <td className="text-right tabular-nums">{t('packages.days', { count: p.validity_days })}</td>
+                      <td className="text-sm">{(eligibleByPlan.get(p.id) ?? []).map((s) => s.name).join(', ') || <span className="text-amber-800">{t('packages.anySession')}</span>}</td>
                       <td>
-                        <StatusBadge status={p.active ? 'active' : 'disabled'} label={p.active ? 'Active' : 'Inactive'} />
+                        <StatusBadge status={p.active ? 'active' : 'disabled'} label={p.active ? t('common.status.active') : t('common.status.inactive')} />
                       </td>
                       {manage && (
                         <td>
@@ -112,40 +113,41 @@ export default async function PackagesPage({ searchParams }: { searchParams: { s
         </Card>
 
         <Card
-          title="Customer packages"
+          title={t('packages.customerPackages')}
           actions={
             <form method="get" className="flex gap-2">
               <label className="sr-only" htmlFor="pk-status">
-                Status
+                {t('packages.status')}
               </label>
               <select id="pk-status" name="status" defaultValue={status ?? ''} className="!w-auto">
-                <option value="">All</option>
-                <option value="active">Active</option>
-                <option value="exhausted">Used up</option>
-                <option value="expired">Expired</option>
-                <option value="cancelled">Cancelled</option>
+                <option value="">{t('common.all')}</option>
+                {['active', 'exhausted', 'expired', 'cancelled'].map((s) => (
+                  <option key={s} value={s}>
+                    {label(s)}
+                  </option>
+                ))}
               </select>
               <button type="submit" className="crm-btn crm-btn-sm">
-                Filter
+                {t('packages.filter')}
               </button>
             </form>
           }
         >
           {rows.length === 0 ? (
-            <EmptyState title="No customer packages yet" body={manage ? 'Assign one from a customer profile or with “Assign package”.' : undefined} />
+            <EmptyState title={t('packages.noCustomerPackages')} body={manage ? t('packages.noCustomerPackagesBody') : undefined} />
           ) : (
             <div className="crm-table-wrap -mx-5 md:-mx-6 -mb-5 md:-mb-6">
               <table className="crm-table min-w-[640px]">
-                <caption className="sr-only">Customer packages</caption>
+                <caption className="sr-only">{t('packages.customerPackages')}</caption>
                 <thead>
                   <tr>
-                    <th scope="col">Customer</th>
-                    <th scope="col">Package</th>
+                    <th scope="col">{t('packages.customerCols.customer')}</th>
+                    <th scope="col">{t('packages.customerCols.package')}</th>
                     <th scope="col" className="text-right">
-                      Credits left
+                      {t('packages.customerCols.credits')}
                     </th>
-                    <th scope="col">Expires</th>
-                    <th scope="col">Status</th>
+                    <th scope="col">{t('packages.customerCols.expires')}</th>
+                    <th scope="col">{t('packages.customerCols.status')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -155,11 +157,11 @@ export default async function PackagesPage({ searchParams }: { searchParams: { s
                         <Link href={`/admin/packages/${pkg.id}`}>{[first, last].filter(Boolean).join(' ') || email}</Link>
                         <div className="text-xs text-zayro-gray break-all">{email}</div>
                       </td>
-                      <td>{(pkg.plan_snapshot as { name?: string }).name ?? 'Package'}</td>
+                      <td>{(pkg.plan_snapshot as { name?: string }).name ?? t('packages.packageFallback')}</td>
                       <td className="text-right tabular-nums">
                         {pkg.remaining_credits} / {pkg.total_credits}
                       </td>
-                      <td className="text-xs whitespace-nowrap">{formatInstantEt(pkg.expires_at)}</td>
+                      <td className="text-xs whitespace-nowrap">{f.instant(pkg.expires_at)}</td>
                       <td>
                         <StatusBadge status={pkg.status} />
                       </td>
@@ -171,8 +173,8 @@ export default async function PackagesPage({ searchParams }: { searchParams: { s
           )}
         </Card>
         <Pagination base="/admin/packages" params={status ? { status } : {}} page={page} pageSize={PAGE} total={Number(total)} />
-        <Notice tone="blue" title="Online package purchase is not switched on">
-          Credits are granted by staff and redeemed when staff book a session for the customer. A public “Buy now” needs customer sign-in first — see docs/crm-roadmap.md.
+        <Notice tone="blue" title={t('packages.onlineOffTitle')}>
+          {t('packages.onlineOffBody')}
         </Notice>
       </div>
     </>

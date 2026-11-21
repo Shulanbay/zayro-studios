@@ -22,6 +22,8 @@ export interface AdminContext {
   fullName: string | null;
   roleId: number;
   roleName: string;
+  /** Saved admin-panel language, or null (role default applies). */
+  locale: string | null;
   permissions: string[];
   can(permission: Permission): boolean;
 }
@@ -34,6 +36,7 @@ function toContext(profile: AdminProfile, role: Role): AdminContext {
     fullName: profile.full_name,
     roleId: role.id,
     roleName: role.name,
+    locale: profile.locale ?? null,
     permissions,
     can: (permission) => hasPermission(permissions, permission),
   };

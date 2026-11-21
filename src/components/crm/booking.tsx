@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { callApi, Dialog, FormError, useToast } from './client';
+import { callApi, Dialog, FormError, useApiMessage, useToast } from './client';
+import { useI18n } from './i18n';
 
 export interface ServiceOption {
   id: number;
@@ -20,12 +21,6 @@ interface Slot {
   available: boolean;
 }
 
-function label12(time: string) {
-  const [h, m] = time.split(':').map(Number);
-  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
-}
-
-const money = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
 
 /** Loads the day's grid for a service and lets staff pick a start time. */
 export function SlotPicker({
@@ -44,6 +39,8 @@ export function SlotPicker({
   onChange: (start: string) => void;
   excludeBookingId?: string;
 }) {
+  const { t, f, label } = useI18n();
+  const apiMessage = useApiMessage();
   const [state, setState] = useState<{ loading: boolean; slots: Slot[]; closed: string | null; error: string | null }>({
     loading: false,
     slots: [],
@@ -59,25 +56,32 @@ export function SlotPicker({
     if (excludeBookingId) q.set('excludeBookingId', excludeBookingId);
     callApi<{ slots: Slot[]; closedReason: string | null; open: unknown }>(`/api/admin/slots?${q}`, 'GET').then((res) => {
       if (cancelled) return;
-      if (!res.ok) setState({ loading: false, slots: [], closed: null, error: res.data.error || 'Could not load times' });
-      else setState({ loading: false, slots: res.data.slots, closed: res.data.open ? null : res.data.closedReason || 'Closed', error: null });
+      if (!res.ok) setState({ loading: false, slots: [], closed: null, error: res.data.error ? apiMessage(res.data.error, res.status) : t('sessions.slots.loadFailed') });
+      else setState({ loading: false, slots: res.data.slots, closed: res.data.open ? null : res.data.closedReason || t('sessions.slots.closedDefault'), error: null });
     });
     return () => {
       cancelled = true;
     };
+    // apiMessage/t change only with the language; the request depends on the inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, serviceId, excludeBookingId, hours]);
 
-  if (!date || !serviceId) return <p className="text-sm text-zayro-gray">Choose a service and a date to see open times.</p>;
-  if (state.loading) return <p className="text-sm text-zayro-gray" aria-live="polite">Loading times…</p>;
+  if (!date || !serviceId) return <p className="text-sm text-zayro-gray">{t('sessions.slots.chooseFirst')}</p>;
+  if (state.loading)
+    return (
+      <p className="text-sm text-zayro-gray" aria-live="polite">
+        {t('sessions.slots.loading')}
+      </p>
+    );
   if (state.error) return <p className="field-error">{state.error}</p>;
-  if (state.closed) return <p className="text-sm text-amber-800">Studio closed: {state.closed}. Use “allow outside hours” to book anyway.</p>;
+  if (state.closed) return <p className="text-sm text-amber-800">{t('sessions.slots.closed', { reason: label(state.closed) })}</p>;
   const free = state.slots.filter((s) => s.available).length;
   return (
     <div>
       <p className="text-xs text-zayro-gray mb-2" aria-live="polite">
-        {free} of {state.slots.length} start times free (ET). Crossed-out times overlap a booking, hold, buffer or blocked time.
+        {t('sessions.slots.free', { free, total: state.slots.length })}
       </p>
-      <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-1.5" role="radiogroup" aria-label="Start time">
+      <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-1.5" role="radiogroup" aria-label={t('sessions.slots.startTime')}>
         {state.slots.map((s) => (
           <button
             key={s.start}
@@ -88,7 +92,7 @@ export function SlotPicker({
             onClick={() => onChange(s.start)}
             className={`crm-btn crm-btn-sm !px-1 ${value === s.start ? '!bg-zayro-primary !text-white !border-zayro-primary' : ''} ${s.available ? '' : 'line-through'}`}
           >
-            {label12(s.start)}
+            {f.time(s.start)}
           </button>
         ))}
       </div>
@@ -121,6 +125,9 @@ export function ManualBookingForm({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const { t, f, label } = useI18n();
+  const apiMessage = useApiMessage();
+  const money = (cents: number) => f.money(cents);
   const [serviceId, setServiceId] = useState<number | null>(services[0]?.id ?? null);
   const [date, setDate] = useState(defaultDate);
   const [time, setTime] = useState(defaultTime ?? '');
@@ -171,9 +178,9 @@ export function ManualBookingForm({
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!service) return setError('Choose a service');
-    if (!date || !time) return setError('Choose a date and a start time');
-    if (!customer && !newCustomer.email) return setError('Choose a customer or enter a new customer’s email');
+    if (!service) return setError(t('sessions.form.chooseService'));
+    if (!date || !time) return setError(t('sessions.form.chooseDateTime'));
+    if (!customer && !newCustomer.email) return setError(t('sessions.form.chooseCustomer'));
     setBusy(true);
     const res = await callApi<{ id: string; bookingId: string; effects: Record<string, string> }>('/api/admin/bookings', 'POST', {
       serviceId: service.id,
@@ -199,10 +206,10 @@ export function ManualBookingForm({
     });
     setBusy(false);
     if (!res.ok) {
-      setError(res.data.error || 'Could not create the booking');
+      setError(res.data.error ? apiMessage(res.data.error, res.status) : t('sessions.form.createFailed'));
       return;
     }
-    toast('success', `Booking ${res.data.bookingId} created`);
+    toast('success', t('sessions.form.created', { id: res.data.bookingId }));
     router.push(`/admin/sessions/${res.data.id}`);
   };
 
@@ -216,11 +223,11 @@ export function ManualBookingForm({
     <form onSubmit={submit} className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4 items-start">
       <div className="grid gap-4 min-w-0">
         <section className="card">
-          <h2 className="text-base font-semibold mb-3">1. Service and time</h2>
+          <h2 className="text-base font-semibold mb-3">{t('sessions.form.step1')}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
             <div>
               <label className="field-label" htmlFor="svc">
-                Service
+                {t('sessions.form.service')}
               </label>
               <select
                 id="svc"
@@ -233,10 +240,10 @@ export function ManualBookingForm({
                 }}
               >
                 {grouped.map(([cat, list]) => (
-                  <optgroup key={cat} label={cat[0].toUpperCase() + cat.slice(1)}>
+                  <optgroup key={cat} label={label(cat)}>
                     {list.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {s.name} · {(s.maxHours ?? 1) > 1 ? `${money(s.priceCents)}/hour` : `${s.duration} min · ${money(s.priceCents)}`}
+                        {s.name} · {(s.maxHours ?? 1) > 1 ? t('sessions.form.perHour', { price: money(s.priceCents) }) : t('sessions.form.minutesPrice', { minutes: s.duration, price: money(s.priceCents) })}
                       </option>
                     ))}
                   </optgroup>
@@ -245,7 +252,7 @@ export function ManualBookingForm({
             </div>
             <div>
               <label className="field-label" htmlFor="date">
-                Date
+                {t('sessions.form.date')}
               </label>
               <input id="date" type="date" value={date} onChange={(e) => { setDate(e.target.value); setTime(''); }} required />
             </div>
@@ -253,7 +260,7 @@ export function ManualBookingForm({
           {override ? (
             <div className="max-w-[200px]">
               <label className="field-label" htmlFor="time">
-                Start time (ET)
+                {t('sessions.form.startTimeEt')}
               </label>
               <input id="time" type="time" step={300} value={time} onChange={(e) => setTime(e.target.value)} required />
             </div>
@@ -263,26 +270,26 @@ export function ManualBookingForm({
           {service && (service.maxHours ?? 1) > 1 && mode !== 'package' && (
             <div className="max-w-[260px] mt-3">
               <label className="field-label" htmlFor="hours">
-                Length
+                {t('sessions.form.length')}
               </label>
               <select id="hours" value={hours} onChange={(e) => { setHours(Number(e.target.value)); setTime(''); }}>
                 {Array.from({ length: (service.maxHours ?? 1) - (service.minHours ?? 1) + 1 }, (_, i) => i + (service.minHours ?? 1)).map((h) => (
                   <option key={h} value={h}>
-                    {h} hour{h === 1 ? '' : 's'} · {money(service.priceCents * h)}
+                    {t('sessions.form.hoursOption', { count: h, price: money(service.priceCents * h) })}
                   </option>
                 ))}
               </select>
-              {(service.minHours ?? 1) > 1 && <p className="text-xs text-zayro-gray mt-1">{service.minHours}-hour minimum, same as the website.</p>}
+              {(service.minHours ?? 1) > 1 && <p className="text-xs text-zayro-gray mt-1">{t('sessions.form.minimum', { count: service.minHours })}</p>}
             </div>
           )}
           <label className="flex items-center gap-2 mt-3 text-sm">
             <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} />
-            Allow outside opening hours / off the grid (still never on top of another booking)
+            {t('sessions.form.allowOutside')}
           </label>
         </section>
 
         <section className="card">
-          <h2 className="text-base font-semibold mb-3">2. Customer</h2>
+          <h2 className="text-base font-semibold mb-3">{t('sessions.form.step2')}</h2>
           {customer ? (
             <div className="flex flex-wrap items-center justify-between gap-2 border border-zayro-border rounded-xl px-3 py-2">
               <div className="min-w-0">
@@ -293,17 +300,17 @@ export function ManualBookingForm({
                 </p>
               </div>
               <button type="button" className="crm-btn crm-btn-sm" onClick={() => setCustomer(null)}>
-                Change
+                {t('sessions.form.change')}
               </button>
             </div>
           ) : (
             <>
               <label className="field-label" htmlFor="cust-q">
-                Find an existing customer
+                {t('sessions.form.findCustomer')}
               </label>
-              <input id="cust-q" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Name, email or phone" autoComplete="off" />
+              <input id="cust-q" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('sessions.form.findPlaceholder')} autoComplete="off" />
               {hits.length > 0 && (
-                <ul className="border border-zayro-border rounded-xl mt-1 divide-y divide-zayro-border overflow-hidden" role="listbox" aria-label="Matching customers">
+                <ul className="border border-zayro-border rounded-xl mt-1 divide-y divide-zayro-border overflow-hidden" role="listbox" aria-label={t('sessions.form.matching')}>
                   {hits.map((h) => (
                     <li key={h.id}>
                       <button type="button" role="option" aria-selected={false} className="w-full text-left px-3 py-2 hover:bg-zayro-bg !rounded-none !justify-start !font-normal !p-2 bg-white text-zayro-dark" onClick={() => { setCustomer(h); setQuery(''); setHits([]); }}>
@@ -313,35 +320,35 @@ export function ManualBookingForm({
                   ))}
                 </ul>
               )}
-              <p className="text-xs text-zayro-gray my-3">…or enter a new customer (an existing email is matched automatically, case-insensitively):</p>
+              <p className="text-xs text-zayro-gray my-3">{t('sessions.form.orNew')}</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="sm:col-span-2">
                   <label className="field-label" htmlFor="nc-email">
-                    Email
+                    {t('sessions.form.email')}
                   </label>
                   <input id="nc-email" type="email" value={newCustomer.email} onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })} />
                 </div>
                 <div>
                   <label className="field-label" htmlFor="nc-first">
-                    First name
+                    {t('sessions.form.firstName')}
                   </label>
                   <input id="nc-first" value={newCustomer.firstName} onChange={(e) => setNewCustomer({ ...newCustomer, firstName: e.target.value })} />
                 </div>
                 <div>
                   <label className="field-label" htmlFor="nc-last">
-                    Last name
+                    {t('sessions.form.lastName')}
                   </label>
                   <input id="nc-last" value={newCustomer.lastName} onChange={(e) => setNewCustomer({ ...newCustomer, lastName: e.target.value })} />
                 </div>
                 <div>
                   <label className="field-label" htmlFor="nc-phone">
-                    Phone
+                    {t('sessions.form.phone')}
                   </label>
                   <input id="nc-phone" type="tel" value={newCustomer.phone} onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })} />
                 </div>
                 <div>
                   <label className="field-label" htmlFor="nc-company">
-                    Company
+                    {t('sessions.form.company')}
                   </label>
                   <input id="nc-company" value={newCustomer.company} onChange={(e) => setNewCustomer({ ...newCustomer, company: e.target.value })} />
                 </div>
@@ -351,17 +358,17 @@ export function ManualBookingForm({
         </section>
 
         <section className="card">
-          <h2 className="text-base font-semibold mb-3">3. Notes</h2>
+          <h2 className="text-base font-semibold mb-3">{t('sessions.form.step3')}</h2>
           <div className="grid gap-3">
             <div>
               <label className="field-label" htmlFor="notes">
-                Customer notes (appear in Calendar and emails)
+                {t('sessions.form.customerNotes')}
               </label>
               <textarea id="notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} />
             </div>
             <div>
               <label className="field-label" htmlFor="inotes">
-                Internal notes (staff only)
+                {t('sessions.form.internalNotes')}
               </label>
               <textarea id="inotes" rows={2} value={internalNotes} onChange={(e) => setInternalNotes(e.target.value)} maxLength={5000} />
             </div>
@@ -370,49 +377,50 @@ export function ManualBookingForm({
       </div>
 
       <aside className="card xl:sticky xl:top-6">
-        <h2 className="text-base font-semibold mb-3">4. Payment</h2>
+        <h2 className="text-base font-semibold mb-3">{t('sessions.form.step4')}</h2>
         <fieldset className="grid gap-2 text-sm">
-          <legend className="sr-only">Payment</legend>
+          <legend className="sr-only">{t('sessions.form.payment')}</legend>
           <label className="flex items-start gap-2">
             <input type="radio" name="mode" checked={mode === 'unpaid'} onChange={() => setMode('unpaid')} className="mt-1" />
             <span>
-              Pay at the studio <span className="block text-xs text-zayro-gray">Booking is confirmed; the purchase stays unpaid until marked paid.</span>
+              {t('sessions.form.payAtStudio')} <span className="block text-xs text-zayro-gray">{t('sessions.form.payAtStudioHint')}</span>
             </span>
           </label>
           <label className="flex items-start gap-2">
             <input type="radio" name="mode" checked={mode === 'comp'} onChange={() => setMode('comp')} className="mt-1" />
             <span>
-              Complimentary <span className="block text-xs text-zayro-gray">$0; the list price is kept in the record.</span>
+              {t('sessions.form.comp')} <span className="block text-xs text-zayro-gray">{t('sessions.form.compHint', { zero: money(0) })}</span>
             </span>
           </label>
           {canRecordPayment && (
             <label className="flex items-start gap-2">
               <input type="radio" name="mode" checked={mode === 'offline_paid'} onChange={() => setMode('offline_paid')} className="mt-1" />
-              <span>Already paid (not via Stripe)</span>
+              <span>{t('sessions.form.alreadyPaid')}</span>
             </label>
           )}
           {mode === 'offline_paid' && (
-            <select aria-label="Payment method" value={method} onChange={(e) => setMethod(e.target.value as typeof method)} className="ml-6 !w-auto">
-              <option value="card_terminal">Card terminal</option>
-              <option value="cash">Cash</option>
-              <option value="bank_transfer">Bank transfer</option>
-              <option value="other">Other</option>
+            <select aria-label={t('sessions.form.paymentMethod')} value={method} onChange={(e) => setMethod(e.target.value as typeof method)} className="ml-6 !w-auto max-w-full">
+              {(['card_terminal', 'cash', 'bank_transfer', 'other'] as const).map((m) => (
+                <option key={m} value={m}>
+                  {label(m)}
+                </option>
+              ))}
             </select>
           )}
           {canUsePackages && (
             <label className="flex items-start gap-2">
               <input type="radio" name="mode" checked={mode === 'package'} onChange={() => setMode('package')} disabled={!customer} className="mt-1" />
               <span>
-                Use a package credit
-                <span className="block text-xs text-zayro-gray">{customer ? `${packages.length} usable package${packages.length === 1 ? '' : 's'}` : 'Choose an existing customer first'}</span>
+                {t('sessions.form.usePackage')}
+                <span className="block text-xs text-zayro-gray">{customer ? t('sessions.form.usablePackages', { count: packages.length }) : t('sessions.form.chooseCustomerFirst')}</span>
               </span>
             </label>
           )}
           {mode === 'package' && packages.length > 0 && (
-            <select aria-label="Package" value={packageId} onChange={(e) => setPackageId(e.target.value)} className="ml-6 !w-auto">
+            <select aria-label={t('sessions.form.package')} value={packageId} onChange={(e) => setPackageId(e.target.value)} className="ml-6 !w-auto max-w-full">
               {packages.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} — {p.remaining} left, until {new Date(p.expiresAt).toLocaleDateString('en-US', { timeZone: 'America/New_York' })}
+                  {t('sessions.form.packageOption', { name: p.name, count: p.remaining, date: f.instantDate(p.expiresAt) })}
                 </option>
               ))}
             </select>
@@ -421,24 +429,24 @@ export function ManualBookingForm({
 
         {service && (
           <dl className="text-sm border-t border-zayro-border mt-4 pt-3 grid grid-cols-2 gap-y-1">
-            <dt className="text-zayro-gray">Service</dt>
+            <dt className="text-zayro-gray">{t('sessions.form.summaryService')}</dt>
             <dd className="text-right">{service.name}</dd>
-            <dt className="text-zayro-gray">List price</dt>
-            <dd className="text-right tabular-nums">{money(service.priceCents)} + tax</dd>
-            <dt className="text-zayro-gray">When</dt>
-            <dd className="text-right">{date && time ? `${date} · ${label12(time)} ET` : '—'}</dd>
+            <dt className="text-zayro-gray">{t('sessions.form.listPrice')}</dt>
+            <dd className="text-right tabular-nums">{t('sessions.form.listPriceValue', { price: money(service.priceCents) })}</dd>
+            <dt className="text-zayro-gray">{t('sessions.form.when')}</dt>
+            <dd className="text-right">{date && time ? t('sessions.form.whenValue', { date: f.dateMedium(date), time: f.time(time) }) : '—'}</dd>
           </dl>
         )}
 
         <label className="flex items-center gap-2 mt-4 text-sm">
           <input type="checkbox" checked={sendConfirmation} onChange={(e) => setSendConfirmation(e.target.checked)} />
-          Email the customer a confirmation
+          {t('sessions.form.sendConfirmation')}
         </label>
 
         <div className="mt-4 grid gap-2">
           <FormError error={error} />
           <button type="submit" className="crm-btn crm-btn-primary w-full !py-2.5" disabled={busy}>
-            {busy ? 'Creating…' : 'Create booking'}
+            {busy ? t('sessions.form.creating') : t('sessions.form.create')}
           </button>
         </div>
       </aside>
@@ -458,6 +466,8 @@ export function RescheduleButton({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const { t } = useI18n();
+  const apiMessage = useApiMessage();
   const [open, setOpen] = useState(false);
   const [serviceId, setServiceId] = useState(current.serviceId);
   const [date, setDate] = useState(current.date);
@@ -469,7 +479,7 @@ export function RescheduleButton({
   const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
-    if (!time) return setError('Choose a start time');
+    if (!time) return setError(t('sessions.reschedule.chooseTime'));
     setBusy(true);
     setError(null);
     const res = await callApi<{ effects: Record<string, string> }>(`/api/admin/bookings/${bookingId}/reschedule`, 'POST', {
@@ -481,9 +491,9 @@ export function RescheduleButton({
       reason: reason || null,
     });
     setBusy(false);
-    if (!res.ok) return setError(res.data.error || 'Could not reschedule');
+    if (!res.ok) return setError(res.data.error ? apiMessage(res.data.error, res.status) : t('sessions.reschedule.failed'));
     setOpen(false);
-    toast('success', `Rescheduled. ${res.data.effects?.calendar ?? ''}`);
+    toast('success', `${t('sessions.reschedule.done')} ${res.data.effects?.calendar ? apiMessage(res.data.effects.calendar) : ''}`.trim());
     router.refresh();
   };
 
@@ -491,19 +501,19 @@ export function RescheduleButton({
   return (
     <>
       <button type="button" className="crm-btn" onClick={() => setOpen(true)}>
-        Reschedule / change service
+        {t('sessions.reschedule.button')}
       </button>
       <Dialog
         open={open}
         onClose={() => setOpen(false)}
-        title="Reschedule session"
+        title={t('sessions.reschedule.title')}
         footer={
           <>
             <button type="button" className="crm-btn" onClick={() => setOpen(false)} disabled={busy}>
-              Cancel
+              {t('common.actions.cancel')}
             </button>
             <button type="button" className="crm-btn crm-btn-primary" onClick={submit} disabled={busy || !time}>
-              {busy ? 'Saving…' : 'Move session'}
+              {busy ? t('sessions.reschedule.saving') : t('sessions.reschedule.move')}
             </button>
           </>
         }
@@ -512,28 +522,28 @@ export function RescheduleButton({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="field-label" htmlFor="rs-svc">
-                Service
+                {t('sessions.reschedule.service')}
               </label>
               <select id="rs-svc" value={serviceId} onChange={(e) => { setServiceId(Number(e.target.value)); setTime(''); }}>
                 {services.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name} ({s.duration} min)
+                    {t('sessions.reschedule.serviceOption', { name: s.name, minutes: s.duration })}
                   </option>
                 ))}
               </select>
             </div>
             <div>
               <label className="field-label" htmlFor="rs-date">
-                New date
+                {t('sessions.reschedule.newDate')}
               </label>
               <input id="rs-date" type="date" value={date} onChange={(e) => { setDate(e.target.value); setTime(''); }} />
             </div>
           </div>
-          {changed && <p className="text-xs text-amber-800">Changing the service doesn’t change what was paid. Settle any price difference with a refund or a manual payment.</p>}
+          {changed && <p className="text-xs text-amber-800">{t('sessions.reschedule.serviceChangeNote')}</p>}
           {override ? (
             <div className="max-w-[200px]">
               <label className="field-label" htmlFor="rs-time">
-                Start time (ET)
+                {t('sessions.reschedule.startTimeEt')}
               </label>
               <input id="rs-time" type="time" step={300} value={time} onChange={(e) => setTime(e.target.value)} />
             </div>
@@ -541,16 +551,16 @@ export function RescheduleButton({
             <SlotPicker date={date} serviceId={serviceId} value={time} onChange={setTime} excludeBookingId={bookingId} />
           )}
           <label className="flex items-center gap-2">
-            <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} /> Allow outside opening hours
+            <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} /> {t('sessions.reschedule.allowOutside')}
           </label>
           <div>
             <label className="field-label" htmlFor="rs-reason">
-              Reason (audit log)
+              {t('sessions.reschedule.reason')}
             </label>
             <input id="rs-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />
           </div>
           <label className="flex items-center gap-2">
-            <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Email the customer the new time
+            <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> {t('sessions.reschedule.notify')}
           </label>
           <FormError error={error} />
         </div>

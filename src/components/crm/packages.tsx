@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { callApi, Dialog, FormError, useJsonSubmit, useToast } from './client';
-
-const money = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+import { callApi, Dialog, FormError, useApiMessage, useJsonSubmit, useToast } from './client';
+import { useI18n } from './i18n';
 
 interface PlanOption {
   id: number;
@@ -34,6 +33,9 @@ export function AssignPackageForm({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const { t, f, label } = useI18n();
+  const apiMessage = useApiMessage();
+  const money = (cents: number) => f.money(cents);
   const [customer, setCustomer] = useState<CustomerHit | null>(defaultCustomer);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<CustomerHit[]>([]);
@@ -58,7 +60,7 @@ export function AssignPackageForm({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customer) return setError('Choose a customer');
+    if (!customer) return setError(t('packages.form.chooseCustomer'));
     setBusy(true);
     setError(null);
     const res = await callApi<{ id: string }>('/api/admin/packages/assign', 'POST', {
@@ -71,8 +73,8 @@ export function AssignPackageForm({
       sendEmail,
     });
     setBusy(false);
-    if (!res.ok) return setError(res.data.error || 'Could not assign the package');
-    toast('success', 'Package assigned');
+    if (!res.ok) return setError(res.data.error ? apiMessage(res.data.error, res.status) : t('packages.form.failed'));
+    toast('success', t('packages.form.assigned'));
     router.push(`/admin/packages/${res.data.id}`);
   };
 
@@ -80,7 +82,7 @@ export function AssignPackageForm({
     <form onSubmit={submit} className="card grid gap-4 max-w-2xl">
       <div>
         <label className="field-label" htmlFor="pk-cust">
-          Customer
+          {t('packages.form.customer')}
         </label>
         {customer ? (
           <div className="flex items-center justify-between gap-2 border border-zayro-border rounded-xl px-3 py-2">
@@ -88,12 +90,12 @@ export function AssignPackageForm({
               <span className="font-medium">{customer.name || customer.email}</span> <span className="text-xs text-zayro-gray break-all">{customer.email}</span>
             </span>
             <button type="button" className="crm-btn crm-btn-sm" onClick={() => setCustomer(null)}>
-              Change
+              {t('packages.form.change')}
             </button>
           </div>
         ) : (
           <>
-            <input id="pk-cust" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name or email" autoComplete="off" />
+            <input id="pk-cust" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('packages.form.searchPlaceholder')} autoComplete="off" />
             {hits.length > 0 && (
               <ul className="border border-zayro-border rounded-xl mt-1 divide-y divide-zayro-border">
                 {hits.map((h) => (
@@ -102,7 +104,7 @@ export function AssignPackageForm({
                       {h.name || h.email} <span className="text-xs text-zayro-gray">{h.email}</span>
                     </span>
                     <button type="button" className="crm-btn crm-btn-sm" onClick={() => { setCustomer(h); setHits([]); setQuery(''); }}>
-                      Select
+                      {t('packages.form.select')}
                     </button>
                   </li>
                 ))}
@@ -114,7 +116,7 @@ export function AssignPackageForm({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="field-label" htmlFor="pk-plan">
-            Package
+            {t('packages.form.package')}
           </label>
           <select id="pk-plan" value={planId} onChange={(e) => setPlanId(Number(e.target.value))}>
             {plans.map((p) => (
@@ -125,52 +127,53 @@ export function AssignPackageForm({
           </select>
           {plan && (
             <p className="text-xs text-zayro-gray mt-1">
-              {plan.credits} sessions · valid {plan.validityDays} days · {plan.eligible}
+              {t('packages.form.planSummary', { credits: plan.credits, days: plan.validityDays, eligible: plan.eligible })}
             </p>
           )}
         </div>
         <div>
           <label className="field-label" htmlFor="pk-start">
-            Starts on
+            {t('packages.form.startsOn')}
           </label>
           <input id="pk-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
         </div>
       </div>
       <fieldset className="grid gap-2 text-sm">
-        <legend className="field-label">Payment</legend>
+        <legend className="field-label">{t('packages.form.payment')}</legend>
         <label className="flex items-center gap-2">
-          <input type="radio" name="pk-mode" checked={mode === 'unpaid'} onChange={() => setMode('unpaid')} /> Not paid yet (mark paid later)
+          <input type="radio" name="pk-mode" checked={mode === 'unpaid'} onChange={() => setMode('unpaid')} /> {t('packages.form.unpaid')}
         </label>
         {canRecordPayment && (
           <label className="flex items-center gap-2">
-            <input type="radio" name="pk-mode" checked={mode === 'offline_paid'} onChange={() => setMode('offline_paid')} /> Paid (not via Stripe)
+            <input type="radio" name="pk-mode" checked={mode === 'offline_paid'} onChange={() => setMode('offline_paid')} /> {t('packages.form.paid')}
           </label>
         )}
         {mode === 'offline_paid' && (
-          <select aria-label="Payment method" value={method} onChange={(e) => setMethod(e.target.value)} className="!w-auto ml-6">
-            <option value="card_terminal">Card terminal</option>
-            <option value="cash">Cash</option>
-            <option value="bank_transfer">Bank transfer</option>
-            <option value="other">Other</option>
+          <select aria-label={t('packages.form.paymentMethod')} value={method} onChange={(e) => setMethod(e.target.value)} className="!w-auto ml-6 max-w-full">
+            {['card_terminal', 'cash', 'bank_transfer', 'other'].map((m) => (
+              <option key={m} value={m}>
+                {label(m)}
+              </option>
+            ))}
           </select>
         )}
         <label className="flex items-center gap-2">
-          <input type="radio" name="pk-mode" checked={mode === 'comp'} onChange={() => setMode('comp')} /> Complimentary ($0)
+          <input type="radio" name="pk-mode" checked={mode === 'comp'} onChange={() => setMode('comp')} /> {t('packages.form.comp', { zero: money(0) })}
         </label>
       </fieldset>
       <div>
         <label className="field-label" htmlFor="pk-notes">
-          Notes
+          {t('packages.form.notes')}
         </label>
         <textarea id="pk-notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} />
       </div>
       <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={sendEmail} onChange={(e) => setSendEmail(e.target.checked)} /> Email the customer that their package is ready
+        <input type="checkbox" checked={sendEmail} onChange={(e) => setSendEmail(e.target.checked)} /> {t('packages.form.sendEmail')}
       </label>
       <FormError error={error} />
       <div className="flex justify-end">
         <button type="submit" className="crm-btn crm-btn-primary" disabled={busy || !customer || !planId}>
-          {busy ? 'Assigning…' : 'Assign package'}
+          {busy ? t('packages.form.assigning') : t('packages.form.assign')}
         </button>
       </div>
     </form>
@@ -178,9 +181,10 @@ export function AssignPackageForm({
 }
 
 export function AdjustCreditsForm({ packageId, remaining }: { packageId: string; remaining: number }) {
+  const { t, f } = useI18n();
   const [delta, setDelta] = useState('1');
   const [reason, setReason] = useState('');
-  const { submit, busy, error } = useJsonSubmit({ url: `/api/admin/packages/${packageId}/adjust`, successMessage: 'Credits adjusted', onSuccess: () => setReason('') });
+  const { submit, busy, error } = useJsonSubmit({ url: `/api/admin/packages/${packageId}/adjust`, successMessage: t('packages.adjust.done'), onSuccess: () => setReason('') });
   const n = parseInt(delta, 10);
   const invalid = !Number.isInteger(n) || n === 0 || remaining + n < 0 || !reason.trim();
   return (
@@ -194,22 +198,22 @@ export function AdjustCreditsForm({ packageId, remaining }: { packageId: string;
       <div className="grid grid-cols-[90px_1fr] gap-2">
         <div>
           <label className="field-label" htmlFor="adj-d">
-            Change
+            {t('packages.adjust.change')}
           </label>
           <input id="adj-d" type="number" step={1} min={-remaining} max={100} value={delta} onChange={(e) => setDelta(e.target.value)} />
         </div>
         <div>
           <label className="field-label" htmlFor="adj-r">
-            Reason
+            {t('packages.adjust.reason')}
           </label>
           <input id="adj-r" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />
         </div>
       </div>
-      <p className="text-xs text-zayro-gray">Balance after: {Number.isInteger(n) ? Math.max(remaining + n, 0) : remaining}. Credits can never go below zero.</p>
+      <p className="text-xs text-zayro-gray">{t('packages.adjust.balanceAfter', { balance: f.number(Number.isInteger(n) ? Math.max(remaining + n, 0) : remaining) })}</p>
       <FormError error={error} />
       <div className="flex justify-end">
         <button type="submit" className="crm-btn crm-btn-sm" disabled={busy || invalid}>
-          {busy ? 'Saving…' : 'Adjust credits'}
+          {busy ? t('packages.adjust.saving') : t('packages.adjust.submit')}
         </button>
       </div>
     </form>
@@ -217,32 +221,33 @@ export function AdjustCreditsForm({ packageId, remaining }: { packageId: string;
 }
 
 export function CancelPackageButton({ packageId }: { packageId: string }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
-  const { submit, busy, error } = useJsonSubmit({ url: `/api/admin/packages/${packageId}/cancel`, successMessage: 'Package cancelled', onSuccess: () => setOpen(false) });
+  const { submit, busy, error } = useJsonSubmit({ url: `/api/admin/packages/${packageId}/cancel`, successMessage: t('packages.cancel.done'), onSuccess: () => setOpen(false) });
   return (
     <>
       <button type="button" className="crm-btn crm-btn-danger" onClick={() => setOpen(true)}>
-        Cancel package
+        {t('packages.cancel.button')}
       </button>
       <Dialog
         open={open}
         onClose={() => setOpen(false)}
-        title="Cancel this package?"
+        title={t('packages.cancel.title')}
         footer={
           <>
             <button type="button" className="crm-btn" onClick={() => setOpen(false)}>
-              Keep
+              {t('packages.cancel.keep')}
             </button>
             <button type="button" className="crm-btn crm-btn-danger" disabled={busy || !reason.trim()} onClick={() => submit({ reason })}>
-              {busy ? 'Cancelling…' : 'Cancel package'}
+              {busy ? t('packages.cancel.cancelling') : t('packages.cancel.button')}
             </button>
           </>
         }
       >
-        <p className="text-zayro-gray mb-3">Remaining credits are removed. Booked sessions stay booked. This does not refund — refund the purchase separately if needed.</p>
+        <p className="text-zayro-gray mb-3">{t('packages.cancel.body')}</p>
         <label className="field-label" htmlFor="cp-reason">
-          Reason
+          {t('packages.cancel.reason')}
         </label>
         <input id="cp-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />
         <FormError error={error} />
@@ -258,41 +263,42 @@ export function PlanEditor({
   plan: { id: number; validityDays: number; active: boolean; eligible: number[] };
   services: { id: number; name: string }[];
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [validity, setValidity] = useState(String(plan.validityDays));
   const [active, setActive] = useState(plan.active);
   const [eligible, setEligible] = useState<number[]>(plan.eligible);
-  const { submit, busy, error } = useJsonSubmit({ url: `/api/admin/package-plans/${plan.id}`, method: 'PATCH', successMessage: 'Plan saved', onSuccess: () => setOpen(false) });
+  const { submit, busy, error } = useJsonSubmit({ url: `/api/admin/package-plans/${plan.id}`, method: 'PATCH', successMessage: t('packages.plan.saved'), onSuccess: () => setOpen(false) });
   return (
     <>
       <button type="button" className="crm-btn crm-btn-sm" onClick={() => setOpen(true)}>
-        Edit
+        {t('common.actions.edit')}
       </button>
       <Dialog
         open={open}
         onClose={() => setOpen(false)}
-        title="Package plan settings"
+        title={t('packages.plan.title')}
         footer={
           <>
             <button type="button" className="crm-btn" onClick={() => setOpen(false)}>
-              Cancel
+              {t('common.actions.cancel')}
             </button>
             <button type="button" className="crm-btn crm-btn-primary" disabled={busy} onClick={() => submit({ validity_days: parseInt(validity, 10), active, eligibleServiceIds: eligible })}>
-              {busy ? 'Saving…' : 'Save'}
+              {busy ? t('packages.plan.saving') : t('common.actions.save')}
             </button>
           </>
         }
       >
         <div className="grid gap-3">
-          <p className="text-zayro-gray">Name, price and number of sessions come from the package in Services. Changes here only affect packages assigned from now on.</p>
+          <p className="text-zayro-gray">{t('packages.plan.intro')}</p>
           <div className="max-w-[160px]">
             <label className="field-label" htmlFor="pl-v">
-              Valid for (days)
+              {t('packages.plan.validity')}
             </label>
             <input id="pl-v" type="number" min={1} max={730} value={validity} onChange={(e) => setValidity(e.target.value)} />
           </div>
           <fieldset>
-            <legend className="field-label">Sessions it can be used for</legend>
+            <legend className="field-label">{t('packages.plan.usableFor')}</legend>
             <div className="grid sm:grid-cols-2 gap-1">
               {services.map((s) => (
                 <label key={s.id} className="flex items-center gap-2 text-sm">
@@ -303,7 +309,7 @@ export function PlanEditor({
             </div>
           </fieldset>
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Can be assigned
+            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> {t('packages.plan.assignable')}
           </label>
           <FormError error={error} />
         </div>

@@ -4,6 +4,7 @@ import { adminLoginTokens, adminProfiles } from '@/lib/db/schema';
 import { verifyLoginToken } from '@/lib/adminAuth';
 import { resolveAdminProfile } from './auth';
 import { writeAudit } from './audit';
+import { isAdminLocale } from '@/lib/i18n/config';
 
 export type ConsumeResult = { ok: true; email: string } | { ok: false; reason: 'invalid_or_expired' | 'already_used' | 'not_admin' };
 
@@ -12,7 +13,7 @@ export type ConsumeResult = { ok: true; email: string } | { ok: false; reason: '
  * expiry, that the address is (still) an admin, and consumes the token's
  * one-time id so the link can never be used again.
  */
-export async function consumeLoginToken(token: string): Promise<ConsumeResult> {
+export async function consumeLoginToken(token: string, preferredLocale?: string | null): Promise<ConsumeResult> {
   const payload = verifyLoginToken(token);
   if (!payload) {
     await writeAudit({ actor: null, operation: 'auth.login_failed', entityType: 'admin', outcome: 'denied', metadata: { reason: 'invalid_or_expired' } });
@@ -37,7 +38,13 @@ export async function consumeLoginToken(token: string): Promise<ConsumeResult> {
 
   await db
     .update(adminProfiles)
-    .set({ last_login_at: new Date(), status: admin.profile.status === 'invited' ? 'active' : admin.profile.status, updated_at: new Date() })
+    .set({
+      last_login_at: new Date(),
+      status: admin.profile.status === 'invited' ? 'active' : admin.profile.status,
+      // A language picked on the sign-in page becomes the profile's, unless one is already saved.
+      ...(!admin.profile.locale && isAdminLocale(preferredLocale) ? { locale: preferredLocale } : {}),
+      updated_at: new Date(),
+    })
     .where(eq(adminProfiles.id, admin.profile.id));
   await writeAudit({
     actor: { id: admin.profile.id, email: admin.profile.email },

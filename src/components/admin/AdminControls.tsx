@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useI18n } from '@/components/crm/i18n';
+import { useApiMessage } from '@/components/crm/client';
 
 /**
  * Read-only integration diagnostics used on Admin → Integrations. Neither
@@ -9,6 +11,8 @@ import { useEffect, useState } from 'react';
  */
 
 export function StripeWebhookStatus() {
+  const { t } = useI18n();
+  const apiMessage = useApiMessage();
   const [status, setStatus] = useState<'loading' | 'ok' | 'missing' | 'error'>('loading');
   const [detail, setDetail] = useState<string>('');
   const [missing, setMissing] = useState<string[]>([]);
@@ -22,10 +26,10 @@ export function StripeWebhookStatus() {
     try {
       const res = await fetch('/api/admin/stripe-webhook-status', { method: 'POST' });
       const data = await res.json();
-      setMessage(res.ok ? data.message : data.error || 'Could not update the webhook');
+      setMessage(res.ok ? apiMessage(data.message) : data.error ? apiMessage(data.error, res.status) : t('integrations.stripe.updateFailed'));
       if (res.ok) setReload((n) => n + 1);
     } catch {
-      setMessage('Could not reach the server.');
+      setMessage(t('integrations.stripe.serverUnreachable'));
     } finally {
       setBusy(false);
     }
@@ -37,50 +41,49 @@ export function StripeWebhookStatus() {
       .then((data) => {
         if (data.error) {
           setStatus('error');
-          setDetail(data.error);
+          setDetail(apiMessage(data.error));
           return;
         }
         const live = (data.endpoints || []).find((e: { url: string }) => e.url.endsWith('/api/payment/webhook'));
         if (live) {
           setStatus('ok');
           setMissing(live.missing_events || []);
-          setDetail(`${live.status} · ${data.livemode ? 'LIVE' : 'Test'} mode · events: ${live.enabled_events.join(', ')}`);
+          setDetail(t('integrations.stripe.detail', { status: live.status, mode: data.livemode ? t('integrations.stripe.live') : t('integrations.stripe.test'), events: live.enabled_events.join(', ') }));
         } else {
           setStatus('missing');
-          setDetail('No webhook endpoint found for /api/payment/webhook in this Stripe account.');
+          setDetail(t('integrations.stripe.noEndpoint'));
         }
       })
       .catch(() => {
         setStatus('error');
-        setDetail('Could not reach Stripe.');
+        setDetail(t('integrations.stripe.unreachable'));
       });
+    // Text is re-derived on the next check; the request depends only on `reload`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reload]);
 
   const color = status === 'ok' ? 'text-emerald-700' : status === 'loading' ? 'text-zayro-gray' : 'text-red-700';
 
   return (
     <section className="card">
-      <h2 className="text-base font-semibold mb-3 text-zayro-dark">Stripe webhook endpoint</h2>
+      <h2 className="text-base font-semibold mb-3 text-zayro-dark">{t('integrations.stripe.title')}</h2>
       <p className={`text-sm font-medium ${color}`} aria-live="polite">
-        {status === 'loading' && 'Checking…'}
-        {status === 'ok' && '✓ Configured'}
-        {status === 'missing' && '✗ Not configured'}
-        {status === 'error' && '✗ Could not check'}
+        {status === 'loading' && t('integrations.stripe.checking')}
+        {status === 'ok' && t('integrations.stripe.ok')}
+        {status === 'missing' && t('integrations.stripe.missing')}
+        {status === 'error' && t('integrations.stripe.error')}
       </p>
       {detail && <p className="text-xs text-zayro-gray mt-2 break-words">{detail}</p>}
       {missing.length > 0 && (
         <div className="mt-3">
-          <p className="text-xs text-amber-800">Missing CRM events: {missing.join(', ')}</p>
+          <p className="text-xs text-amber-800">{t('integrations.stripe.missingEvents', { events: missing.join(', ') })}</p>
           <button type="button" className="crm-btn crm-btn-sm mt-2" onClick={addEvents} disabled={busy}>
-            {busy ? 'Updating…' : 'Add missing events to this webhook'}
+            {busy ? t('integrations.stripe.updating') : t('integrations.stripe.addEvents')}
           </button>
         </div>
       )}
       {message && <p className="text-xs mt-2" role="status">{message}</p>}
-      <p className="text-xs text-zayro-gray mt-3">
-        Recommended events: checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, checkout.session.expired, payment_intent.payment_failed, charge.refunded,
-        refund.updated. The signing secret is never shown here.
-      </p>
+      <p className="text-xs text-zayro-gray mt-3 break-words">{t('integrations.stripe.recommended')}</p>
     </section>
   );
 }
@@ -92,6 +95,8 @@ interface IntegrationCheck {
 }
 
 export function GoogleConnectionTest() {
+  const { t } = useI18n();
+  const apiMessage = useApiMessage();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ calendar?: IntegrationCheck; sheets?: IntegrationCheck; error?: string } | null>(null);
 
@@ -100,9 +105,9 @@ export function GoogleConnectionTest() {
     try {
       const response = await fetch('/api/admin/integrations?check=1');
       const data = await response.json();
-      setResult(response.ok ? data : { error: data.error || 'Check failed' });
+      setResult(response.ok ? data : { error: data.error ? apiMessage(data.error, response.status) : t('integrations.test.failed') });
     } catch {
-      setResult({ error: 'Could not reach the server.' });
+      setResult({ error: t('integrations.test.unreachable') });
     } finally {
       setLoading(false);
     }
@@ -115,11 +120,11 @@ export function GoogleConnectionTest() {
           {check.ok ? '✓' : '✗'} {label}:
         </span>{' '}
         <span className="text-zayro-gray">{check.message}</span>
-        {check.tabs?.map((t) => (
-          <div key={t.sheetName} className="ml-4 mt-1">
-            <span className={t.ok ? 'text-emerald-700' : 'text-red-700'}>{t.ok ? '✓' : '✗'}</span>{' '}
+        {check.tabs?.map((tab) => (
+          <div key={tab.sheetName} className="ml-4 mt-1">
+            <span className={tab.ok ? 'text-emerald-700' : 'text-red-700'}>{tab.ok ? '✓' : '✗'}</span>{' '}
             <span className="text-zayro-gray">
-              {t.sheetName}: {t.message}
+              {tab.sheetName}: {tab.message}
             </span>
           </div>
         ))}
@@ -129,11 +134,11 @@ export function GoogleConnectionTest() {
   return (
     <div className="mt-4" aria-live="polite">
       <button type="button" onClick={run} disabled={loading} className="crm-btn crm-btn-sm">
-        {loading ? 'Checking…' : 'Test connection (read-only)'}
+        {loading ? t('integrations.test.checking') : t('integrations.test.run')}
       </button>
       {result?.error && <p className="text-xs text-red-700 mt-2">{result.error}</p>}
-      {line('Calendar', result?.calendar)}
-      {line('Sheets', result?.sheets)}
+      {line(t('integrations.test.calendar'), result?.calendar)}
+      {line(t('integrations.test.sheets'), result?.sheets)}
     </div>
   );
 }
