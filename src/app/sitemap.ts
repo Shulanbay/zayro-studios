@@ -1,6 +1,9 @@
 import type { MetadataRoute } from 'next';
+import { publishedSlugs } from '@/lib/marketing/pages';
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export const revalidate = 3600;
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = 'https://zayro.studio';
 
   const routes = [
@@ -17,10 +20,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: '/terms', priority: 0.3, changeFrequency: 'yearly' as const, lastModified: '2026-09-26' },
   ];
 
-  return routes.map((route) => ({
-    url: `${base}${route.path}`,
-    lastModified: route.lastModified,
-    changeFrequency: route.changeFrequency,
-    priority: route.priority,
-  }));
+  // Published landing pages from the builder (noindex pages and the builder home are left out).
+  const landing = (await publishedSlugs())
+    .filter((p) => !p.noindex && p.slug !== 'home')
+    .map((p) => ({ url: `${base}/${p.slug}`, lastModified: p.updated_at.toISOString().slice(0, 10), changeFrequency: 'weekly' as const, priority: 0.7 }));
+
+  return [
+    ...routes.map((route) => ({
+      url: `${base}${route.path}`,
+      lastModified: route.lastModified,
+      changeFrequency: route.changeFrequency,
+      priority: route.priority,
+    })),
+    ...landing,
+  ];
 }

@@ -466,8 +466,10 @@ describe('Marketing Analyst role', () => {
     expect(hasPermission(SYSTEM_ROLE_PERMISSIONS['Studio Manager'], 'analytics.read')).toBe(false);
   });
 
-  it('sees exactly one CRM section: Analytics', () => {
-    expect(NAV_ITEMS.filter((i) => hasPermission(analyst, i.permission)).map((i) => i.href)).toEqual(['/admin/analytics']);
+  it('sees only the aggregate marketing sections: hub, analytics and the UTM builder', () => {
+    expect(NAV_ITEMS.filter((i) => hasPermission(analyst, i.permission)).map((i) => i.href)).toEqual(['/admin/marketing', '/admin/analytics', '/admin/utm']);
+    // No lead contact details, landing pages, tracking code or spend.
+    for (const p of ['leads.read', 'leads.manage', 'pages.manage', 'marketing.scripts', 'marketing.spend'] as const) expect(hasPermission(analyst, p), p).toBe(false);
   });
 });
 

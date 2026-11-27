@@ -14,6 +14,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
   const admin = await getAdminContext();
   if (!admin) redirect('/admin/login');
   // Marketing Analysts have no operational access: their home is the analytics dashboard.
+  if (!admin.can('bookings.read') && admin.can('leads.read')) redirect('/admin/marketing');
   if (!admin.can('bookings.read') && admin.can('analytics.read')) redirect('/admin/analytics');
   if (!admin.can('bookings.read')) return <Forbidden what="the dashboard" />;
   const { t, f, label } = getAdminI18n(admin);

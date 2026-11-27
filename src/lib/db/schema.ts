@@ -727,3 +727,125 @@ export type PackagePlanItem = typeof packagePlanItems.$inferSelect;
 export type CustomerPackage = typeof customerPackages.$inferSelect;
 export type PackageCreditTransaction = typeof packageCreditTransactions.$inferSelect;
 export type BookingExtension = typeof bookingExtensions.$inferSelect;
+
+// ========================================
+// MARKETING HUB (migration 0023)
+// ========================================
+
+export const SCRIPT_CONSENT_CATEGORIES = ['necessary', 'analytics', 'advertising'] as const;
+export type ScriptConsent = (typeof SCRIPT_CONSENT_CATEGORIES)[number];
+
+export const landingPages = pgTable('landing_pages', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  slug: varchar('slug', { length: 80 }).notNull().unique(),
+  title: varchar('title', { length: 200 }).notNull(),
+  meta_description: varchar('meta_description', { length: 320 }),
+  og_image_url: varchar('og_image_url', { length: 500 }),
+  noindex: boolean('noindex').notNull().default(false),
+  is_published: boolean('is_published').notNull().default(false),
+  content_blocks: jsonb('content_blocks').notNull().default(sql`'[]'::jsonb`),
+  head_scripts: text('head_scripts'),
+  body_scripts: text('body_scripts'),
+  scripts_consent: varchar('scripts_consent', { length: 20, enum: SCRIPT_CONSENT_CATEGORIES }).notNull().default('advertising'),
+  published_at: timestamp('published_at', { withTimezone: true }),
+  created_by: varchar('created_by', { length: 255 }),
+  updated_by: varchar('updated_by', { length: 255 }),
+  created_at: createdAt(),
+  updated_at: updatedAt(),
+});
+export type LandingPage = typeof landingPages.$inferSelect;
+
+export const LEAD_STATUSES = ['new', 'in_progress', 'booked', 'paid', 'rejected'] as const;
+export type LeadStatus = (typeof LEAD_STATUSES)[number];
+export const LEAD_CONTACT_METHODS = ['form', 'whatsapp', 'telegram', 'direct_booking', 'phone', 'email', 'instagram', 'other'] as const;
+export type LeadContactMethod = (typeof LEAD_CONTACT_METHODS)[number];
+
+export const leads = pgTable('leads', {
+  // An identity column starting at 1001 in the database (see 0023); `serial` here only marks it as generated.
+  id: serial('id').primaryKey(),
+  created_at: createdAt(),
+  updated_at: updatedAt(),
+  name: varchar('name', { length: 200 }),
+  phone: varchar('phone', { length: 40 }),
+  email: varchar('email', { length: 255 }),
+  message: text('message'),
+  contact_method: varchar('contact_method', { length: 20, enum: LEAD_CONTACT_METHODS }).notNull().default('form'),
+  landing_page_slug: varchar('landing_page_slug', { length: 80 }),
+  landing_path: varchar('landing_path', { length: 300 }),
+  referrer: varchar('referrer', { length: 500 }),
+  utm_source: varchar('utm_source', { length: 150 }),
+  utm_medium: varchar('utm_medium', { length: 150 }),
+  utm_campaign: varchar('utm_campaign', { length: 150 }),
+  utm_content: varchar('utm_content', { length: 150 }),
+  utm_term: varchar('utm_term', { length: 150 }),
+  utm_id: varchar('utm_id', { length: 150 }),
+  platform: varchar('platform', { length: 30 }).notNull().default('direct'),
+  click_id_types: varchar('click_id_types', { length: 150 }),
+  click_ids_encrypted: text('click_ids_encrypted'),
+  status: varchar('status', { length: 20, enum: LEAD_STATUSES }).notNull().default('new'),
+  revenue_cents: integer('revenue_cents').notNull().default(0),
+  ad_spend_attributed_cents: integer('ad_spend_attributed_cents').notNull().default(0),
+  notes: text('notes'),
+  lost_reason: varchar('lost_reason', { length: 200 }),
+  assigned_to: varchar('assigned_to', { length: 255 }),
+  customer_id: uuid('customer_id'),
+  analytics_session_id: uuid('analytics_session_id'),
+  status_changed_at: timestamp('status_changed_at', { withTimezone: true }).notNull().defaultNow(),
+  created_by: varchar('created_by', { length: 255 }),
+});
+export type Lead = typeof leads.$inferSelect;
+
+export const LEAD_ACTIVITY_TYPES = ['created', 'status', 'note', 'revenue', 'edit', 'assigned'] as const;
+export const leadActivities = pgTable('lead_activities', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  lead_id: integer('lead_id').notNull(),
+  type: varchar('type', { length: 20, enum: LEAD_ACTIVITY_TYPES }).notNull(),
+  from_value: varchar('from_value', { length: 200 }),
+  to_value: varchar('to_value', { length: 200 }),
+  body: text('body'),
+  actor_email: varchar('actor_email', { length: 255 }),
+  created_at: createdAt(),
+});
+export type LeadActivity = typeof leadActivities.$inferSelect;
+
+export const marketingSettings = pgTable('marketing_settings', {
+  id: integer('id').primaryKey().default(1),
+  scripts_enabled: boolean('scripts_enabled').notNull().default(false),
+  global_head_scripts: text('global_head_scripts'),
+  global_body_scripts: text('global_body_scripts'),
+  global_scripts_consent: varchar('global_scripts_consent', { length: 20, enum: SCRIPT_CONSENT_CATEGORIES }).notNull().default('analytics'),
+  site_verification: jsonb('site_verification').notNull().default(sql`'[]'::jsonb`),
+  whatsapp_number: varchar('whatsapp_number', { length: 30 }),
+  telegram_username: varchar('telegram_username', { length: 64 }),
+  use_landing_home: boolean('use_landing_home').notNull().default(false),
+  notify_new_leads: boolean('notify_new_leads').notNull().default(true),
+  updated_by: varchar('updated_by', { length: 255 }),
+  updated_at: updatedAt(),
+});
+export type MarketingSettings = typeof marketingSettings.$inferSelect;
+
+export const adSpend = pgTable('ad_spend', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  spend_date: date('spend_date', { mode: 'string' }).notNull(),
+  platform: varchar('platform', { length: 30 }).notNull(),
+  campaign: varchar('campaign', { length: 150 }).notNull().default(''),
+  amount_cents: integer('amount_cents').notNull(),
+  impressions: integer('impressions'),
+  clicks: integer('clicks'),
+  notes: varchar('notes', { length: 500 }),
+  created_by: varchar('created_by', { length: 255 }),
+  created_at: createdAt(),
+  updated_at: updatedAt(),
+});
+export type AdSpend = typeof adSpend.$inferSelect;
+
+export const utmLinks = pgTable('utm_links', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar('name', { length: 150 }).notNull(),
+  url: varchar('url', { length: 2000 }).notNull(),
+  platform: varchar('platform', { length: 30 }),
+  utm_campaign: varchar('utm_campaign', { length: 150 }),
+  created_by: varchar('created_by', { length: 255 }),
+  created_at: createdAt(),
+});
+export type UtmLink = typeof utmLinks.$inferSelect;

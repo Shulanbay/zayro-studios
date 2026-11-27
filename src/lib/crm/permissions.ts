@@ -30,6 +30,11 @@ export const PERMISSIONS = {
   'settings.manage': 'Change business settings',
   'analytics.read': 'View aggregated marketing analytics (no customer data)',
   'analytics.export': 'Export aggregated marketing analytics as CSV',
+  'leads.read': 'View leads and their contact details',
+  'leads.manage': 'Add and edit leads, statuses, revenue and notes',
+  'pages.manage': 'Create, edit and publish landing pages',
+  'marketing.scripts': 'Edit tracking code (GTM, pixels) and messenger links',
+  'marketing.spend': 'Enter ad spend for cost per lead / booking and ROAS',
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -41,12 +46,12 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
   { label: 'Money', permissions: ['purchases.read', 'purchases.create', 'packages.read', 'packages.manage'] },
   { label: 'Studio', permissions: ['services.manage', 'availability.manage'] },
   { label: 'Reports', permissions: ['reports.read', 'reports.export'] },
-  { label: 'Marketing', permissions: ['analytics.read', 'analytics.export'] },
+  { label: 'Marketing', permissions: ['analytics.read', 'analytics.export', 'leads.read', 'leads.manage', 'pages.manage', 'marketing.scripts', 'marketing.spend'] },
   { label: 'Operations', permissions: ['integrations.read', 'integrations.retry'] },
   { label: 'Security', permissions: ['team.manage', 'audit.read', 'settings.manage'] },
 ];
 
-export const SYSTEM_ROLE_NAMES = ['Owner', 'Studio Manager', 'Producer', 'Operator', 'Marketing Analyst'] as const;
+export const SYSTEM_ROLE_NAMES = ['Owner', 'Studio Manager', 'Producer', 'Operator', 'Marketing Analyst', 'Marketing Manager'] as const;
 export type SystemRoleName = (typeof SYSTEM_ROLE_NAMES)[number];
 
 export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, ('*' | Permission)[]> = {
@@ -71,12 +76,16 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, ('*' | Permission)[
     'reports.export',
     'integrations.read',
     'integrations.retry',
+    'leads.read',
+    'leads.manage',
   ],
   Producer: ['bookings.read', 'bookings.create', 'bookings.update', 'customers.read', 'notes.write', 'packages.read'],
   Operator: ['bookings.read', 'customers.read'],
   // Aggregate analytics only: no customer, booking, purchase, price, refund,
   // integration, team, audit or settings permission (see docs/crm-security.md).
   'Marketing Analyst': ['analytics.read', 'analytics.export'],
+  // The marketer's workspace: leads include contact details, so this role is assigned deliberately by an Owner.
+  'Marketing Manager': ['analytics.read', 'analytics.export', 'leads.read', 'leads.manage', 'pages.manage', 'marketing.scripts', 'marketing.spend'],
 };
 
 export const OWNER_ROLE = 'Owner';

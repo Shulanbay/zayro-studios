@@ -315,9 +315,25 @@ export default async function AnalyticsPage({
         }
         className="my-4"
       >
-        <Notice tone="amber" title={t('analytics.costNotConfigured')}>
-          {t('analytics.platformsCard.costBody')}
-        </Notice>
+        {comparison.some((r) => r.spend !== null) ? (
+          <Notice tone="blue" title={t('analytics.platformsCard.manualTitle')}>
+            {t('analytics.platformsCard.manualBody')}{' '}
+            {admin.can('marketing.spend') && (
+              <a href="/admin/ad-spend" className="underline">
+                {t('analytics.platformsCard.manageSpend')}
+              </a>
+            )}
+          </Notice>
+        ) : (
+          <Notice tone="amber" title={t('analytics.costNotConfigured')}>
+            {t('analytics.platformsCard.costBody')}{' '}
+            {admin.can('marketing.spend') && (
+              <a href="/admin/ad-spend" className="underline">
+                {t('analytics.platformsCard.manageSpend')}
+              </a>
+            )}
+          </Notice>
+        )}
         <div className="overflow-x-auto mt-3">
           <table className="crm-table text-sm min-w-[1100px]">
             <thead>
@@ -349,13 +365,17 @@ export default async function AnalyticsPage({
                   <td>{num(r.bookingStarts)}</td>
                   <td>{num(r.completed)}</td>
                   <td>{pct(r.conversionRate)}</td>
-                  <td className="text-zayro-gray" title={t('analytics.costNotConfigured')}>
-                    {t('analytics.platformsCard.notConfigured')}
-                  </td>
-                  <td className="text-zayro-gray">—</td>
-                  <td className="text-zayro-gray">—</td>
-                  <td>{f.money(r.revenue)}</td>
-                  <td className="text-zayro-gray">—</td>
+                  {r.spend === null ? (
+                    <td className="text-zayro-gray" title={t('analytics.costNotConfigured')}>
+                      {t('analytics.platformsCard.notConfigured')}
+                    </td>
+                  ) : (
+                    <td title={t('analytics.platformsCard.manualTitle')}>{f.money(r.spend)}</td>
+                  )}
+                  <td className={r.spend === null || r.leads === 0 ? 'text-zayro-gray' : ''}>{r.spend !== null && r.leads > 0 ? f.money(Math.round(r.spend / r.leads)) : '—'}</td>
+                  <td className={r.spend === null || r.completed === 0 ? 'text-zayro-gray' : ''}>{r.spend !== null && r.completed > 0 ? f.money(Math.round(r.spend / r.completed)) : '—'}</td>
+                  <td title={r.leadRevenue > 0 ? t('analytics.platformsCard.revenueSplit', { online: f.money(r.revenue), offline: f.money(r.leadRevenue) }) : undefined}>{f.money(r.revenue + r.leadRevenue)}</td>
+                  <td className={r.spend ? '' : 'text-zayro-gray'}>{r.spend ? `${f.number((r.revenue + r.leadRevenue) / r.spend, { maximumFractionDigits: 2, minimumFractionDigits: 2 })}×` : '—'}</td>
                 </tr>
               ))}
             </tbody>

@@ -19,8 +19,13 @@ import { team } from './team';
 import { system } from './system';
 import { integrations } from './integrations';
 import { calendar } from './calendar';
+import { marketing } from './marketing';
+import { pages } from './pages';
+import { tracking } from './tracking';
+import { spend } from './spend';
+import { utm } from './utm';
 
-const NAMESPACES = { common, login, analytics, values, dashboard, sessions, customers, purchases, packages, services, availability, team, system, integrations, calendar };
+const NAMESPACES = { common, login, analytics, values, dashboard, sessions, customers, purchases, packages, services, availability, team, system, integrations, calendar, marketing, pages, tracking, spend, utm };
 
 type Namespaces = typeof NAMESPACES;
 export type AdminMessages = { [N in keyof Namespaces]: Namespaces[N]['en'] };

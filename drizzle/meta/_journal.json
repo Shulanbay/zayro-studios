@@ -162,6 +162,13 @@
       "when": 1791446400000,
       "tag": "0022_admin_locale",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1791532800000,
+      "tag": "0023_marketing_hub",
+      "breakpoints": true
     }
   ]
 }

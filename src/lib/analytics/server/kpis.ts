@@ -5,6 +5,7 @@ import { addDays, daysBetween, wallTimeToUtc } from '@/lib/crm/time';
 import type { DateRange } from '@/lib/crm/metrics';
 import { PLATFORM_LABELS, type Platform } from '../attribution';
 import { ATTRIBUTION_MODELS, type AttributionModel } from './metrics';
+import { spendByCampaign } from '@/lib/marketing/spend';
 
 /**
  * KPI cards and the platform / campaign comparison for /admin/analytics,
@@ -225,9 +226,17 @@ export interface ComparisonRow {
   bookingStarts: number;
   completed: number;
   conversionRate: number | null;
+  /** Online booking revenue (Stripe), by the booking's attribution snapshot. */
   revenue: number;
-  /** Always null until an ad-cost integration exists: spend, CPL, cost per booking and ROAS are never estimated. */
-  spend: null;
+  /** Revenue the team recorded on CRM leads (offline deals). */
+  leadRevenue: number;
+  /** Leads that became bookings or paid deals in the CRM. */
+  wonLeads: number;
+  /** Ad spend entered manually for this platform/campaign; null when none was entered (never estimated). */
+  spend: number | null;
+  /** Clicks / impressions entered with the spend (from the ad platform's own report). */
+  adClicks: number | null;
+  impressions: number | null;
 }
 
 /**
@@ -262,6 +271,20 @@ export async function platformComparison(range: DateRange, model: AttributionMod
         FROM done LEFT JOIN analytics_attributions a ON a.booking_id = done.booking_id
        GROUP BY 1, 2`)
   );
+  // CRM leads (everyone, consent or not) and manual ad spend for the same keys.
+  const [crm, spend] = await Promise.all([
+    db
+      .execute(
+        sql`SELECT platform, coalesce(utm_campaign, '') AS campaign, count(*)::int AS leads,
+                   count(*) FILTER (WHERE status IN ('booked', 'paid'))::int AS won, coalesce(sum(revenue_cents), 0)::int AS revenue
+              FROM leads WHERE created_at >= ${start} AND created_at < ${end}
+               ${f.platform ? sql`AND platform = ${f.platform}` : sql``} ${f.campaign ? sql`AND utm_campaign = ${f.campaign}` : sql``} ${f.source ? sql`AND utm_source = ${f.source}` : sql``}
+             GROUP BY 1, 2`
+      )
+      .then((r) => rowsOf<Record<string, any>>(r))
+      .catch(() => [] as Record<string, any>[]),
+    f.source || f.serviceId ? Promise.resolve([]) : spendByCampaign(range, { platform: f.platform, campaign: f.campaign }),
+  ]);
   const rows = new Map<string, ComparisonRow>();
   const get = (platform: string, campaign: string) => {
     const key = `${platform}\u0001${campaign}`;
@@ -278,7 +301,11 @@ export async function platformComparison(range: DateRange, model: AttributionMod
         completed: 0,
         conversionRate: null,
         revenue: 0,
+        leadRevenue: 0,
+        wonLeads: 0,
         spend: null,
+        adClicks: null,
+        impressions: null,
       };
       rows.set(key, r);
     }
@@ -295,6 +322,19 @@ export async function platformComparison(range: DateRange, model: AttributionMod
     const r = get(String(x.platform), String(x.campaign ?? ''));
     r.completed += n(x.completed);
     r.revenue += n(x.revenue);
+  }
+  for (const x of crm) {
+    const r = get(String(x.platform), String(x.campaign ?? ''));
+    // From the CRM on, every form lead is in both places: take the larger count, never the sum.
+    r.leads = Math.max(r.leads, n(x.leads));
+    r.wonLeads += n(x.won);
+    r.leadRevenue += n(x.revenue);
+  }
+  for (const x of spend) {
+    const r = get(x.platform, x.campaign);
+    r.spend = (r.spend ?? 0) + x.spendCents;
+    r.adClicks = (r.adClicks ?? 0) + x.clicks;
+    r.impressions = (r.impressions ?? 0) + x.impressions;
   }
   return Array.from(rows.values())
     .map((r) => ({ ...r, conversionRate: r.visits > 0 ? Math.min(1, r.completed / r.visits) : null }))

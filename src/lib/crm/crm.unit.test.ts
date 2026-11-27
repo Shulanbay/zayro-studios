@@ -134,12 +134,15 @@ describe('audit payloads', () => {
 });
 
 describe('permissions', () => {
-  it('matches the roles seeded by migrations 0007 and 0018', () => {
-    const sql = readFileSync('drizzle/0007_crm_backfill.sql', 'utf8') + readFileSync('drizzle/0018_marketing_analytics.sql', 'utf8');
+  it('matches the roles seeded by migrations 0007, 0018 and 0023', () => {
+    const sql = ['0007_crm_backfill', '0018_marketing_analytics', '0023_marketing_hub'].map((f) => readFileSync(`drizzle/${f}.sql`, 'utf8')).join('\n');
     for (const [role, perms] of Object.entries(SYSTEM_ROLE_PERMISSIONS)) {
       const match = new RegExp(`\\('${role}', '[^']*', true,\\s*'(\\[[^\\]]*\\])'`).exec(sql);
       expect(match, role).not.toBeNull();
-      expect(JSON.parse(match![1]).sort()).toEqual([...perms].sort());
+      const seeded = new Set<string>(JSON.parse(match![1]));
+      // Later migrations add permissions with `permissions || '[...]'`.
+      for (const m of sql.matchAll(new RegExp(`"permissions" \\|\\| '(\\[[^\\]]*\\])'::jsonb\\s*WHERE "name" = '${role}'`, 'g'))) for (const p of JSON.parse(m[1])) seeded.add(p);
+      expect([...seeded].sort()).toEqual([...perms].sort());
     }
   });
 

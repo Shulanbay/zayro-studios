@@ -265,7 +265,7 @@ export async function analyticsBookingAbandoned(bookingId: string, reason: 'expi
 }
 
 /** The server accepted a contact form message (after spam checks and a successful send). */
-export async function analyticsContactSubmitted(request: NextRequest, submissionId: string, topic: string | null): Promise<ConversionPayload | null> {
+export async function analyticsContactSubmitted(request: NextRequest, submissionId: string, topic: string | null, pagePath = '/contact'): Promise<ConversionPayload | null> {
   return safely('contact_submitted', async () => {
     const visit = await requestVisit(request);
     const eventId = eventIds.contact(submissionId);
@@ -274,7 +274,7 @@ export async function analyticsContactSubmitted(request: NextRequest, submission
       eventId,
       visitorId: visit.visitorId,
       sessionId: visit.sessionId,
-      pagePath: '/contact',
+      pagePath,
       properties: topic ? { topic_kind: topic.toLowerCase().startsWith('monthly package') ? 'package' : 'general' } : {},
       consent: visit.consent,
     });

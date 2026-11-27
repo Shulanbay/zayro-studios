@@ -20,8 +20,12 @@ import { priceNumber, servicesInCategory, type CatalogService } from '@/lib/cata
 import { PUBLISHED_PROJECTS, PUBLISHED_TESTIMONIALS } from '@/lib/showcase';
 import CTASection from '@/components/sections/CTASection';
 import Reveal from '@/components/ui/Reveal';
+import LandingRenderer from '@/components/marketing/LandingRenderer';
+import { getMarketingSettings } from '@/lib/marketing/settings';
+import { getPublishedLanding } from '@/lib/marketing/pages';
+import { landingContext } from '@/lib/marketing/render';
 
-export const metadata: Metadata = {
+const defaultMetadata: Metadata = {
   ...pageMetadata({
     title: 'Premium Podcast & Video Studio NYC | ZAYRO Studios',
     description:
@@ -30,10 +34,25 @@ export const metadata: Metadata = {
   }),
 };
 
+/** The builder's "home" page, when the owner switched it on in Admin → Tracking (otherwise the coded home page). */
+async function builderHome() {
+  const settings = await getMarketingSettings();
+  return settings.use_landing_home ? getPublishedLanding('home') : null;
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  const home = await builderHome();
+  if (!home) return defaultMetadata;
+  return pageMetadata({ title: home.page.title, description: home.page.meta_description ?? '', path: '/', noindex: home.page.noindex });
+}
+
 // Hours and booking rules in the FAQ come from the database.
 export const revalidate = 300;
 
 export default async function Home() {
+  const home = await builderHome();
+  if (home) return <LandingRenderer blocks={home.blocks} ctx={await landingContext('home', home.blocks)} />;
+
   const [facts, services, setups] = await Promise.all([getBookingFacts(), getActiveServices().catch(() => null), getPublicSetups('podcast')]);
   // Prices, the tour length and setups all come from the database.
   const tourMinutes = services?.find((s) => s.category === 'tour')?.duration_minutes ?? null;

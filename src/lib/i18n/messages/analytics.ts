@@ -27,6 +27,8 @@ export const analytics = defineMessages({
       pinterest: 'Pinterest',
       tiktok: 'TikTok',
       x: 'X (Twitter)',
+      chatgpt: 'ChatGPT Ads',
+      ai: 'AI assistants (ChatGPT, Perplexity, Gemini…)',
       organic: 'Organic (search & social)',
       direct: 'Direct',
       referral: 'Referral',
@@ -83,6 +85,10 @@ export const analytics = defineMessages({
       costBody:
         'No ad platform spend is imported yet, so spend, cost per lead, cost per booking and ROAS are not shown (they are never estimated). To add them, connect each platform’s reporting API (Google Ads API, Meta Marketing API, TikTok Business API, Reddit Ads API, X Ads API) — see ANALYTICS_SETUP.md → “Ad cost integration”.',
       notConfigured: 'not configured',
+      manualTitle: 'Ad spend entered manually',
+      manualBody: 'Spend, cost per lead, cost per booking and ROAS use the figures the team entered on the Ad spend page (matched by platform and utm_campaign). Revenue includes offline deals recorded on CRM leads. Nothing is estimated.',
+      manageSpend: 'Open Ad spend',
+      revenueSplit: 'Online bookings {online} + CRM deals {offline}',
       cols: {
         platform: 'Platform',
         campaign: 'Campaign',
@@ -366,6 +372,8 @@ export const analytics = defineMessages({
       pinterest: 'Pinterest',
       tiktok: 'TikTok',
       x: 'X (Twitter)',
+      chatgpt: 'ChatGPT Ads',
+      ai: 'ИИ-ассистенты (ChatGPT, Perplexity, Gemini…)',
       organic: 'Органика (поиск и соцсети)',
       direct: 'Прямые заходы',
       referral: 'Переходы с сайтов',
@@ -422,6 +430,10 @@ export const analytics = defineMessages({
       costBody:
         'Расходы рекламных платформ пока не импортируются, поэтому расходы, стоимость лида, стоимость бронирования и ROAS не показываются (они никогда не оцениваются приблизительно). Чтобы их добавить, подключите API отчётов каждой платформы (Google Ads API, Meta Marketing API, TikTok Business API, Reddit Ads API, X Ads API) — см. ANALYTICS_SETUP.md → «Ad cost integration».',
       notConfigured: 'не настроено',
+      manualTitle: 'Расходы на рекламу внесены вручную',
+      manualBody: 'Расходы, стоимость лида, стоимость бронирования и ROAS считаются по суммам, которые команда внесла на странице «Расходы на рекламу» (сопоставление по платформе и utm_campaign). Выручка включает офлайн-сделки из заявок CRM. Ничего не оценивается приблизительно.',
+      manageSpend: 'Открыть расходы на рекламу',
+      revenueSplit: 'Онлайн-бронирования {online} + сделки CRM {offline}',
       cols: {
         platform: 'Платформа',
         campaign: 'Кампания',
@@ -705,6 +717,8 @@ export const analytics = defineMessages({
       pinterest: 'Pinterest',
       tiktok: 'TikTok',
       x: 'X (Twitter)',
+      chatgpt: 'ChatGPT Ads',
+      ai: 'ЖИ-көмекшілер (ChatGPT, Perplexity, Gemini…)',
       organic: 'Органикалық (іздеу және әлеуметтік желілер)',
       direct: 'Тікелей кіру',
       referral: 'Басқа сайттардан өту',
@@ -761,6 +775,10 @@ export const analytics = defineMessages({
       costBody:
         'Жарнама платформаларының шығындары әлі импортталмайды, сондықтан шығын, лид құны, брондау құны және ROAS көрсетілмейді (олар ешқашан шамамен бағаланбайды). Оларды қосу үшін әр платформаның есеп API-ін қосыңыз (Google Ads API, Meta Marketing API, TikTok Business API, Reddit Ads API, X Ads API) — ANALYTICS_SETUP.md → «Ad cost integration» бөлімін қараңыз.',
       notConfigured: 'бапталмаған',
+      manualTitle: 'Жарнама шығындары қолмен енгізілген',
+      manualBody: 'Шығын, лид құны, брондау құны және ROAS команда «Жарнама шығындары» бетінде енгізген сомалар бойынша есептеледі (платформа мен utm_campaign бойынша сәйкестендіріледі). Түсімге CRM өтінімдеріндегі офлайн мәмілелер кіреді. Ештеңе шамамен бағаланбайды.',
+      manageSpend: 'Жарнама шығындарын ашу',
+      revenueSplit: 'Онлайн брондаулар {online} + CRM мәмілелері {offline}',
       cols: {
         platform: 'Платформа',
         campaign: 'Науқан',

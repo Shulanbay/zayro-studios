@@ -84,7 +84,8 @@ export function referrerHost(referrer: string | null | undefined, ownHost?: stri
   try {
     const host = new URL(referrer).hostname.toLowerCase().replace(/^www\./, '').slice(0, 255);
     if (!host) return null;
-    if (ownHost && host === ownHost.toLowerCase().replace(/^www\./, '')) return null;
+    // ownHost may carry a port ("localhost:3000"); URL.hostname never does.
+    if (ownHost && host === ownHost.toLowerCase().replace(/:\d+$/, '').replace(/^www\./, '')) return null;
     return /^[a-z0-9.-]+$/.test(host) ? host : null;
   } catch {
     return null;
@@ -178,7 +179,7 @@ export function stripClickIds(href: string): string | null {
 // ---------------------------------------------------------------------------
 
 export type Channel = 'paid_search' | 'paid_social' | 'organic_search' | 'organic_social' | 'email' | 'referral' | 'display' | 'affiliate' | 'direct' | 'other';
-export type Platform = 'google' | 'meta' | 'instagram' | 'reddit' | 'pinterest' | 'tiktok' | 'x' | 'organic' | 'direct' | 'referral' | 'other';
+export type Platform = 'google' | 'meta' | 'instagram' | 'reddit' | 'pinterest' | 'tiktok' | 'x' | 'chatgpt' | 'ai' | 'organic' | 'direct' | 'referral' | 'other';
 
 export const PLATFORM_LABELS: Record<Platform, string> = {
   google: 'Google Ads',
@@ -188,6 +189,8 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
   pinterest: 'Pinterest',
   tiktok: 'TikTok',
   x: 'X (Twitter)',
+  chatgpt: 'ChatGPT Ads',
+  ai: 'AI assistants (ChatGPT, Perplexity, Gemini…)',
   organic: 'Organic (search & social)',
   direct: 'Direct',
   referral: 'Referral',
@@ -206,6 +209,10 @@ const SOCIAL_HOSTS: [RegExp, string][] = [
   [/(^|\.)(youtube\.com|youtu\.be)$/, 'youtube'],
   [/(^|\.)(threads\.net)$/, 'threads'],
 ];
+
+/** Answer engines: organic referrals (ChatGPT also adds utm_source=chatgpt.com to links it shows). */
+const AI_HOSTS = /(^|\.)(chatgpt\.com|chat\.openai\.com|openai\.com|perplexity\.ai|gemini\.google\.com|bard\.google\.com|claude\.ai|copilot\.microsoft\.com|you\.com|phind\.com)$/;
+const AI_SOURCES = /^(chatgpt(\.com)?|openai|chat\.openai\.com|perplexity(\.ai)?|gemini|claude(\.ai)?|copilot)$/;
 
 const PAID_MEDIUM = /^(cpc|ppc|paid|paid_?search|paidsearch|sem|cpm|cpv|paid_?social|paidsocial|social_?paid|paid-social|ads?|display|banner|retargeting|remarketing)$/;
 const SOCIAL_PLATFORMS: Record<string, Platform> = { facebook: 'meta', fb: 'meta', meta: 'meta', instagram: 'instagram', ig: 'instagram', reddit: 'reddit', pinterest: 'pinterest', tiktok: 'tiktok', x: 'x', twitter: 'x' };
@@ -263,6 +270,13 @@ export function classifyTouch(input: TouchInput): ClassifiedTouch {
   const paidClick = googleClick || has('rdt_cid') || has('epik') || has('ttclid') || has('twclid') || (has('fbclid') && !!utm.utm_medium && PAID_MEDIUM.test(utm.utm_medium));
   if (!medium && (googleClick || has('rdt_cid') || has('epik') || has('ttclid') || has('twclid'))) medium = googleClick ? 'cpc' : 'paid_social';
 
+  if (source && AI_SOURCES.test(source)) {
+    // ChatGPT Ads (tagged with a paid medium) vs answer-engine referrals.
+    const m = medium ?? 'referral';
+    if (PAID_MEDIUM.test(m) && /^(chatgpt|openai)/.test(source)) return { source: 'chatgpt', medium: m, campaign, content, term, channel: 'paid_search', platform: 'chatgpt' };
+    return { source, medium: m, campaign, content, term, channel: 'referral', platform: 'ai' };
+  }
+
   if (source) {
     const m = medium ?? 'referral';
     const isSocial = source in SOCIAL_PLATFORMS || ['facebook', 'instagram', 'reddit', 'pinterest', 'tiktok', 'linkedin', 'x', 'twitter', 'youtube', 'threads'].includes(source);
@@ -289,6 +303,7 @@ export function classifyTouch(input: TouchInput): ClassifiedTouch {
   }
 
   if (host) {
+    if (AI_HOSTS.test(host)) return { source: host, medium: 'referral', campaign, content, term, channel: 'referral', platform: 'ai' };
     if (SEARCH_HOSTS.test(host)) return { source: host.split('.').slice(-2, -1)[0] || host, medium: 'organic', campaign, content, term, channel: 'organic_search', platform: 'organic' };
     const social = socialSourceFromHost(host);
     if (social) return { source: social, medium: 'social', campaign, content, term, channel: 'organic_social', platform: 'organic' };

@@ -8,8 +8,10 @@ import { BUSINESS_EMAIL, BUSINESS_NAME, BUSINESS_PHONE } from '@/lib/constants';
 import AnalyticsHead from '@/components/analytics/AnalyticsHead';
 import AnalyticsProvider from '@/components/analytics/AnalyticsProvider';
 import { publicAnalyticsConfig } from '@/lib/analytics/server/config';
+import CustomCode from '@/components/marketing/CustomCode';
+import { getMarketingSettings, verificationTags } from '@/lib/marketing/settings';
 
-export const metadata: Metadata = {
+const baseMetadata: Metadata = {
   title: 'ZAYRO Studios | Premium Podcast & Video Studio in NYC',
   description:
     'Premium podcast recording and cinematic video production in Midtown Manhattan. Designed for founders, executives, entrepreneurs, and creators who expect exceptional quality.',
@@ -39,6 +41,15 @@ export const metadata: Metadata = {
     },
   },
 };
+
+/** Site verification tags (Meta, Pinterest, Google…) from Admin → Tracking, rendered in <head> so crawlers see them. */
+export async function generateMetadata(): Promise<Metadata> {
+  const tags = verificationTags(await getMarketingSettings());
+  if (tags.length === 0) return baseMetadata;
+  const other: Record<string, string[]> = {};
+  for (const t of tags) (other[t.name] ??= []).push(t.content);
+  return { ...baseMetadata, verification: { other } };
+}
 
 const localBusinessJsonLd = {
   '@context': 'https://schema.org',
@@ -113,6 +124,7 @@ export default function RootLayout({
         </SiteChrome>
 
         <AnalyticsProvider config={analytics} />
+        <CustomCode />
       </body>
     </html>
   );

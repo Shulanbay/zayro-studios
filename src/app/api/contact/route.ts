@@ -3,6 +3,7 @@ import { Resend } from 'resend';
 import { isValidEmail } from '@/lib/utils';
 import { enforceRateLimit, isHoneypotTripped } from '@/lib/crm/rateLimit';
 import { analyticsContactSubmitted } from '@/lib/analytics/server/hooks';
+import { createLead, leadAttribution } from '@/lib/marketing/leads';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,8 +74,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to send message' }, { status: 502 });
     }
 
-    // Accepted and delivered: the authoritative contact lead (no message, name or email is recorded).
-    const conversion = await analyticsContactSubmitted(request, crypto.randomUUID(), topicText || null);
+    // The same message as a CRM lead (best effort: the email has already reached the studio).
+    let leadId: number | null = null;
+    try {
+      const attribution = await leadAttribution(request, { pagePath: '/contact', referrer: request.headers.get('referer') }, request.nextUrl.host);
+      const lead = await createLead(
+        { name: safeName, email: String(email), phone: typeof body.phone === 'string' ? body.phone.slice(0, 40) : null, message: topicText ? `${topicText}\n\n${String(message)}` : String(message), contact_method: 'form' },
+        { ...attribution, landing_path: attribution.landing_path ?? '/contact' }
+      );
+      leadId = lead.id;
+    } catch (error) {
+      console.error('[marketing] contact lead not recorded:', (error as Error)?.message || error);
+    }
+
+    // Accepted and delivered: the authoritative contact lead for analytics (no message, name or email is sent to analytics).
+    const conversion = await analyticsContactSubmitted(request, leadId ? `lead-${leadId}` : crypto.randomUUID(), topicText || null);
     return NextResponse.json({ success: true, conversion });
   } catch (error: any) {
     console.error('Error sending contact form email:', error?.message || error);

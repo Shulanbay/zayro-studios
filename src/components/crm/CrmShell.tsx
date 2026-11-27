@@ -12,6 +12,7 @@ export interface ShellNavItem {
   label: string;
   labelKey: string;
   icon: string;
+  group: string;
 }
 
 function isActive(pathname: string, href: string) {
@@ -23,8 +24,12 @@ function Nav({ items, pathname, onNavigate }: { items: ShellNavItem[]; pathname:
   return (
     <nav aria-label={t('common.nav.label')}>
       <ul className="flex flex-col gap-0.5">
-        {items.map((item) => (
+        {items.map((item, i) => (
           <li key={item.href}>
+            {/* Section heading when the group changes (only if the role sees more than one group). */}
+            {new Set(items.map((x) => x.group)).size > 1 && item.group !== items[i - 1]?.group && (
+              <p className={`px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-zayro-gray ${i === 0 ? '' : 'pt-4'}`}>{t.dynamic(`common.nav.groups.${item.group}`, item.group)}</p>
+            )}
             <Link href={item.href} className="crm-nav-link" aria-current={isActive(pathname, item.href) ? 'page' : undefined} onClick={onNavigate}>
               <span aria-hidden="true" className="w-4 text-center opacity-70">
                 {item.icon}
